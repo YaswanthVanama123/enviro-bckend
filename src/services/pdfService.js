@@ -2,15 +2,18 @@ import fs from "fs/promises";
 import path from "path";
 import { execFile } from "child_process";
 import { v4 as uuid } from "uuid";
+
 import {
   LATEXMK_EXE,
   PDFLATEX_EXE,
   PDF_TEMPLATE_PATH,
   PDF_TMP_DIR,
   PDF_EXEC_MAX_BUFFER,
+  PDF_REMOTE_BASE,
+  PDF_REMOTE_ENABLED,
 } from "../config/pdfConfig.js";
 
-/* ---------- utils ---------- */
+/* ========== shared utils ========== */
 export async function fileExists(p) {
   try { await fs.access(p); return true; } catch { return false; }
 }
@@ -43,8 +46,45 @@ async function compileWithPdfLaTeX(workdir) {
   await execBinary(PDFLATEX_EXE, ["-interaction=nonstopmode", "-halt-on-error", "doc.tex"], { cwd: workdir });
 }
 
-/* ---------- health ---------- */
+/* ========== remote helpers (DigitalOcean) ========== */
+async function remotePostPdf(pathname, body = {}, { timeoutMs = 60_000 } = {}) {
+  const url = `${PDF_REMOTE_BASE.replace(/\/+$/, "")}/${pathname.replace(/^\/+/, "")}`;
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/pdf" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      const err = new Error(`Remote compile failed (${resp.status})`);
+      err.detail = txt;
+      throw err;
+    }
+    const ab = await resp.arrayBuffer();
+    return Buffer.from(ab);
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+/* ========== health ========== */
 export async function getPdfHealth() {
+  if (PDF_REMOTE_ENABLED) {
+    // When remote is enabled, just ping the remote health to surface info
+    try {
+      const r = await fetch(`${PDF_REMOTE_BASE.replace(/\/+$/, "")}/health`);
+      const j = await r.json();
+      return { mode: "remote", remote: j, base: PDF_REMOTE_BASE };
+    } catch (e) {
+      return { mode: "remote", base: PDF_REMOTE_BASE, error: String(e) };
+    }
+  }
+
+  // Local mode
   const hasLatexmk = await fileExists(LATEXMK_EXE);
   const hasPdfLaTeX = await fileExists(PDFLATEX_EXE);
 
@@ -54,6 +94,7 @@ export async function getPdfHealth() {
   try { perlV = (await execBinary("perl", ["-v"])).stdout.split("\n")[0]; } catch {}
 
   return {
+    mode: "local",
     PDF_TEMPLATE_PATH,
     PATH: process.env.PATH,
     LATEXMK_EXE, hasLatexmk, latexmkV,
@@ -62,9 +103,14 @@ export async function getPdfHealth() {
   };
 }
 
-/* ---------- main compilers ---------- */
-// 1) Compile EXACTLY the TeX string provided
+/* ========== compilers ========== */
+// 1) Compile EXACT TeX string
 export async function compileRawTex(texString, filename = "document.pdf") {
+  if (PDF_REMOTE_ENABLED) {
+    const buffer = await remotePostPdf("/compile", { template: texString });
+    return { buffer, filename };
+  }
+
   if (!texString || typeof texString !== "string") {
     const err = new Error("Body must include a 'template' string.");
     err.status = 400;
@@ -103,8 +149,13 @@ export async function compileRawTex(texString, filename = "document.pdf") {
   }
 }
 
-// 2) Read templates/proposal.tex and compile AS-IS (no rendering)
+// 2) Compile templates/proposal.tex AS-IS
 export async function compileProposalTemplate() {
+  if (PDF_REMOTE_ENABLED) {
+    const buffer = await remotePostPdf("/proposal");
+    return { buffer, filename: "proposal.pdf" };
+  }
+
   const tex = await fs.readFile(PDF_TEMPLATE_PATH, "utf8");
   return compileRawTex(tex, "proposal.pdf");
 }

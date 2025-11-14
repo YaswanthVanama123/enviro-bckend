@@ -1,6 +1,7 @@
 // src/app.js
 import express from 'express';
 import cors from 'cors';
+import compression from "compression";
 import morgan from 'morgan';
 import proposalRoutes from './routes/proposalRoutes.js';
 import priceFixRoutes from "./routes/priceFixRoutes.js";
@@ -10,6 +11,7 @@ import { PDF_MAX_BODY_MB } from "./config/pdfConfig.js";
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(compression({ threshold: 0 }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: `${PDF_MAX_BODY_MB}mb` }));
 app.get('/health', (_req, res) => res.json({ ok: true }));

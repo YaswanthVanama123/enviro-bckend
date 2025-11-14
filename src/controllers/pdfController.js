@@ -5,12 +5,10 @@ export async function pdfHealth(req, res) {
     const info = await getPdfHealth();
     res.json(info);
   } catch (err) {
-    console.error("pdfHealth error:", err);
     res.status(500).json({ error: "Health check failed" });
   }
 }
 
-// POST /api/pdf/compile  { "template": "<raw TeX here>" }
 export async function compileFromRaw(req, res) {
   try {
     const tpl = req.body?.template;
@@ -27,7 +25,6 @@ export async function compileFromRaw(req, res) {
   }
 }
 
-// POST /api/pdf/proposal  (reads templates/proposal.tex and compiles it as-is)
 export async function compileFromProposalFile(_req, res) {
   try {
     const { buffer, filename } = await compileProposalTemplate();
