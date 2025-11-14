@@ -1,12 +1,9 @@
+// src/controllers/pdfController.js
 import { getPdfHealth, compileRawTex, compileProposalTemplate } from "../services/pdfService.js";
 
-export async function pdfHealth(req, res) {
-  try {
-    const info = await getPdfHealth();
-    res.json(info);
-  } catch (err) {
-    res.status(500).json({ error: "Health check failed" });
-  }
+export async function pdfHealth(_req, res) {
+  const info = await getPdfHealth();
+  res.json(info);
 }
 
 export async function compileFromRaw(req, res) {
@@ -17,11 +14,7 @@ export async function compileFromRaw(req, res) {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (err) {
-    const status = err?.status || 500;
-    res.status(status).json({
-      error: "LaTeX compilation failed",
-      detail: err?.detail || String(err?.message || err),
-    });
+    res.status(err?.status || 500).json({ error: "LaTeX compilation failed", detail: err?.detail || String(err) });
   }
 }
 
@@ -32,9 +25,6 @@ export async function compileFromProposalFile(_req, res) {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (err) {
-    res.status(500).json({
-      error: "LaTeX compilation failed",
-      detail: err?.detail || String(err?.message || err),
-    });
+    res.status(500).json({ error: "LaTeX compilation failed", detail: err?.detail || String(err) });
   }
 }

@@ -4,7 +4,7 @@ import { pdfHealth, compileFromRaw, compileFromProposalFile } from "../controlle
 const router = Router();
 
 router.get("/health", pdfHealth);
-router.post("/compile", compileFromRaw);     // expects { template: "<raw TeX>" }
-router.post("/proposal", compileFromProposalFile); // compiles proposal.tex AS-IS
+router.post("/compile", compileFromRaw);
+router.post("/proposal", compileFromProposalFile);
 
 export default router;
