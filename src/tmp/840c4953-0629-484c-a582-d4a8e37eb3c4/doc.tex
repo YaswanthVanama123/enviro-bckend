@@ -1,0 +1,78 @@
+\documentclass[10pt]{article}
+
+\usepackage[top=1cm,bottom=1cm,left=1cm,right=1cm]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{helvet}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{colortbl} % for \cellcolor
+\renewcommand{\familydefault}{\sfdefault}
+
+% ---- Colors ----
+\definecolor{emred}{RGB}{228,0,43}
+\definecolor{linegray}{RGB}{190,190,190}
+\definecolor{prodgray}{RGB}{230,230,230} % light gray product cells
+
+\pagestyle{empty}
+
+% Value on top of a thin underline, full cell width
+\newcommand{\filledline}[1]{%
+  \leavevmode
+  \makebox[0pt][l]{\textcolor{linegray}{\rule{\linewidth}{0.25pt}}}%
+  \makebox[\linewidth][l]{\strut #1}%
+}
+
+% Flex-style helpers
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+\begin{document}
+
+%==================== TOP HEADER (DYNAMIC) ====================
+
+\noindent
+\begin{minipage}[c]{0.20\textwidth}
+  \centering
+  % adjust logo path if needed
+  \includegraphics[width=0.80\linewidth]{C:/Users/DELL/Documents/Envimaster.png}
+\end{minipage}%
+\hspace{0.8cm}%
+\begin{minipage}[c]{0.72\textwidth}
+  \centering
+  {\bfseries\normalsize\textcolor{emred}{ Customer Update Addendum }\par}
+
+  \vspace{0.5em}
+
+  \footnotesize
+  \renewcommand{\arraystretch}{1.25}%
+
+  % 2-column grid: [label | value] [label | value]
+  \begin{tabularx}{\linewidth}{@{}lX lX@{}}
+      \textbf{\textcolor{emred}{ CUSTOMER NAME: }} &
+        \filledline{ ABC Industries, LLC } &
+      \textbf{\textcolor{emred}{ CUSTOMER CONTACT: }} &
+        \filledline{ John Doe } \\
+      \textbf{\textcolor{emred}{ CUSTOMER NUMBER: }} &
+        \filledline{ 12345 } &
+      \textbf{\textcolor{emred}{ POC EMAIL: }} &
+        \filledline{ john.doe@example.com } \\
+      \textbf{\textcolor{emred}{ POC NAME: }} &
+        \filledline{ Yaswanth } &
+      \textbf{\textcolor{emred}{ POC PHONE: }} &
+        \filledline{ (555) 123-4567 } \\
+      \textbf{\textcolor{emred}{ POC NAME: }} &
+        \filledline{ Yaswanth } &
+      \textbf{\textcolor{emred}{ POC PHONE: }} &
+        \filledline{ (555) 123-4567 } \\
+      \textbf{\textcolor{emred}{ POC NAME: }} &
+        \filledline{ Yaswanth } &
+      \textbf{\textcolor{emred}{ POC PHONE: }} &
+        \filledline{ (555) 123-4567 } \\
+  \end{tabularx}
+\end{minipage}
+
+%==================== PRODUCTS SECTION (DYNAMIC) ====================
+
+
+\end{document}
