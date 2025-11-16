@@ -7,48 +7,49 @@ import {
   compileFromProposalFile,
   compileCustomerHeaderPdf,
   compileAndStoreCustomerHeader,
+  getCustomerHeaders,
+  getCustomerHeaderById,
+  updateCustomerHeader,
+  compileAndStoreAdminHeader,
+  getAdminHeaders,
+  getAdminHeaderById,
+  updateAdminHeader,
   proxyCompileFile,
   proxyCompileBundle,
-  getAllCustomerHeaders,
-  getCustomerHeaderById,
-  updateCustomerHeaderById,
+  getCustomerHeadersHighLevel,
+  getCustomerHeaderViewerById,
+  downloadCustomerHeaderPdf
 } from "../controllers/pdfController.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-/* ---- Health ---- */
+/* ---- health ---- */
 router.get("/health", pdfHealth);
 
-/* ---- Existing compile APIs ---- */
+/* ---- basic compile ---- */
 router.post("/compile", compileFromRaw);
 router.post("/proposal", compileFromProposalFile);
 
-/* ---- Customer Header flows ---- */
-
-// 1) “Just compile, no DB” (optional)
-router.post("/customer-header/preview", compileCustomerHeaderPdf);
-
-// 2) Create + store in Mongo + return PDF
+/* ---- customer header (DB) ---- */
 router.post("/customer-header", compileAndStoreCustomerHeader);
-
-// 3) NEW: Get all stored docs
-router.get("/customer-headers", getAllCustomerHeaders);
-
-// 4) NEW: Get single stored doc by id
+router.get("/customer-headers", getCustomerHeaders);
 router.get("/customer-headers/:id", getCustomerHeaderById);
+router.put("/customer-headers/:id", updateCustomerHeader);
 
-// 5) NEW: Update JSON + recompile + update DB
-router.put("/customer-headers/:id", updateCustomerHeaderById);
+/* ---- admin header (DB) ---- */
+router.post("/admin-header", compileAndStoreAdminHeader);
+router.get("/admin-headers", getAdminHeaders);
+router.get("/admin-headers/:id", getAdminHeaderById);
+router.put("/admin-headers/:id", updateAdminHeader);
 
-/* ---- Pass-through file APIs (optional) ---- */
+/* ---- viewer APIs ---- */
+router.get("/viewer/getall/highlevel", getCustomerHeadersHighLevel);
+router.get("/viewer/getbyid/:id", getCustomerHeaderViewerById);
+router.get("/viewer/download/:id", downloadCustomerHeaderPdf)
 
-router.post(
-  "/compile-file",
-  upload.single("file"),
-  proxyCompileFile
-);
-
+/* ---- pass-through (files uploaded to your backend) ---- */
+router.post("/compile-file", upload.single("file"), proxyCompileFile);
 router.post(
   "/compile-bundle",
   upload.fields([
