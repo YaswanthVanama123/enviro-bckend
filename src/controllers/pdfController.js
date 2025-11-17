@@ -255,35 +255,25 @@ export async function updateCustomerHeader(req, res) {
 
 /* ------------ ADMIN HEADER FLOW (AdminHeaderDoc) ------------ */
 
+// --- ADMIN HEADER FLOW (AdminHeaderDoc) ---
+
 export async function compileAndStoreAdminHeader(req, res) {
   try {
     const body = req.body || {};
     const { buffer, filename } = await compileCustomerHeader(body);
 
-    const payload = {
+    // Map body directly into schema fields
+    const doc = await AdminHeaderDoc.create({
       headerTitle: body.headerTitle || "",
       headerRows: body.headerRows || [],
       products: body.products || {},
       services: body.services || {},
-      agreement: body.agreement || {},
-    };
-
-    const zoho = {
-      bigin: {
-        dealId: body.zoho?.bigin?.dealId || null,
-        fileId: body.zoho?.bigin?.fileId || null,
-        url: body.zoho?.bigin?.url || null,
+      agreement: {
+        enviroOf: body.agreement?.enviroOf || "",
+        customerExecutedOn: body.agreement?.customerExecutedOn || "",
+        additionalMonths: body.agreement?.additionalMonths || "",
       },
-      crm: {
-        dealId: body.zoho?.crm?.dealId || null,
-        fileId: body.zoho?.crm?.fileId || null,
-        url: body.zoho?.crm?.url || null,
-      },
-    };
-
-    const doc = await AdminHeaderDoc.create({
-      payload,
-      pdf_meta: {
+      pdfMeta: {
         sizeBytes: buffer.length,
         contentType: "application/pdf",
         storedAt: new Date(),
@@ -292,7 +282,9 @@ export async function compileAndStoreAdminHeader(req, res) {
       status: body.status || "draft",
       createdBy: req.admin?.id || null,
       updatedBy: req.admin?.id || null,
-      zoho,
+      label: body.label || "",
+      // if you later add zohoBigin to the UI, map it here:
+      // zohoBigin: { ...body.zohoBigin },
     });
 
     res.setHeader("Content-Type", "application/pdf");
@@ -307,6 +299,7 @@ export async function compileAndStoreAdminHeader(req, res) {
     });
   }
 }
+
 
 export async function getAdminHeaders(req, res) {
   try {
@@ -364,30 +357,32 @@ export async function updateAdminHeader(req, res) {
         .json({ error: "Not found", detail: "AdminHeaderDoc not found" });
     }
 
-    doc.payload ||= {};
-    doc.zoho ||= { bigin: {}, crm: {} };
-
-    if (body.headerTitle !== undefined)
-      doc.payload.headerTitle = body.headerTitle;
-    if (body.headerRows !== undefined)
-      doc.payload.headerRows = body.headerRows;
-    if (body.products !== undefined) doc.payload.products = body.products;
-    if (body.services !== undefined) doc.payload.services = body.services;
-    if (body.agreement !== undefined) doc.payload.agreement = body.agreement;
+    if (body.headerTitle !== undefined) doc.headerTitle = body.headerTitle;
+    if (body.headerRows !== undefined) doc.headerRows = body.headerRows;
+    if (body.products !== undefined) doc.products = body.products;
+    if (body.services !== undefined) doc.services = body.services;
     if (body.status !== undefined) doc.status = body.status;
+    if (body.label !== undefined) doc.label = body.label;
 
-    if (body.zoho?.bigin) {
-      doc.zoho.bigin = {
-        ...doc.zoho.bigin,
-        ...body.zoho.bigin,
+    if (body.agreement !== undefined) {
+      doc.agreement = {
+        enviroOf:
+          body.agreement.enviroOf ?? doc.agreement?.enviroOf ?? "",
+        customerExecutedOn:
+          body.agreement.customerExecutedOn ??
+          doc.agreement?.customerExecutedOn ??
+          "",
+        additionalMonths:
+          body.agreement.additionalMonths ??
+          doc.agreement?.additionalMonths ??
+          "",
       };
     }
-    if (body.zoho?.crm) {
-      doc.zoho.crm = {
-        ...doc.zoho.crm,
-        ...body.zoho.crm,
-      };
-    }
+
+    // If you later use zohoBigin, merge here:
+    // if (body.zohoBigin) {
+    //   doc.zohoBigin = { ...doc.zohoBigin, ...body.zohoBigin };
+    // }
 
     doc.updatedBy = req.admin?.id || doc.updatedBy;
 
@@ -396,17 +391,17 @@ export async function updateAdminHeader(req, res) {
 
     if (recompile) {
       const { buffer: pdfBuf, filename: fn } = await compileCustomerHeader({
-        headerTitle: doc.payload.headerTitle,
-        headerRows: doc.payload.headerRows,
-        products: doc.payload.products,
-        services: doc.payload.services,
-        agreement: doc.payload.agreement,
+        headerTitle: doc.headerTitle,
+        headerRows: doc.headerRows,
+        products: doc.products,
+        services: doc.services,
+        agreement: doc.agreement,
       });
 
       buffer = pdfBuf;
       filename = fn || filename;
-      doc.pdf_meta = {
-        ...(doc.pdf_meta || {}),
+      doc.pdfMeta = {
+        ...(doc.pdfMeta || {}),
         sizeBytes: buffer.length,
         contentType: "application/pdf",
         storedAt: new Date(),
@@ -429,6 +424,7 @@ export async function updateAdminHeader(req, res) {
       .json({ error: "Failed to update doc", detail: String(err) });
   }
 }
+
 
 /* ------------ VIEWER APIS (CustomerHeaderDoc + Zoho) ------------ */
 

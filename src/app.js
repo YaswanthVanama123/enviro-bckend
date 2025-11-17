@@ -19,8 +19,9 @@ app.use(express.json({ limit: `${PDF_MAX_BODY_MB}mb` }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.use('/api/proposals', proposalRoutes);
-app.use("/api/prices",    priceFixRoutes);
+// app.use("/api/prices",    priceFixRoutes);
 app.use("/api/pdf",       pdfRoutes);
 app.use("/api/admin", adminAuthRoutes);
+app.use("/api/pricefix", priceFixRoutes);
 
 export default app;
