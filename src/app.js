@@ -9,6 +9,9 @@ import pdfRoutes from "./routes/pdfRoutes.js";
 import { PDF_MAX_BODY_MB } from "./config/pdfConfig.js";
 import adminAuthRoutes from "./routes/adminAuthRoutes.js";
 import productCatalogRoutes from './routes/productCatalogRoutes.js';
+import serviceConfigRoutes from './routes/serviceConfigRoutes.js';
+
+
 // import { ensureDefaultAdmin } from "./models/AdminUser.js";
 
 const app = express();
@@ -25,5 +28,6 @@ app.use("/api/pdf",       pdfRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/pricefix", priceFixRoutes);
 app.use("/api/product-catalog", productCatalogRoutes);
+app.use("/api/service-configs", serviceConfigRoutes);
 
 export default app;
