@@ -83,6 +83,7 @@ export async function replaceServiceConfig(id, data) {
   existing.config = data.config;
   existing.defaultFormState = data.defaultFormState;
   existing.isActive = !!data.isActive;
+  existing.adminByDisplay = data.adminByDisplay !== undefined ? !!data.adminByDisplay : true;
   existing.tags = Array.isArray(data.tags) ? data.tags : existing.tags;
 
   return existing.save();
@@ -133,6 +134,11 @@ export async function mergeServiceConfig(id, partial) {
         { $set: { isActive: false } }
       );
     }
+  }
+
+  // Handle adminByDisplay field
+  if (typeof partial.adminByDisplay === "boolean") {
+    existing.adminByDisplay = partial.adminByDisplay;
   }
 
   return existing.save();
