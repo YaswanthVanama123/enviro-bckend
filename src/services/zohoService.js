@@ -8,61 +8,120 @@ import axios from "axios";
  * @param {string} recordId - Optional Zoho record/deal ID to attach file to
  * @returns {Promise<{fileId: string, url: string, dealId: string}>}
  */
-export async function uploadToZohoBigin(pdfBuffer, fileName = "document.pdf", recordId = null) {
-  try {
-    // TODO: Implement actual Zoho Bigin API integration
-    // This is a placeholder implementation
-    // You'll need to:
-    // 1. Get Zoho access token using refresh token
-    // 2. Upload file using Zoho Files API
-    // 3. Attach file to record if recordId provided
+// export async function uploadToZohoBigin(pdfBuffer, fileName = "document.pdf", recordId = null) {
+//   try {
+//     // TODO: Implement actual Zoho Bigin API integration
+//     // This is a placeholder implementation
+//     // You'll need to:
+//     // 1. Get Zoho access token using refresh token
+//     // 2. Upload file using Zoho Files API
+//     // 3. Attach file to record if recordId provided
 
-    const ZOHO_BIGIN_API_URL = process.env.ZOHO_BIGIN_API_URL || "https://www.zohoapis.com/bigin/v1";
+//     const ZOHO_BIGIN_API_URL = process.env.ZOHO_BIGIN_API_URL || "https://www.zohoapis.com/bigin/v1";
+//     const ZOHO_ACCESS_TOKEN = await getZohoAccessToken();
+
+//     // Create FormData for file upload
+//     const formData = new FormData();
+//     formData.append("file", pdfBuffer, {
+//       filename: fileName,
+//       contentType: "application/pdf"
+//     });
+
+//     // Upload file to Zoho
+//     const uploadResponse = await axios.post(
+//       `${ZOHO_BIGIN_API_URL}/files`,
+//       formData,
+//       {
+//         headers: {
+//           ...formData.getHeaders(),
+//           "Authorization": `Zoho-oauthtoken ${ZOHO_ACCESS_TOKEN}`
+//         }
+//       }
+//     );
+
+//     const fileId = uploadResponse.data?.data?.[0]?.id || uploadResponse.data?.id;
+//     const fileUrl = uploadResponse.data?.data?.[0]?.download_url || uploadResponse.data?.download_url;
+
+//     // If recordId provided, attach file to the record
+//     if (recordId && fileId) {
+//       await attachFileToRecord(recordId, fileId, ZOHO_ACCESS_TOKEN, ZOHO_BIGIN_API_URL);
+//     }
+
+//     return {
+//       fileId: fileId || `FILE_${Date.now()}`,
+//       url: fileUrl || null,
+//       dealId: recordId || null
+//     };
+//   } catch (error) {
+//     console.error("Zoho Bigin upload error:", error.message);
+//     // Return mock data if Zoho fails (graceful degradation)
+//     return {
+//       fileId: `MOCK_FILE_${Date.now()}`,
+//       url: null,
+//       dealId: recordId || null,
+//       error: error.message
+//     };
+//   }
+// }
+
+export async function uploadToZohoBigin(
+  pdfBuffer,
+  fileName = "document.pdf",
+  recordId = null
+) {
+  try {
+    const ZOHO_BIGIN_API_URL =
+      process.env.ZOHO_BIGIN_API_URL || "https://www.zohoapis.in/bigin/v2";
+
     const ZOHO_ACCESS_TOKEN = await getZohoAccessToken();
 
-    // Create FormData for file upload
     const formData = new FormData();
     formData.append("file", pdfBuffer, {
       filename: fileName,
-      contentType: "application/pdf"
+      contentType: "application/pdf",
     });
 
-    // Upload file to Zoho
+    // Upload file to Zoho Files
     const uploadResponse = await axios.post(
       `${ZOHO_BIGIN_API_URL}/files`,
       formData,
       {
         headers: {
           ...formData.getHeaders(),
-          "Authorization": `Zoho-oauthtoken ${ZOHO_ACCESS_TOKEN}`
-        }
+          Authorization: `Zoho-oauthtoken ${ZOHO_ACCESS_TOKEN}`,
+        },
       }
     );
 
-    const fileId = uploadResponse.data?.data?.[0]?.id || uploadResponse.data?.id;
-    const fileUrl = uploadResponse.data?.data?.[0]?.download_url || uploadResponse.data?.download_url;
+    const fileData = uploadResponse.data?.data?.[0] || uploadResponse.data;
+    const fileId = fileData?.id;
+    const fileUrl = fileData?.download_url || null;
 
-    // If recordId provided, attach file to the record
     if (recordId && fileId) {
-      await attachFileToRecord(recordId, fileId, ZOHO_ACCESS_TOKEN, ZOHO_BIGIN_API_URL);
+      await attachFileToRecord(
+        recordId,
+        fileId,
+        ZOHO_ACCESS_TOKEN,
+        ZOHO_BIGIN_API_URL
+      );
     }
 
     return {
       fileId: fileId || `FILE_${Date.now()}`,
-      url: fileUrl || null,
-      dealId: recordId || null
+      url: fileUrl,
+      dealId: recordId || null,
     };
   } catch (error) {
     console.error("Zoho Bigin upload error:", error.message);
-    // Return mock data if Zoho fails (graceful degradation)
     return {
       fileId: `MOCK_FILE_${Date.now()}`,
       url: null,
       dealId: recordId || null,
-      error: error.message
+      error: error.message,
     };
   }
 }
+
 
 /**
  * Upload a PDF buffer to Zoho CRM
