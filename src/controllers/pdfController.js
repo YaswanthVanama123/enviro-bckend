@@ -12,6 +12,7 @@ import {
 
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
+import ServiceConfig from "../models/ServiceConfig.js";
 
 /* ------------ health + low-level compile endpoints ------------ */
 
@@ -335,7 +336,27 @@ export async function getAdminHeaderById(req, res) {
         .status(404)
         .json({ error: "Not found", detail: "AdminHeaderDoc not found" });
     }
-    res.json(doc);
+
+    // Fetch service configs where adminByDisplay is true and isActive is true
+    const activeServices = await ServiceConfig.find({
+      isActive: true,
+      adminByDisplay: { $ne: false }
+    }).lean();
+
+    // Map to service metadata (serviceId, label, description)
+    const serviceMetadata = activeServices.map(service => ({
+      serviceId: service.serviceId,
+      label: service.label,
+      description: service.description,
+      tags: service.tags || []
+    }));
+
+    // Return the doc with available services
+    // Frontend will fetch products separately from product-catalog API
+    res.json({
+      ...doc,
+      availableServices: serviceMetadata
+    });
   } catch (err) {
     console.error("getAdminHeaderById error:", err);
     res

@@ -29,6 +29,9 @@ const ServiceConfigSchema = new mongoose.Schema(
     // Mark which config is currently in use for this service
     isActive: { type: Boolean, default: false },
 
+    // Whether to display in admin form by default
+    adminByDisplay: { type: Boolean, default: true },
+
     // Optional tags (e.g. ["restroom", "drain", "add-on"])
     tags: [{ type: String }],
   },
