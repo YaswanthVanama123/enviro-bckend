@@ -10,6 +10,7 @@ import {
   getCustomerHeaders,
   getCustomerHeaderById,
   updateCustomerHeader,
+  updateCustomerHeaderStatus,
   compileAndStoreAdminHeader,
   getAdminHeaders,
   getAdminHeaderById,
@@ -36,6 +37,7 @@ router.post("/customer-header", compileAndStoreCustomerHeader);
 router.get("/customer-headers", getCustomerHeaders);
 router.get("/customer-headers/:id", getCustomerHeaderById);
 router.put("/customer-headers/:id", updateCustomerHeader);
+router.patch("/customer-headers/:id/status", updateCustomerHeaderStatus);
 
 /* ---- admin header (DB) ---- */
 router.post("/admin-header", compileAndStoreAdminHeader);

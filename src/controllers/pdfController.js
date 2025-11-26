@@ -383,6 +383,61 @@ export async function updateCustomerHeader(req, res) {
   }
 }
 
+// PATCH /api/pdf/customer-headers/:id/status (update status only)
+export async function updateCustomerHeaderStatus(req, res) {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res
+        .status(400)
+        .json({ error: "bad_request", detail: "Invalid id" });
+    }
+
+    // Validate status
+    const validStatuses = ["draft", "pending_approval", "approved_admin", "approved_salesman"];
+    if (!status || !validStatuses.includes(status)) {
+      return res
+        .status(400)
+        .json({
+          error: "bad_request",
+          detail: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+        });
+    }
+
+    const doc = await CustomerHeaderDoc.findById(id);
+    if (!doc) {
+      return res
+        .status(404)
+        .json({ error: "not_found", detail: "Document not found" });
+    }
+
+    // Update status
+    doc.status = status;
+    doc.updatedBy = req.admin?.id || doc.updatedBy;
+    await doc.save();
+
+    console.log(`Document ${id} status updated to: ${status}`);
+
+    res.json({
+      success: true,
+      doc: {
+        _id: doc._id,
+        status: doc.status,
+        updatedAt: doc.updatedAt,
+      },
+    });
+  } catch (err) {
+    console.error("updateCustomerHeaderStatus error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to update status",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
 /* ------------ ADMIN HEADER FLOW (AdminHeaderDoc) ------------ */
 
 // --- ADMIN HEADER FLOW (AdminHeaderDoc) ---
