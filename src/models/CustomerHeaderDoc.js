@@ -15,16 +15,27 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
     // raw request payload used to render the TeX (your big JSON)
     payload: { type: mongoose.Schema.Types.Mixed, required: true },
 
-    // PDF compile meta (not the file itself)
+    // PDF compile meta and storage
     pdf_meta: {
-      bytes: { type: Number, default: 0 },     // size of compiled PDF in bytes
-      ms:    { type: Number, default: 0 },     // compile time
+      sizeBytes: { type: Number, default: 0 },        // size of compiled PDF in bytes
+      contentType: { type: String, default: "application/pdf" },
+      storedAt: { type: Date, default: null },        // when PDF was compiled
+      pdfBuffer: { type: Buffer, default: null },     // Store compiled PDF binary
+      externalUrl: { type: String, default: null },   // external URL if hosted elsewhere
     },
 
-    // optional internal tracking
+    // optional internal tracking - updated status values to match frontend
     status: {
       type: String,
-      enum: ["draft", "finalized", "archived"],
+      enum: [
+        "draft",
+        "in_progress",
+        "active",
+        "completed",
+        "pending_approval",
+        "approved_salesman",
+        "approved_admin"
+      ],
       default: "draft",
       index: true,
     },
@@ -33,7 +44,7 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
     createdBy: { type: String, default: null },
     updatedBy: { type: String, default: null },
 
-    // Zoho destinations you’ll fill later after upload
+    // Zoho destinations you'll fill later after upload
     zoho: {
       bigin: { type: ZohoRefSchema, default: () => ({}) },
       crm:   { type: ZohoRefSchema, default: () => ({}) },

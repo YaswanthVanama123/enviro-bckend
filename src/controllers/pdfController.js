@@ -10,6 +10,8 @@ import {
   proxyCompileBundleToRemote,
 } from "../services/pdfService.js";
 
+import { uploadToZohoBigin, uploadToZohoCRM } from "../services/zohoService.js";
+
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
 import ServiceConfig from "../models/ServiceConfig.js";
@@ -68,11 +70,14 @@ export async function compileCustomerHeaderPdf(req, res) {
 }
 
 // POST /api/pdf/customer-header  (compile + store CustomerHeaderDoc)
+// Supports DRAFT (no PDF) and FINAL (with PDF + Zoho)
 export async function compileAndStoreCustomerHeader(req, res) {
   try {
     const body = req.body || {};
-    const { buffer, filename } = await compileCustomerHeader(body);
+    const status = body.status || "draft";
+    const isDraft = status === "draft";
 
+    // Prepare payload structure
     const payload = {
       headerTitle: body.headerTitle || "",
       headerRows: body.headerRows || [],
@@ -81,42 +86,106 @@ export async function compileAndStoreCustomerHeader(req, res) {
       agreement: body.agreement || {},
     };
 
-    const zoho = {
-      bigin: {
-        dealId: body.zoho?.bigin?.dealId || null,
-        fileId: body.zoho?.bigin?.fileId || null,
-        url: body.zoho?.bigin?.url || null,
-      },
-      crm: {
-        dealId: body.zoho?.crm?.dealId || null,
-        fileId: body.zoho?.crm?.fileId || null,
-        url: body.zoho?.crm?.url || null,
-      },
+    let buffer = null;
+    let filename = "customer-header.pdf";
+    let zohoData = {
+      bigin: { dealId: null, fileId: null, url: null },
+      crm: { dealId: null, fileId: null, url: null },
     };
 
+    // If NOT a draft, compile PDF and upload to Zoho
+    if (!isDraft) {
+      console.log("Compiling PDF for final save...");
+      const pdfResult = await compileCustomerHeader(payload);
+      buffer = pdfResult.buffer;
+      filename = pdfResult.filename;
+
+      // Upload to Zoho Bigin
+      try {
+        console.log("Uploading to Zoho Bigin...");
+        const biginResult = await uploadToZohoBigin(
+          buffer,
+          filename,
+          body.zoho?.bigin?.dealId || null
+        );
+        zohoData.bigin = {
+          dealId: biginResult.dealId,
+          fileId: biginResult.fileId,
+          url: biginResult.url,
+        };
+      } catch (zohoErr) {
+        console.error("Zoho Bigin upload failed:", zohoErr.message);
+        // Continue even if Zoho fails
+      }
+
+      // Upload to Zoho CRM (if needed)
+      try {
+        console.log("Uploading to Zoho CRM...");
+        const crmResult = await uploadToZohoCRM(
+          buffer,
+          filename,
+          body.zoho?.crm?.dealId || null
+        );
+        zohoData.crm = {
+          dealId: crmResult.dealId,
+          fileId: crmResult.fileId,
+          url: crmResult.url,
+        };
+      } catch (zohoErr) {
+        console.error("Zoho CRM upload failed:", zohoErr.message);
+        // Continue even if Zoho fails
+      }
+    }
+
+    // Create document in database
     const doc = await CustomerHeaderDoc.create({
       payload,
-      pdf_meta: {
-        sizeBytes: buffer.length,
-        contentType: "application/pdf",
-        storedAt: new Date(),
-        externalUrl: null,
-      },
-      status: body.status || "draft",
+      pdf_meta: buffer
+        ? {
+            sizeBytes: buffer.length,
+            contentType: "application/pdf",
+            storedAt: new Date(),
+            pdfBuffer: buffer, // Store PDF in database
+            externalUrl: null,
+          }
+        : {
+            sizeBytes: 0,
+            contentType: "application/pdf",
+            storedAt: null,
+            pdfBuffer: null,
+            externalUrl: null,
+          },
+      status,
       createdBy: req.admin?.id || null,
       updatedBy: req.admin?.id || null,
-      zoho,
+      zoho: zohoData,
     });
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-    res.setHeader("X-CustomerHeaderDoc-Id", doc._id.toString());
-    res.send(buffer);
+    console.log(`Document created with ID: ${doc._id}, status: ${status}`);
+
+    // Return response based on draft or final
+    if (isDraft) {
+      // Draft: Return JSON only
+      res.setHeader("X-CustomerHeaderDoc-Id", doc._id.toString());
+      return res.status(201).json({
+        success: true,
+        _id: doc._id.toString(),
+        status: doc.status,
+        createdAt: doc.createdAt,
+      });
+    } else {
+      // Final: Return PDF with metadata in header
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      res.setHeader("X-CustomerHeaderDoc-Id", doc._id.toString());
+      return res.send(buffer);
+    }
   } catch (err) {
     console.error("compileAndStoreCustomerHeader error:", err);
     res.status(500).json({
-      error: "LaTeX compilation failed",
-      detail: err?.detail || String(err),
+      success: false,
+      error: "Failed to save document",
+      detail: err?.detail || err?.message || String(err),
     });
   }
 }
@@ -175,6 +244,7 @@ export async function getCustomerHeaderById(req, res) {
 }
 
 // PUT /api/pdf/customer-headers/:id  (optionally ?recompile=true)
+// Supports updating drafts and recompiling PDFs
 export async function updateCustomerHeader(req, res) {
   try {
     const { id } = req.params;
@@ -185,41 +255,44 @@ export async function updateCustomerHeader(req, res) {
     if (!doc) {
       return res
         .status(404)
-        .json({ error: "Not found", detail: "CustomerHeaderDoc not found" });
+        .json({ success: false, error: "Not found", detail: "CustomerHeaderDoc not found" });
     }
 
-    doc.payload ||= {};
-    doc.zoho ||= { bigin: {}, crm: {} };
+    const previousStatus = doc.status;
+    const newStatus = body.status || doc.status;
+    const statusChanged = previousStatus !== newStatus;
+    const wasDraft = previousStatus === "draft";
+    const isNowFinal = newStatus !== "draft";
 
-    if (body.headerTitle !== undefined)
-      doc.payload.headerTitle = body.headerTitle;
-    if (body.headerRows !== undefined)
-      doc.payload.headerRows = body.headerRows;
+    // Update payload fields
+    doc.payload ||= {};
+    if (body.headerTitle !== undefined) doc.payload.headerTitle = body.headerTitle;
+    if (body.headerRows !== undefined) doc.payload.headerRows = body.headerRows;
     if (body.products !== undefined) doc.payload.products = body.products;
     if (body.services !== undefined) doc.payload.services = body.services;
     if (body.agreement !== undefined) doc.payload.agreement = body.agreement;
-    if (body.status !== undefined) doc.status = body.status;
+    doc.status = newStatus;
 
+    // Update Zoho references if provided
+    doc.zoho ||= { bigin: {}, crm: {} };
     if (body.zoho?.bigin) {
-      doc.zoho.bigin = {
-        ...doc.zoho.bigin,
-        ...body.zoho.bigin,
-      };
+      doc.zoho.bigin = { ...doc.zoho.bigin, ...body.zoho.bigin };
     }
     if (body.zoho?.crm) {
-      doc.zoho.crm = {
-        ...doc.zoho.crm,
-        ...body.zoho.crm,
-      };
+      doc.zoho.crm = { ...doc.zoho.crm, ...body.zoho.crm };
     }
 
     doc.updatedBy = req.admin?.id || doc.updatedBy;
 
+    // Determine if we need to compile PDF
+    const shouldCompilePdf = recompile || (statusChanged && wasDraft && isNowFinal);
+
     let buffer = null;
     let filename = "customer-header.pdf";
 
-    if (recompile) {
-      const { buffer: pdfBuf, filename: fn } = await compileCustomerHeader({
+    if (shouldCompilePdf) {
+      console.log(`Compiling PDF for document ${id}...`);
+      const pdfResult = await compileCustomerHeader({
         headerTitle: doc.payload.headerTitle,
         headerRows: doc.payload.headerRows,
         products: doc.payload.products,
@@ -227,30 +300,86 @@ export async function updateCustomerHeader(req, res) {
         agreement: doc.payload.agreement,
       });
 
-      buffer = pdfBuf;
-      filename = fn || filename;
+      buffer = pdfResult.buffer;
+      filename = pdfResult.filename || filename;
+
+      // Update PDF metadata
       doc.pdf_meta = {
-        ...(doc.pdf_meta || {}),
         sizeBytes: buffer.length,
         contentType: "application/pdf",
         storedAt: new Date(),
+        pdfBuffer: buffer, // Store PDF in database
+        externalUrl: doc.pdf_meta?.externalUrl || null,
       };
+
+      // Upload to Zoho if this is a status change from draft to final
+      if (statusChanged && wasDraft && isNowFinal) {
+        // Upload to Zoho Bigin
+        try {
+          console.log("Uploading to Zoho Bigin...");
+          const biginResult = await uploadToZohoBigin(
+            buffer,
+            filename,
+            body.zoho?.bigin?.dealId || doc.zoho?.bigin?.dealId || null
+          );
+          doc.zoho.bigin = {
+            dealId: biginResult.dealId,
+            fileId: biginResult.fileId,
+            url: biginResult.url,
+          };
+        } catch (zohoErr) {
+          console.error("Zoho Bigin upload failed:", zohoErr.message);
+        }
+
+        // Upload to Zoho CRM
+        try {
+          console.log("Uploading to Zoho CRM...");
+          const crmResult = await uploadToZohoCRM(
+            buffer,
+            filename,
+            body.zoho?.crm?.dealId || doc.zoho?.crm?.dealId || null
+          );
+          doc.zoho.crm = {
+            dealId: crmResult.dealId,
+            fileId: crmResult.fileId,
+            url: crmResult.url,
+          };
+        } catch (zohoErr) {
+          console.error("Zoho CRM upload failed:", zohoErr.message);
+        }
+      }
     }
 
     await doc.save();
 
+    console.log(`Document ${id} updated, status: ${doc.status}, compiled: ${shouldCompilePdf}`);
+
+    // Return response based on whether PDF was compiled
     if (buffer) {
+      // Return PDF if compiled
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
       return res.send(buffer);
+    } else {
+      // Return JSON for draft updates
+      return res.json({
+        success: true,
+        doc: {
+          _id: doc._id,
+          status: doc.status,
+          updatedAt: doc.updatedAt,
+          pdf_meta: doc.pdf_meta,
+          zoho: doc.zoho,
+        },
+      });
     }
-
-    return res.json({ success: true, doc });
   } catch (err) {
     console.error("updateCustomerHeader error:", err);
-    res
-      .status(500)
-      .json({ error: "Failed to update doc", detail: String(err) });
+    res.status(500).json({
+      success: false,
+      error: "Failed to update document",
+      detail: err?.message || String(err),
+    });
   }
 }
 
@@ -633,19 +762,41 @@ export async function downloadCustomerHeaderPdf(req, res) {
         .json({ error: "bad_request", detail: "Invalid id" });
     }
 
-    const doc = await CustomerHeaderDoc.findById(id).lean();
+    const doc = await CustomerHeaderDoc.findById(id);
     if (!doc) {
       return res
         .status(404)
         .json({ error: "not_found", detail: "CustomerHeaderDoc not found" });
     }
 
+    // Try to get PDF from database first
+    if (doc.pdf_meta?.pdfBuffer) {
+      const buffer = doc.pdf_meta.pdfBuffer;
+
+      // Build a safe filename: <headerTitle>-<id>.pdf
+      const baseName =
+        (doc.payload?.headerTitle || "customer-header")
+          .toString()
+          .replace(/[^a-zA-Z0-9-_]+/g, "_")
+          .substring(0, 80) || "customer-header";
+
+      const filename = `${baseName}-${doc._id.toString()}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+      return res.send(buffer);
+    }
+
+    // Fallback: Try to fetch from Zoho if pdfBuffer not available
     const zohoInfo = doc.zoho?.bigin || {};
 
     if (!zohoInfo || (!zohoInfo.url && !zohoInfo.downloadUrl)) {
       return res.status(400).json({
-        error: "no_zoho_pdf",
-        detail: "No Zoho Bigin PDF URL stored for this document",
+        error: "no_pdf",
+        detail: "No PDF available for this document. It may be a draft that hasn't been finalized yet.",
       });
     }
 
