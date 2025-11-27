@@ -42,35 +42,42 @@ const ProductsSchema = new mongoose.Schema(
 // Services schema matching frontend structure
 const ServicesSchema = new mongoose.Schema(
   {
-    // SaniClean service
+    // SaniClean service (includes customFields array if added)
     saniclean: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // Foaming Drain service
+    // Foaming Drain service (includes customFields array if added)
     foamingDrain: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // SaniScrub service
+    // SaniScrub service (includes customFields array if added)
     saniscrub: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // Microfiber Mopping service
+    // Microfiber Mopping service (includes customFields array if added)
     microfiberMopping: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // RPM Windows service
+    // RPM Windows service (includes customFields array if added)
     rpmWindows: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // Refresh Power Scrub service
+    // Refresh Power Scrub service (includes customFields array if added)
     refreshPowerScrub: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // SaniPod service
+    // SaniPod service (includes customFields array if added)
     sanipod: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // Carpet Cleaning service
+    // Carpet Cleaning service (includes customFields array if added)
     carpetclean: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // Janitorial service
+    // Janitorial service (includes customFields array if added)
     janitorial: { type: mongoose.Schema.Types.Mixed, default: null },
 
-    // Strip & Wax service
+    // Strip & Wax service (includes customFields array if added)
     stripwax: { type: mongoose.Schema.Types.Mixed, default: null },
+
+    // Grease Trap service (includes customFields array if added)
+    greaseTrap: { type: mongoose.Schema.Types.Mixed, default: null },
+
+    // User-created custom services with custom fields
+    // Array of: { id, name, fields: [{ id, name, type, value }] }
+    customServices: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
   { _id: false, strict: false }
 );
