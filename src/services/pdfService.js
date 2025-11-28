@@ -89,63 +89,190 @@ function latexEscape(value = "") {
 function buildProductsLatex(products = {}) {
   const { smallProducts = [], dispensers = [], bigProducts = [] } = products;
 
-  // Filter: Only include products that are actually used (have qty > 0 or total > 0)
-  const filterUsedProducts = (productsList) => {
-    return (productsList || []).filter(product => {
-      // Check if product has quantity or any price/total
-      const hasQty = product.qty && product.qty > 0;
-      const hasTotal = product.extPrice || product.totalOverride;
-      const hasAnyPrice = product.unitPrice || product.unitPriceOverride || product.warrantyPriceOverride;
-
-      return hasQty || hasTotal || hasAnyPrice;
-    });
+  // Helper: pick first non-null value from a list of keys
+  const pick = (obj, keys) => {
+    if (!obj) return null;
+    for (const k of keys) {
+      if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") {
+        return obj[k];
+      }
+    }
+    return null;
   };
 
-  const usedSmallProducts = filterUsedProducts(smallProducts);
-  const usedDispensers = filterUsedProducts(dispensers);
-  const usedBigProducts = filterUsedProducts(bigProducts);
+  const fmtDollar = (v) =>
+    typeof v === "number"
+      ? `$${v.toFixed(2)}`
+      : v !== null && v !== undefined && v !== ""
+      ? `$${v}`
+      : "";
 
-  // Combine all used products
-  const allUsedProducts = [...usedSmallProducts, ...usedDispensers, ...usedBigProducts];
+  const toStr = (v) =>
+    v === null || v === undefined ? "" : String(v);
 
-  // If no products are used, return empty
-  if (allUsedProducts.length === 0) {
-    return { productsColSpecLatex: "Y", productsHeaderRowLatex: "", productsBodyRowsLatex: "" };
+  // How many rows?  (zip the three arrays)
+  const rowCount = Math.max(
+    smallProducts.length,
+    dispensers.length,
+    bigProducts.length
+  );
+
+  if (rowCount === 0) {
+    return {
+      productsColSpecLatex: "Y",
+      productsHeaderRowLatex: "",
+      productsBodyRowsLatex: "",
+    };
   }
 
-  // Build table with used products only
-  const headers = ["Product", "Qty", "Unit Price", "Ext Price", "Warranty", "Replacement", "Total"];
-  const colSpec = headers.map(() => "Y").join("|");
-  const headerRowLatex = headers.map((h) => `\\textbf{${latexEscape(h)}}`).join(" & ") + " \\\\ \\hline\n";
+  // 14 columns, exactly like the UI grid
+  const headers = [
+    "Products",
+    "Amount Per Unit",
+    "Qty",
+    "Total",
+    "Dispensers",
+    "Qty",
+    "Warranty Rate",
+    "Replacement Rate/Install",
+    "Total",
+    "Products",
+    "Qty",
+    "Amount",
+    "Frequency of Service",
+    "Total",
+  ];
 
-  const bodyRowsLatex = allUsedProducts
-    .map((p) => {
-      const name = p.customName || p.productKey || "";
-      const qty = p.qty || "";
-      const unitPrice = p.unitPriceOverride || p.unitPrice || "";
-      const extPrice = p.extPrice || "";
-      const warranty = p.warrantyPriceOverride || "";
-      const replacement = p.replacementPriceOverride || "";
-      const total = p.totalOverride || (p.extPrice || 0) + (warranty || 0) + (replacement || 0);
+  const productsColSpecLatex = headers.map(() => "Y").join("|");
+  const productsHeaderRowLatex =
+    headers
+      .map((h) => `\\textbf{${latexEscape(h)}}`)
+      .join(" & ") + " \\\\ \\hline\n";
 
-      return [
-        latexEscape(name),
-        latexEscape(String(qty)),
-        latexEscape(unitPrice ? `$${unitPrice}` : ""),
-        latexEscape(extPrice ? `$${extPrice}` : ""),
-        latexEscape(warranty ? `$${warranty}` : ""),
-        latexEscape(replacement ? `$${replacement}` : ""),
-        latexEscape(total ? `$${total}` : "")
-      ].join(" & ") + " \\\\ \\hline\n";
-    })
-    .join("");
+  let productsBodyRowsLatex = "";
+
+  for (let i = 0; i < rowCount; i++) {
+    const sp = smallProducts[i] || {};
+    const dp = dispensers[i] || {};
+    const bp = bigProducts[i] || {};
+
+    // ----- LEFT BLOCK: small products (Products / Amount Per Unit / Qty / Total)
+    const leftName =
+      sp.customName ||
+      sp.displayName ||
+      sp.productName ||
+      sp.productKey ||
+      "";
+
+    const leftAmount = pick(sp, [
+      "amountPerUnit",
+      "unitPriceOverride",
+      "unitPrice",
+      "amount",
+    ]);
+
+    const leftQty = pick(sp, ["qty", "quantity"]);
+
+    const leftTotal = pick(sp, [
+      "lineTotal",
+      "extPrice",
+      "totalOverride",
+      "total",
+    ]);
+
+    // ----- MIDDLE BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Total)
+    const dispName =
+      dp.customName ||
+      dp.displayName ||
+      dp.productName ||
+      dp.productKey ||
+      "";
+
+    const dispQty = pick(dp, ["qty", "quantity"]);
+
+    const dispWarranty = pick(dp, [
+      "warrantyPriceOverride",
+      "warrantyRate",
+      "warranty",
+    ]);
+
+    const dispReplacement = pick(dp, [
+      "replacementPriceOverride",
+      "replacementRate",
+      "replacement",
+    ]);
+
+    const dispTotal = pick(dp, [
+      "lineTotal",
+      "extPrice",
+      "totalOverride",
+      "total",
+    ]);
+
+    // ----- RIGHT BLOCK: big products / extras (Products / Qty / Amount / Freq / Total)
+    const rightName =
+      bp.customName ||
+      bp.displayName ||
+      bp.productName ||
+      bp.productKey ||
+      "";
+
+    const rightQty = pick(bp, ["qty", "quantity"]);
+
+    const rightAmount = pick(bp, [
+      "amount",
+      "amountPerUnit",
+      "unitPriceOverride",
+      "unitPrice",
+    ]);
+
+    const rightFreq = pick(bp, [
+      "frequencyOfService",
+      "frequencyLabel",
+      "frequency",
+    ]) || "";
+
+    const rightTotal = pick(bp, [
+      "lineTotal",
+      "extPrice",
+      "totalOverride",
+      "total",
+    ]);
+
+    const rowCells = [
+      // LEFT BLOCK
+      latexEscape(leftName),
+      latexEscape(fmtDollar(leftAmount)),
+      latexEscape(toStr(leftQty)),
+      latexEscape(fmtDollar(leftTotal)),
+
+      // MIDDLE BLOCK
+      latexEscape(dispName),
+      latexEscape(toStr(dispQty)),
+      latexEscape(fmtDollar(dispWarranty)),
+      latexEscape(fmtDollar(dispReplacement)),
+      latexEscape(fmtDollar(dispTotal)),
+
+      // RIGHT BLOCK
+      latexEscape(rightName),
+      latexEscape(toStr(rightQty)),
+      latexEscape(fmtDollar(rightAmount)),
+      latexEscape(rightFreq ? latexEscape(rightFreq) : ""),
+      latexEscape(fmtDollar(rightTotal)),
+    ];
+
+    productsBodyRowsLatex += rowCells.join(" & ") + " \\\\ \\hline\n";
+  }
 
   return {
-    productsColSpecLatex: colSpec,
-    productsHeaderRowLatex: headerRowLatex,
-    productsBodyRowsLatex: bodyRowsLatex,
+    productsColSpecLatex,
+    productsHeaderRowLatex,
+    productsBodyRowsLatex,
   };
 }
+
+
+
 
 function buildServiceRows(rows = []) {
   let out = "";
@@ -345,77 +472,138 @@ function transformCustomServiceToColumn(customService) {
 }
 
 function buildServicesLatex(services = {}) {
-  // Helper: Check if a service has actual data (is used)
+  // Helper: unwrap nested formData.formData... and return the deepest "data" object
+  const resolveServiceData = (serviceData) => {
+    if (!serviceData) return null;
+    let data = serviceData;
+    const seen = new Set();
+    while (data && data.formData && !seen.has(data)) {
+      seen.add(data);
+      data = data.formData;
+    }
+    return data || serviceData;
+  };
+
+  // Helper: Decide whether a service should be shown
   const isServiceUsed = (serviceData) => {
     if (!serviceData) return false;
+    const data = resolveServiceData(serviceData);
+    if (!data) return false;
+
+    // Respect isActive at wrapper or data level
     if (serviceData.isActive === false) return false;
+    if (data.isActive === false) return false;
 
-    // Check for any meaningful data
-    if (serviceData.weeklyTotal || serviceData.monthlyTotal || serviceData.contractTotal) return true;
-    if (serviceData.total || serviceData.charge || serviceData.amount) return true;
+    // Core totals we care about (covers saniscrub, sanipod, etc.)
+    if (
+      data.weeklyTotal ||
+      data.monthlyTotal ||
+      data.contractTotal ||
+      data.firstVisit ||
+      data.ongoingMonthly
+    )
+      return true;
 
-    // Check for any custom fields
-    if (serviceData.customFields && serviceData.customFields.length > 0) return true;
+    if (data.total || data.amount || data.charge) return true;
 
-    // Check for any quantity/count fields
-    const keys = Object.keys(serviceData);
-    for (const key of keys) {
-      const val = serviceData[key];
-      if (typeof val === 'number' && val > 0) return true;
-      if (typeof val === 'string' && val.trim() !== '' && val !== '0') {
-        // Ignore internal fields
-        if (!['isActive', 'pricingMode', 'location'].includes(key)) return true;
-      }
+    // Custom fields (e.g. equipment rental, deep cleaning premium, etc.)
+    if (Array.isArray(data.customFields) && data.customFields.length > 0) {
+      const hasCustomValue = data.customFields.some((field) => {
+        if (!field) return false;
+        const v = field.value;
+        if (v === null || v === undefined) return false;
+        if (typeof v === "number") return v !== 0;
+        if (typeof v === "string") return v.trim() !== "" && v !== "0";
+        return true;
+      });
+      if (hasCustomValue) return true;
+    }
+
+    // Generic numeric/string fields; ignore pure config keys
+    const ignoreKeys = new Set([
+      "serviceId",
+      "pricingMode",
+      "location",
+      "frequency",
+      "rateTier",
+      "contractMonths",
+      "notes",
+      "method",
+    ]);
+
+    for (const key of Object.keys(data)) {
+      if (ignoreKeys.has(key)) continue;
+      const val = data[key];
+      if (typeof val === "number" && val > 0) return true;
+      if (typeof val === "string" && val.trim() !== "" && val !== "0")
+        return true;
     }
 
     return false;
   };
 
-  // Check if services are in topRow/bottomRow format (PDF format)
+  // Helper used for both topRow/bottomRow and transformed branch
+  const filterServiceColumns = (cols) => {
+    if (!cols || !Array.isArray(cols)) return [];
+    return cols.filter((col) => {
+      if (!col) return false;
+      if (col.rows && col.rows.length > 0) {
+        return col.rows.some(
+          (row) => row && (row.value || row.v1 || row.v2 || row.v3)
+        );
+      }
+      return false;
+    });
+  };
+
   const hasTopBottomFormat = services.topRow || services.bottomRow;
 
-  if (hasTopBottomFormat) {
-    // Services are already in PDF format (topRow/bottomRow)
-    // Filter columns to only include those with data
-    const filterServiceColumns = (cols) => {
-      if (!cols || !Array.isArray(cols)) return [];
-      return cols.filter(col => {
-        if (!col) return false;
-        // If column has rows with data, keep it
-        if (col.rows && col.rows.length > 0) {
-          // Check if any row has a value
-          return col.rows.some(row => row && (row.value || row.v1 || row.v2 || row.v3));
-        }
-        return false;
-      });
-    };
+  let servicesTopRowLatex = "";
+  let servicesBottomRowLatex = "";
+  let refreshSectionLatex = "";
+  let serviceNotesLatex = "";
 
+  /* ---------- CASE 1: services already in topRow/bottomRow format ---------- */
+  if (hasTopBottomFormat) {
     const topRowCols = services.topRow || [];
     const bottomRowCols = services.bottomRow || services.secondRow || [];
 
     const filteredTopRowCols = filterServiceColumns(topRowCols);
     const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-    const servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
-    const servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
+    servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
+    servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
 
-    let refreshSectionLatex = "";
+    // Refresh Power Scrub for this format (sec is already the "display" object)
     const sec = services.refreshPowerScrub;
     if (sec && Array.isArray(sec.columns) && sec.columns.length > 0) {
-      // Check if refresh section has data
-      const hasData = sec.columns.some(c => c && c.trim() !== '');
+      const hasData = sec.columns.some((c) => c && c.trim() !== "");
       if (hasData) {
         const heading = latexEscape(sec.heading || "REFRESH POWER SCRUB");
-        const cols = (sec.columns || []).slice(0, 6).map((c) => latexEscape(c || ""));
+        const cols = (sec.columns || [])
+          .slice(0, 6)
+          .map((c) => latexEscape(c || ""));
         const colCount = cols.length;
-        const freqLabelsRaw = (sec.freqLabels || []).slice(0, colCount).map((l) => latexEscape(l || ""));
+        const freqLabelsRaw = (sec.freqLabels || [])
+          .slice(0, colCount)
+          .map((l) => latexEscape(l || ""));
         const freqLabels = Array.from({ length: colCount }, (_, i) =>
-          freqLabelsRaw[i] && freqLabelsRaw[i].trim() !== "" ? freqLabelsRaw[i] : "Freq"
+          freqLabelsRaw[i] && freqLabelsRaw[i].trim() !== ""
+            ? freqLabelsRaw[i]
+            : "Freq"
         );
         if (colCount > 0) {
           const colSpec = "|" + Array(colCount).fill("Y").join("|") + "|";
-          const labelRow = "  " + cols.map((h) => `\\scriptsize ${h} \\sblank`).join(" & ") + " \\\\";
-          const freqRow = "  " + freqLabels.map((l) => `\\scriptsize ${l} \\sblank`).join(" & ") + " \\\\";
+          const labelRow =
+            "  " +
+            cols.map((h) => `\\scriptsize ${h} \\sblank`).join(" & ") +
+            " \\\\";
+          const freqRow =
+            "  " +
+            freqLabels
+              .map((l) => `\\scriptsize ${l} \\sblank`)
+              .join(" & ") +
+            " \\\\";
           refreshSectionLatex += "\\vspace{0.9em}\n";
           refreshSectionLatex += `\\serviceBigHeading{${heading}}\n\n`;
           refreshSectionLatex += "\\vspace{0.25em}\n";
@@ -429,16 +617,17 @@ function buildServicesLatex(services = {}) {
       }
     }
 
-    let serviceNotesLatex = "";
+    // Notes if you ever add services.notes in this mode
     if (services.notes) {
       const notes = services.notes;
       const textLines = Array.isArray(notes.textLines) ? notes.textLines : [];
       const lines = textLines.length || notes.lines || 3;
-      // Only show notes if there's actual content
-      const hasContent = textLines.some(line => line && line.trim() !== '');
+      const hasContent = textLines.some((line) => line && line.trim() !== "");
       if (hasContent || lines > 0) {
         serviceNotesLatex += "\\vspace{1.0em}\n";
-        serviceNotesLatex += `\\serviceBigHeading{${latexEscape(notes.heading || "SERVICE NOTES")}}\n`;
+        serviceNotesLatex += `\\serviceBigHeading{${latexEscape(
+          notes.heading || "SERVICE NOTES"
+        )}}\n`;
         serviceNotesLatex += "\\vspace{0.35em}\n";
         for (let i = 0; i < lines; i++) {
           const content = textLines[i] ? latexEscape(textLines[i]) : "";
@@ -447,78 +636,106 @@ function buildServicesLatex(services = {}) {
       }
     }
 
-    return { servicesTopRowLatex, servicesBottomRowLatex, refreshSectionLatex, serviceNotesLatex };
+    return {
+      servicesTopRowLatex,
+      servicesBottomRowLatex,
+      refreshSectionLatex,
+      serviceNotesLatex,
+    };
   }
 
-  // Services are in storage format (individual service objects)
-  // Need to transform AND filter
-  console.log('[PDF Service] Converting individual service objects to PDF format');
+  /* ---------- CASE 2: "storage" format (your JSON from frontend) ---------- */
+  console.log(
+    "[PDF Service] Converting individual service objects to PDF format"
+  );
 
-  // Filter services to only used ones
   const usedServices = {};
   const allServiceKeys = [
-    'saniclean', 'foamingDrain', 'saniscrub', 'microfiberMopping',
-    'rpmWindows', 'refreshPowerScrub', 'sanipod', 'carpetclean',
-    'janitorial', 'stripwax', 'greaseTrap'
+    "saniclean",
+    "foamingDrain",
+    "saniscrub",
+    "microfiberMopping",
+    "rpmWindows",
+    "refreshPowerScrub", // special layout handled below
+    "sanipod",
+    "carpetclean",
+    "janitorial",
+    "stripwax",
+    "greaseTrap",
   ];
 
   for (const serviceKey of allServiceKeys) {
-    if (services[serviceKey] && isServiceUsed(services[serviceKey])) {
-      usedServices[serviceKey] = services[serviceKey];
+    const svc = services[serviceKey];
+    if (svc && isServiceUsed(svc)) {
+      usedServices[serviceKey] = svc;
     }
   }
 
-  // Include custom services if they exist and have data
+  // Custom services if present
   if (services.customServices && Array.isArray(services.customServices)) {
-    const usedCustomServices = services.customServices.filter(cs => {
-      return cs && cs.fields && cs.fields.length > 0;
+    const usedCustomServices = services.customServices.filter((cs) => {
+      return cs && Array.isArray(cs.fields) && cs.fields.length > 0;
     });
     if (usedCustomServices.length > 0) {
       usedServices.customServices = usedCustomServices;
     }
   }
 
-  // If no services are used, return empty
+  // If nothing is actually used, return empty strings
   if (Object.keys(usedServices).length === 0) {
     return {
       servicesTopRowLatex: "",
       servicesBottomRowLatex: "",
       refreshSectionLatex: "",
-      serviceNotesLatex: ""
+      serviceNotesLatex: "",
     };
   }
 
-  // Transform individual service objects into topRow/bottomRow format
+  // Transform into topRow/bottomRow columns using your existing helpers
   const transformedServices = transformServicesToPdfFormat(usedServices);
-
-  // Now use the existing logic to build LaTeX from topRow/bottomRow format
   const topRowCols = transformedServices.topRow || [];
   const bottomRowCols = transformedServices.bottomRow || [];
 
   const filteredTopRowCols = filterServiceColumns(topRowCols);
   const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-  const servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
-  const servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
+  servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
+  servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
 
-  // Handle refresh power scrub if present
-  let refreshSectionLatex = "";
-  if (services.refreshPowerScrub && services.refreshPowerScrub.formData) {
-    const sec = services.refreshPowerScrub.formData;
+  // Refresh Power Scrub from *your* JSON:
+  // services.refreshPowerScrub is the object with heading/columns/freqLabels
+  if (services.refreshPowerScrub) {
+    const secRoot = services.refreshPowerScrub;
+    const sec = secRoot.formData || secRoot; // support both shapes
+
     if (sec && Array.isArray(sec.columns) && sec.columns.length > 0) {
-      const hasData = sec.columns.some(c => c && c.trim() !== '');
+      const hasData = sec.columns.some((c) => c && c.trim() !== "");
       if (hasData) {
         const heading = latexEscape(sec.heading || "REFRESH POWER SCRUB");
-        const cols = (sec.columns || []).slice(0, 6).map((c) => latexEscape(c || ""));
+        const cols = (sec.columns || [])
+          .slice(0, 6)
+          .map((c) => latexEscape(c || ""));
         const colCount = cols.length;
-        const freqLabelsRaw = (sec.freqLabels || []).slice(0, colCount).map((l) => latexEscape(l || ""));
+        const freqLabelsRaw = (sec.freqLabels || [])
+          .slice(0, colCount)
+          .map((l) => latexEscape(l || ""));
         const freqLabels = Array.from({ length: colCount }, (_, i) =>
-          freqLabelsRaw[i] && freqLabelsRaw[i].trim() !== "" ? freqLabelsRaw[i] : "Freq"
+          freqLabelsRaw[i] && freqLabelsRaw[i].trim() !== ""
+            ? freqLabelsRaw[i]
+            : "Freq"
         );
         if (colCount > 0) {
           const colSpec = "|" + Array(colCount).fill("Y").join("|") + "|";
-          const labelRow = "  " + cols.map((h) => `\\scriptsize ${h} \\sblank`).join(" & ") + " \\\\";
-          const freqRow = "  " + freqLabels.map((l) => `\\scriptsize ${l} \\sblank`).join(" & ") + " \\\\";
+          const labelRow =
+            "  " +
+            cols.map((h) => `\\scriptsize ${h} \\sblank`).join(" & ") +
+            " \\\\";
+          const freqRow =
+            "  " +
+            freqLabels
+              .map((l) => `\\scriptsize ${l} \\sblank`)
+              .join(" & ") +
+            " \\\\";
           refreshSectionLatex += "\\vspace{0.9em}\n";
           refreshSectionLatex += `\\serviceBigHeading{${heading}}\n\n`;
           refreshSectionLatex += "\\vspace{0.25em}\n";
@@ -533,16 +750,17 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Handle service notes
-  let serviceNotesLatex = "";
+  // Top-level service notes if you ever add services.notes in this JSON
   if (services.notes) {
     const notes = services.notes;
     const textLines = Array.isArray(notes.textLines) ? notes.textLines : [];
     const lines = textLines.length || notes.lines || 3;
-    const hasContent = textLines.some(line => line && line.trim() !== '');
+    const hasContent = textLines.some((line) => line && line.trim() !== "");
     if (hasContent || lines > 0) {
       serviceNotesLatex += "\\vspace{1.0em}\n";
-      serviceNotesLatex += `\\serviceBigHeading{${latexEscape(notes.heading || "SERVICE NOTES")}}\n`;
+      serviceNotesLatex += `\\serviceBigHeading{${latexEscape(
+        notes.heading || "SERVICE NOTES"
+      )}}\n`;
       serviceNotesLatex += "\\vspace{0.35em}\n";
       for (let i = 0; i < lines; i++) {
         const content = textLines[i] ? latexEscape(textLines[i]) : "";
@@ -551,8 +769,16 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  return { servicesTopRowLatex, servicesBottomRowLatex, refreshSectionLatex, serviceNotesLatex };
+  return {
+    servicesTopRowLatex,
+    servicesBottomRowLatex,
+    refreshSectionLatex,
+    serviceNotesLatex,
+  };
 }
+
+
+
 
 /* ---------------- Public API for controllers ---------------- */
 
