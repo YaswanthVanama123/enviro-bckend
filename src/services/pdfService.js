@@ -89,23 +89,45 @@ function latexEscape(value = "") {
 function buildProductsLatex(products = {}) {
   const { smallProducts = [], dispensers = [], bigProducts = [] } = products;
 
+  // Add debug logging
+  console.log('[PDF] buildProductsLatex called with:', {
+    smallProductsCount: smallProducts.length,
+    dispensersCount: dispensers.length,
+    bigProductsCount: bigProducts.length,
+  });
+  if (smallProducts.length > 0) {
+    console.log('[PDF] First smallProduct:', JSON.stringify(smallProducts[0]));
+  }
+  if (dispensers.length > 0) {
+    console.log('[PDF] First dispenser:', JSON.stringify(dispensers[0]));
+  }
+  if (bigProducts.length > 0) {
+    console.log('[PDF] First bigProduct:', JSON.stringify(bigProducts[0]));
+  }
+
   // Helper: pick first non-null value from a list of keys
   const pick = (obj, keys) => {
     if (!obj) return null;
     for (const k of keys) {
-      if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") {
-        return obj[k];
+      const val = obj[k];
+      // Handle 0 as a valid value, but reject empty string, null, undefined
+      if (val !== undefined && val !== null && val !== "") {
+        return val;
       }
     }
     return null;
   };
 
-  const fmtDollar = (v) =>
-    typeof v === "number"
-      ? `$${v.toFixed(2)}`
-      : v !== null && v !== undefined && v !== ""
-      ? `$${v}`
-      : "";
+  const fmtDollar = (v) => {
+    // Handle both number and string inputs
+    if (v === null || v === undefined || v === "") return "";
+    const num = typeof v === "number" ? v : parseFloat(v);
+    if (!isNaN(num)) {
+      return `$${num.toFixed(2)}`;
+    }
+    // Fallback for non-numeric strings
+    return `$${v}`;
+  };
 
   const toStr = (v) =>
     v === null || v === undefined ? "" : String(v);
@@ -180,6 +202,11 @@ function buildProductsLatex(products = {}) {
       "total",
     ]);
 
+    // Debug logging for first row
+    if (i === 0 && leftName) {
+      console.log(`[PDF] Row ${i} smallProduct - name: ${leftName}, amount: ${leftAmount}, qty: ${leftQty}, total: ${leftTotal}`);
+    }
+
     // ----- MIDDLE BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Total)
     const dispName =
       dp.customName ||
@@ -208,6 +235,11 @@ function buildProductsLatex(products = {}) {
       "totalOverride",
       "total",
     ]);
+
+    // Debug logging for first row
+    if (i === 0 && dispName) {
+      console.log(`[PDF] Row ${i} dispenser - name: ${dispName}, qty: ${dispQty}, warranty: ${dispWarranty}, replacement: ${dispReplacement}, total: ${dispTotal}`);
+    }
 
     // ----- RIGHT BLOCK: big products / extras (Products / Qty / Amount / Freq / Total)
     const rightName =
@@ -238,6 +270,11 @@ function buildProductsLatex(products = {}) {
       "totalOverride",
       "total",
     ]);
+
+    // Debug logging for first row
+    if (i === 0 && rightName) {
+      console.log(`[PDF] Row ${i} bigProduct - name: ${rightName}, qty: ${rightQty}, amount: ${rightAmount}, freq: ${rightFreq}, total: ${rightTotal}`);
+    }
 
     const rowCells = [
       // LEFT BLOCK
