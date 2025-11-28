@@ -15,18 +15,37 @@ const ProductRowSchema = new mongoose.Schema(
   {
     id: String,
     productKey: String,
+    displayName: String,  // Product display name (for PDF)
     qty: Number,
+
+    // Small Products fields
     unitPrice: Number,
-    extPrice: Number,
     unitPriceOverride: Number,
+
+    // Dispensers fields
+    warrantyRate: Number,
     warrantyPriceOverride: Number,
+    replacementRate: Number,
     replacementPriceOverride: Number,
+
+    // Big Products fields
+    amount: Number,
+    amountOverride: Number,
+
+    // Totals
+    total: Number,
     totalOverride: Number,
+    extPrice: Number,
+
+    // Custom rows
     isCustom: Boolean,
     customName: String,
     isDefault: Boolean,
+
+    // Custom columns
+    customFields: mongoose.Schema.Types.Mixed,
   },
-  { _id: false }
+  { _id: false, strict: false }  // strict: false allows additional fields
 );
 
 // Products schema matching frontend structure
