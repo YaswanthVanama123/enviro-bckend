@@ -33,6 +33,7 @@ router.post("/compile", compileFromRaw);
 router.post("/proposal", compileFromProposalFile);
 
 /* ---- customer header (DB) ---- */
+router.post("/customer-header-preview", compileCustomerHeaderPdf);
 router.post("/customer-header", compileAndStoreCustomerHeader);
 router.get("/customer-headers", getCustomerHeaders);
 router.get("/customer-headers/:id", getCustomerHeaderById);
