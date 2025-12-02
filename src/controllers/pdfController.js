@@ -828,14 +828,9 @@ export async function downloadCustomerHeaderPdf(req, res) {
     if (doc.pdf_meta?.pdfBuffer) {
       const buffer = doc.pdf_meta.pdfBuffer;
 
-      // Build a safe filename: <headerTitle>-<id>.pdf
-      const baseName =
-        (doc.payload?.headerTitle || "customer-header")
-          .toString()
-          .replace(/[^a-zA-Z0-9-_]+/g, "_")
-          .substring(0, 80) || "customer-header";
-
-      const filename = `${baseName}-${doc._id.toString()}.pdf`;
+      // Extract customer name from headerRows or customerName field
+      const customerName = extractCustomerNameFromDoc(doc);
+      const filename = `${customerName}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
@@ -863,14 +858,9 @@ export async function downloadCustomerHeaderPdf(req, res) {
       });
     }
 
-    // Build a safe filename: <headerTitle>-<id>.pdf
-    const baseName =
-      (doc.payload?.headerTitle || "customer-header")
-        .toString()
-        .replace(/[^a-zA-Z0-9-_]+/g, "_")
-        .substring(0, 80) || "customer-header";
-
-    const filename = `${baseName}-${doc._id.toString()}.pdf`;
+    // Extract customer name from headerRows or customerName field
+    const customerName = extractCustomerNameFromDoc(doc);
+    const filename = `${customerName}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -884,5 +874,39 @@ export async function downloadCustomerHeaderPdf(req, res) {
       .status(500)
       .json({ error: "server_error", detail: err?.message || String(err) });
   }
+}
+
+// Helper function to extract customer name from document
+function extractCustomerNameFromDoc(doc) {
+  // Try customerName field first (from frontend payload)
+  if (doc.payload?.customerName && doc.payload.customerName.trim()) {
+    return sanitizeFilename(doc.payload.customerName.trim());
+  }
+
+  // Fallback: search in headerRows for CUSTOMER NAME field
+  const headerRows = doc.payload?.headerRows || [];
+  for (const row of headerRows) {
+    // Check left side
+    if (row.labelLeft && row.labelLeft.toUpperCase().includes("CUSTOMER NAME")) {
+      const name = row.valueLeft?.trim();
+      if (name) return sanitizeFilename(name);
+    }
+    // Check right side
+    if (row.labelRight && row.labelRight.toUpperCase().includes("CUSTOMER NAME")) {
+      const name = row.valueRight?.trim();
+      if (name) return sanitizeFilename(name);
+    }
+  }
+
+  // Default fallback
+  return "Unnamed_Customer";
+}
+
+// Helper to sanitize filename (remove special characters)
+function sanitizeFilename(name) {
+  return name
+    .replace(/[^a-zA-Z0-9-_\s]+/g, "_") // Replace special chars with underscore
+    .replace(/\s+/g, "_") // Replace spaces with underscore
+    .substring(0, 80); // Limit length
 }
 

@@ -887,7 +887,45 @@ export async function compileCustomerHeader(body = {}) {
   const manifest = { "Envimaster.png": "images/Envimaster.png" };
 
   const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
-  return { buffer, filename: "customer-header.pdf" };
+
+  // Extract customer name from body for dynamic filename
+  const customerName = extractCustomerName(body.customerName, body.headerRows);
+  const filename = `${customerName}.pdf`;
+
+  return { buffer, filename };
+}
+
+// Helper function to extract customer name from headerRows or customerName field
+function extractCustomerName(customerNameFromBody, headerRows = []) {
+  // First, try to use customerName directly if provided
+  if (customerNameFromBody && customerNameFromBody.trim()) {
+    return sanitizeFilename(customerNameFromBody.trim());
+  }
+
+  // Fallback: search in headerRows for CUSTOMER NAME field
+  for (const row of headerRows) {
+    // Check left side
+    if (row.labelLeft && row.labelLeft.toUpperCase().includes("CUSTOMER NAME")) {
+      const name = row.valueLeft?.trim();
+      if (name) return sanitizeFilename(name);
+    }
+    // Check right side
+    if (row.labelRight && row.labelRight.toUpperCase().includes("CUSTOMER NAME")) {
+      const name = row.valueRight?.trim();
+      if (name) return sanitizeFilename(name);
+    }
+  }
+
+  // Default fallback
+  return "Unnamed_Customer";
+}
+
+// Helper to sanitize filename (remove special characters)
+function sanitizeFilename(name) {
+  return name
+    .replace(/[^a-zA-Z0-9-_\s]+/g, "_") // Replace special chars with underscore
+    .replace(/\s+/g, "_") // Replace spaces with underscore
+    .substring(0, 80); // Limit length
 }
 
 /* (D) Pass-through: clients upload to your backend; you forward to DO */
