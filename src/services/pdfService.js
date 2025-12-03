@@ -361,7 +361,7 @@ function transformServicesToPdfFormat(usedServices) {
 
   // Service display configuration - determines which row each service goes into
   const topRowServices = ['saniclean', 'saniscrub', 'microfiberMopping', 'rpmWindows'];
-  const bottomRowServices = ['foamingDrain', 'sanipod', 'carpetclean', 'janitorial', 'stripwax', 'greaseTrap'];
+  const bottomRowServices = ['foamingDrain', 'sanipod', 'carpetclean', 'janitorial', 'stripwax', 'greaseTrap', 'electrostaticSpray'];
 
   // Service labels mapping
   const serviceLabels = {
@@ -374,7 +374,8 @@ function transformServicesToPdfFormat(usedServices) {
     carpetclean: 'CARPET CLEAN',
     janitorial: 'JANITORIAL',
     stripwax: 'STRIP & WAX',
-    greaseTrap: 'GREASE TRAP'
+    greaseTrap: 'GREASE TRAP',
+    electrostaticSpray: 'ELECTROSTATIC SPRAY'
   };
 
   // Transform each service into column format
@@ -663,6 +664,32 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         type: 'line',
         label: data.installationFee.label || 'Installation Fee',
         value: typeof data.installationFee.amount === 'number' ? `$${data.installationFee.amount.toFixed(2)}` : String(data.installationFee.amount || '')
+      });
+    }
+
+    // Handle trip charge (ElectrostaticSpray, Sani-Clean)
+    if (data.tripCharge && data.tripCharge.amount != null && data.tripCharge.amount > 0) {
+      rows.push({
+        type: 'line',
+        label: data.tripCharge.label || 'Trip Charge',
+        value: typeof data.tripCharge.amount === 'number' ? `$${data.tripCharge.amount.toFixed(2)}` : String(data.tripCharge.amount || '')
+      });
+    }
+
+    // Add metadata fields (pricing method, combined service, etc.)
+    if (data.pricingMethod && data.pricingMethod.value) {
+      rows.push({
+        type: 'line',
+        label: data.pricingMethod.label || 'Pricing Method',
+        value: data.pricingMethod.value
+      });
+    }
+
+    if (data.combinedService && data.combinedService.value) {
+      rows.push({
+        type: 'line',
+        label: data.combinedService.label || 'Combined with',
+        value: data.combinedService.value
       });
     }
 
@@ -1056,6 +1083,7 @@ function buildServicesLatex(services = {}) {
     "janitorial",
     "stripwax",
     "greaseTrap",
+    "electrostaticSpray",
   ];
 
   console.log('\n========== CHECKING SERVICES FOR USAGE ==========');
