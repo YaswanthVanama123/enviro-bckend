@@ -679,6 +679,78 @@ const serviceConfigs = [
     isActive: true,
     tags: ["kitchen", "deep-cleaning"],
   },
+
+  // 11. ELECTROSTATIC SPRAY
+  {
+    serviceId: "electrostaticSpray",
+    version: "v1.0",
+    label: "Electrostatic Spray",
+    description: "Professional facility disinfection using electrostatic spraying",
+    config: {
+      pricingMethodOptions: [
+        "By Room",
+        "By Square Feet"
+      ],
+      frequencyOptions: [
+        "Weekly",
+        "Bi-Weekly",
+        "Monthly",
+        "Bi-Monthly",
+        "Quarterly"
+      ],
+      locationOptions: [
+        "Inside Beltway",
+        "Outside Beltway",
+        "Standard"
+      ],
+      combinedServiceOptions: [
+        "Sani-Clean",
+        "None"
+      ],
+      defaultRatePerRoom: 20,
+      defaultRatePerSqFt: 0.15,
+      defaultTripCharge: 10,
+
+      // Additional editable pricing fields
+      ratePerRoom: 20,
+      ratePerThousandSqFt: 50,
+      sqFtUnit: 1000,
+
+      tripCharges: {
+        insideBeltway: 10,
+        outsideBeltway: 0,
+        standard: 0,
+      },
+
+      billingConversions: {
+        weekly: { monthlyMultiplier: 4.33, annualMultiplier: 52 },
+        biweekly: { monthlyMultiplier: 2.165, annualMultiplier: 26 },
+        monthly: { monthlyMultiplier: 1, annualMultiplier: 12 },
+        bimonthly: { monthlyMultiplier: 0.5, annualMultiplier: 6 },
+        quarterly: { monthlyMultiplier: 0.333, annualMultiplier: 4 },
+        actualWeeksPerMonth: 4.33,
+      },
+
+      minContractMonths: 2,
+      maxContractMonths: 36,
+    },
+    defaultFormState: {
+      serviceId: "electrostaticSpray",
+      pricingMethod: "byRoom",
+      roomCount: 0,
+      squareFeet: 0,
+      frequency: "weekly",
+      location: "standard",
+      isCombinedWithSaniClean: false,
+      contractMonths: 12,
+      notes: "",
+      ratePerRoom: 20,
+      ratePerThousandSqFt: 50,
+      tripChargePerVisit: 0,
+    },
+    isActive: true,
+    tags: ["disinfection", "facility-wide", "electrostatic"],
+  },
 ];
 
 // ============================================================================
