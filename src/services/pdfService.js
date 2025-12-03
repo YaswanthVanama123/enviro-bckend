@@ -407,11 +407,361 @@ function transformServicesToPdfFormat(usedServices) {
 }
 
 function transformServiceToColumn(serviceKey, serviceData, label) {
+  console.log(`\n--- Transforming service: ${serviceKey} ---`);
+  console.log('Input serviceData:', JSON.stringify(serviceData, null, 2));
+
   const rows = [];
 
   // Extract formData if present (newer format)
   const data = serviceData.formData || serviceData;
 
+  console.log('Resolved data:', JSON.stringify(data, null, 2));
+
+  // Handle NEW structured format (with label/type/qty/rate/total objects)
+  // Check if this is the new structured format
+  if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service)) {
+    console.log(`✓ Using NEW structured format for ${serviceKey}`);
+
+    // Handle fixture breakdown (SaniClean)
+    if (data.fixtureBreakdown && Array.isArray(data.fixtureBreakdown)) {
+      for (const fixture of data.fixtureBreakdown) {
+        if (fixture.qty > 0) {
+          rows.push({
+            type: 'atCharge',
+            label: fixture.label || '',
+            v1: String(fixture.qty || ''),
+            v2: typeof fixture.rate === 'number' ? `$${fixture.rate.toFixed(2)}` : String(fixture.rate || ''),
+            v3: typeof fixture.total === 'number' ? `$${fixture.total.toFixed(2)}` : String(fixture.total || '')
+          });
+        }
+      }
+    }
+
+    // Handle drain breakdown (Foaming Drain)
+    if (data.drainBreakdown && Array.isArray(data.drainBreakdown)) {
+      for (const drain of data.drainBreakdown) {
+        if (drain.qty > 0) {
+          // Only add if we have meaningful data
+          const hasRate = drain.rate != null && drain.rate !== '';
+          const hasTotal = drain.total != null && drain.total !== '';
+
+          if (hasRate || hasTotal) {
+            rows.push({
+              type: 'atCharge',
+              label: drain.label || '',
+              v1: String(drain.qty || ''),
+              v2: typeof drain.rate === 'number' ? `$${drain.rate.toFixed(2)}` : String(drain.rate || ''),
+              v3: typeof drain.total === 'number' ? `$${drain.total.toFixed(2)}` : String(drain.total || '')
+            });
+          } else {
+            // Just show quantity if no rate/total available
+            rows.push({
+              type: 'line',
+              label: drain.label || '',
+              value: `${drain.qty} drain${drain.qty !== 1 ? 's' : ''}`
+            });
+          }
+        }
+      }
+    }
+
+    // Handle service breakdown (Microfiber Mopping, etc.)
+    if (data.serviceBreakdown && Array.isArray(data.serviceBreakdown)) {
+      for (const item of data.serviceBreakdown) {
+        const hasRate = item.rate != null && item.rate !== '';
+        const hasTotal = item.total != null && item.total !== '';
+
+        if (hasRate || hasTotal) {
+          rows.push({
+            type: 'atCharge',
+            label: item.label || '',
+            v1: String(item.qty || ''),
+            v2: typeof item.rate === 'number' ? `$${item.rate.toFixed(2)}` : String(item.rate || ''),
+            v3: typeof item.total === 'number' ? `$${item.total.toFixed(2)}` : String(item.total || '')
+          });
+        } else if (item.qty) {
+          // Just show quantity if no rate/total available
+          rows.push({
+            type: 'line',
+            label: item.label || '',
+            value: `${item.qty} ${item.unit || 'item'}${item.qty !== 1 ? 's' : ''}`
+          });
+        }
+      }
+    }
+
+    // Handle windows (RPM Windows)
+    if (data.windows && Array.isArray(data.windows)) {
+      for (const window of data.windows) {
+        if (window.qty > 0) {
+          rows.push({
+            type: 'atCharge',
+            label: window.label || '',
+            v1: String(window.qty || ''),
+            v2: typeof window.rate === 'number' ? `$${window.rate.toFixed(2)}` : String(window.rate || ''),
+            v3: typeof window.total === 'number' ? `$${window.total.toFixed(2)}` : String(window.total || '')
+          });
+        }
+      }
+    }
+
+    // Handle single service item (Carpet Clean, Strip & Wax, etc.)
+    if (data.service) {
+      const hasRate = data.service.rate != null && data.service.rate !== '';
+      const hasTotal = data.service.total != null && data.service.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.service.label || '',
+          v1: String(data.service.qty || ''),
+          v2: typeof data.service.rate === 'number' ? `$${data.service.rate.toFixed(2)}` : String(data.service.rate || ''),
+          v3: typeof data.service.total === 'number' ? `$${data.service.total.toFixed(2)}` : String(data.service.total || '')
+        });
+      } else if (data.service.qty) {
+        // Just show quantity if no rate/total available
+        rows.push({
+          type: 'line',
+          label: data.service.label || '',
+          value: `${data.service.qty} ${data.service.unit || 'item'}${data.service.qty !== 1 ? 's' : ''}`
+        });
+      }
+    }
+
+    // Handle restroom fixtures (Saniscrub)
+    if (data.restroomFixtures && data.restroomFixtures.qty) {
+      const hasRate = data.restroomFixtures.rate != null && data.restroomFixtures.rate !== '';
+      const hasTotal = data.restroomFixtures.total != null && data.restroomFixtures.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.restroomFixtures.label || 'Restroom Fixtures',
+          v1: String(data.restroomFixtures.qty || ''),
+          v2: typeof data.restroomFixtures.rate === 'number' ? `$${data.restroomFixtures.rate.toFixed(2)}` : String(data.restroomFixtures.rate || ''),
+          v3: typeof data.restroomFixtures.total === 'number' ? `$${data.restroomFixtures.total.toFixed(2)}` : String(data.restroomFixtures.total || '')
+        });
+      } else {
+        // Fallback: show quantity only
+        rows.push({
+          type: 'line',
+          label: data.restroomFixtures.label || 'Restroom Fixtures',
+          value: `${data.restroomFixtures.qty} fixture${data.restroomFixtures.qty !== 1 ? 's' : ''}`
+        });
+      }
+    }
+
+    // Handle non-bathroom area (Saniscrub)
+    if (data.nonBathroomArea && data.nonBathroomArea.qty) {
+      const hasRate = data.nonBathroomArea.rate != null && data.nonBathroomArea.rate !== '';
+      const hasTotal = data.nonBathroomArea.total != null && data.nonBathroomArea.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.nonBathroomArea.label || 'Non-Bathroom Area',
+          v1: `${data.nonBathroomArea.qty || ''} ${data.nonBathroomArea.unit || ''}`,
+          v2: typeof data.nonBathroomArea.rate === 'number' ? `$${data.nonBathroomArea.rate.toFixed(2)}` : String(data.nonBathroomArea.rate || ''),
+          v3: typeof data.nonBathroomArea.total === 'number' ? `$${data.nonBathroomArea.total.toFixed(2)}` : String(data.nonBathroomArea.total || '')
+        });
+      } else {
+        // Fallback: show quantity only
+        rows.push({
+          type: 'line',
+          label: data.nonBathroomArea.label || 'Non-Bathroom Area',
+          value: `${data.nonBathroomArea.qty} ${data.nonBathroomArea.unit || 'sq ft'}`
+        });
+      }
+    }
+
+    // Add extras (warranty, luxury upgrades, etc.)
+    if (data.warranty && data.warranty.qty) {
+      const hasRate = data.warranty.rate != null && data.warranty.rate !== '';
+      const hasTotal = data.warranty.total != null && data.warranty.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.warranty.label || 'Warranty',
+          v1: String(data.warranty.qty || ''),
+          v2: typeof data.warranty.rate === 'number' ? `$${data.warranty.rate.toFixed(2)}` : String(data.warranty.rate || ''),
+          v3: typeof data.warranty.total === 'number' ? `$${data.warranty.total.toFixed(2)}` : String(data.warranty.total || '')
+        });
+      } else {
+        // Fallback: show quantity only
+        rows.push({
+          type: 'line',
+          label: data.warranty.label || 'Warranty',
+          value: `${data.warranty.qty} item${data.warranty.qty !== 1 ? 's' : ''}`
+        });
+      }
+    }
+
+    if (data.luxuryUpgrade) {
+      rows.push({
+        type: 'line',
+        label: data.luxuryUpgrade.label || 'Luxury Soap Upgrade',
+        value: typeof data.luxuryUpgrade.total === 'number' ? `$${data.luxuryUpgrade.total.toFixed(2)}` : String(data.luxuryUpgrade.total || '')
+      });
+    }
+
+    if (data.extraSoap) {
+      rows.push({
+        type: 'line',
+        label: data.extraSoap.label || 'Extra Soap',
+        value: typeof data.extraSoap.total === 'number' ? `$${data.extraSoap.total.toFixed(2)}` : String(data.extraSoap.total || '')
+      });
+    }
+
+    // Handle extra bags (SaniPod)
+    if (data.extraBags && data.extraBags.qty > 0) {
+      const hasRate = data.extraBags.rate != null && data.extraBags.rate !== '';
+      const hasTotal = data.extraBags.total != null && data.extraBags.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.extraBags.label || 'Extra Bags',
+          v1: String(data.extraBags.qty || ''),
+          v2: typeof data.extraBags.rate === 'number' ? `$${data.extraBags.rate.toFixed(2)}` : String(data.extraBags.rate || ''),
+          v3: typeof data.extraBags.total === 'number' ? `$${data.extraBags.total.toFixed(2)}` : String(data.extraBags.total || '')
+        });
+      } else {
+        rows.push({
+          type: 'line',
+          label: data.extraBags.label || 'Extra Bags',
+          value: `${data.extraBags.qty} bag${data.extraBags.qty !== 1 ? 's' : ''}`
+        });
+      }
+    }
+
+    // Handle installation (structured format with qty/rate/total)
+    if (data.installation && data.installation.qty > 0) {
+      const hasRate = data.installation.rate != null && data.installation.rate !== '';
+      const hasTotal = data.installation.total != null && data.installation.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.installation.label || 'Installation',
+          v1: String(data.installation.qty || ''),
+          v2: typeof data.installation.rate === 'number' ? `$${data.installation.rate.toFixed(2)}` : String(data.installation.rate || ''),
+          v3: typeof data.installation.total === 'number' ? `$${data.installation.total.toFixed(2)}` : String(data.installation.total || '')
+        });
+      } else {
+        rows.push({
+          type: 'line',
+          label: data.installation.label || 'Installation',
+          value: `${data.installation.qty} unit${data.installation.qty !== 1 ? 's' : ''}`
+        });
+      }
+    }
+
+    // Legacy installationFee format (for backward compatibility)
+    if (data.installationFee && data.installationFee.amount) {
+      rows.push({
+        type: 'line',
+        label: data.installationFee.label || 'Installation Fee',
+        value: typeof data.installationFee.amount === 'number' ? `$${data.installationFee.amount.toFixed(2)}` : String(data.installationFee.amount || '')
+      });
+    }
+
+    // Add frequency/location info
+    if (data.frequency && data.frequency.value) {
+      rows.push({
+        type: 'line',
+        label: data.frequency.label || 'Frequency',
+        value: data.frequency.value
+      });
+    }
+
+    if (data.location && data.location.value) {
+      rows.push({
+        type: 'line',
+        label: data.location.label || 'Location',
+        value: data.location.value
+      });
+    }
+
+    // Add totals from new structured format
+    if (data.totals) {
+      if (data.totals.perVisit && data.totals.perVisit.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.perVisit.label || 'Per Visit Total',
+          value: typeof data.totals.perVisit.amount === 'number' ? `$${data.totals.perVisit.amount.toFixed(2)}` : String(data.totals.perVisit.amount)
+        });
+      }
+
+      if (data.totals.weekly && data.totals.weekly.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.weekly.label || 'Weekly Total',
+          value: typeof data.totals.weekly.amount === 'number' ? `$${data.totals.weekly.amount.toFixed(2)}` : String(data.totals.weekly.amount)
+        });
+      }
+
+      if (data.totals.monthly && data.totals.monthly.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.monthly.label || 'Monthly Total',
+          value: typeof data.totals.monthly.amount === 'number' ? `$${data.totals.monthly.amount.toFixed(2)}` : String(data.totals.monthly.amount)
+        });
+      }
+
+      if (data.totals.monthlyRecurring && data.totals.monthlyRecurring.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.monthlyRecurring.label || 'Monthly Recurring',
+          value: typeof data.totals.monthlyRecurring.amount === 'number' ? `$${data.totals.monthlyRecurring.amount.toFixed(2)}` : String(data.totals.monthlyRecurring.amount)
+        });
+      }
+
+      if (data.totals.contract && data.totals.contract.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.contract.label || 'Contract Total',
+          value: typeof data.totals.contract.amount === 'number' ? `$${data.totals.contract.amount.toFixed(2)} (${data.totals.contract.months || 12}mo)` : String(data.totals.contract.amount)
+        });
+      }
+
+      if (data.totals.annual && data.totals.annual.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.annual.label || 'Annual Total',
+          value: typeof data.totals.annual.amount === 'number' ? `$${data.totals.annual.amount.toFixed(2)} (${data.totals.annual.months || 12}mo)` : String(data.totals.annual.amount)
+        });
+      }
+    }
+
+    // Add custom fields from new format
+    if (data.customFields && Array.isArray(data.customFields)) {
+      for (const field of data.customFields) {
+        if (field && field.label && field.value !== undefined && field.value !== '') {
+          let value = String(field.value);
+          if (field.type === 'dollar' && typeof field.value === 'number') {
+            value = `$${field.value.toFixed(2)}`;
+          }
+          rows.push({ type: 'line', label: field.label, value });
+        }
+      }
+    }
+
+    // Add notes if present
+    if (data.notes && data.notes.trim()) {
+      rows.push({ type: 'line', label: 'Notes', value: data.notes });
+    }
+
+    console.log(`✓ Generated ${rows.length} rows for ${serviceKey}`);
+    console.log('Output rows:', JSON.stringify(rows, null, 2));
+
+    return {
+      heading: label || data.displayName || serviceKey.toUpperCase(),
+      rows
+    };
+  }
+
+  console.log(`✗ Using OLD format handler for ${serviceKey}`);
   // Common fields to look for
   const commonMappings = [
     { key: 'fixtureCount', label: 'Fixtures' },
@@ -457,7 +807,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     rows.push({ type: 'bold', label: 'Contract Total', value });
   }
 
-  // Add custom fields if present
+  // Add custom fields if present (OLD format)
   if (data.customFields && Array.isArray(data.customFields)) {
     for (const field of data.customFields) {
       if (field && field.label && field.value !== undefined && field.value !== '') {
@@ -472,6 +822,9 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
   }
+
+  console.log(`✓ Generated ${rows.length} rows for ${serviceKey} (OLD FORMAT)`);
+  console.log('Output rows:', JSON.stringify(rows, null, 2));
 
   return {
     heading: label || serviceKey.toUpperCase(),
@@ -509,6 +862,10 @@ function transformCustomServiceToColumn(customService) {
 }
 
 function buildServicesLatex(services = {}) {
+  console.log('\n========== SERVICES DATA RECEIVED ==========');
+  console.log(JSON.stringify(services, null, 2));
+  console.log('============================================\n');
+
   // Helper: unwrap nested formData.formData... and return the deepest "data" object
   const resolveServiceData = (serviceData) => {
     if (!serviceData) return null;
@@ -701,12 +1058,17 @@ function buildServicesLatex(services = {}) {
     "greaseTrap",
   ];
 
+  console.log('\n========== CHECKING SERVICES FOR USAGE ==========');
   for (const serviceKey of allServiceKeys) {
     const svc = services[serviceKey];
-    if (svc && isServiceUsed(svc)) {
+    const isUsed = svc && isServiceUsed(svc);
+    console.log(`[${serviceKey}]: ${isUsed ? '✓ ACTIVE' : '✗ inactive'}`);
+    if (isUsed) {
+      console.log(`  Data:`, JSON.stringify(svc, null, 2));
       usedServices[serviceKey] = svc;
     }
   }
+  console.log('=================================================\n');
 
   // Custom services if present
   if (services.customServices && Array.isArray(services.customServices)) {
@@ -733,11 +1095,28 @@ function buildServicesLatex(services = {}) {
   const topRowCols = transformedServices.topRow || [];
   const bottomRowCols = transformedServices.bottomRow || [];
 
+  console.log('\n========== TRANSFORMED SERVICES ==========');
+  console.log('Top Row Columns:', JSON.stringify(topRowCols, null, 2));
+  console.log('Bottom Row Columns:', JSON.stringify(bottomRowCols, null, 2));
+  console.log('==========================================\n');
+
   const filteredTopRowCols = filterServiceColumns(topRowCols);
   const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
+  console.log('\n========== FILTERED SERVICES (for LaTeX) ==========');
+  console.log('Filtered Top Row:', JSON.stringify(filteredTopRowCols, null, 2));
+  console.log('Filtered Bottom Row:', JSON.stringify(filteredBottomRowCols, null, 2));
+  console.log('===================================================\n');
+
   servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
   servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
+
+  console.log('\n========== GENERATED LATEX ==========');
+  console.log('Top Row LaTeX:');
+  console.log(servicesTopRowLatex);
+  console.log('\nBottom Row LaTeX:');
+  console.log(servicesBottomRowLatex);
+  console.log('=====================================\n');
 
   // Refresh Power Scrub from *your* JSON:
   // services.refreshPowerScrub is the object with heading/columns/freqLabels
