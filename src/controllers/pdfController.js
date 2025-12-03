@@ -74,7 +74,7 @@ export async function compileCustomerHeaderPdf(req, res) {
 export async function compileAndStoreCustomerHeader(req, res) {
   try {
     const body = req.body || {};
-    const status = body.status || "draft";
+    const status = body.status || "saved"; // Default to "saved" instead of "draft"
     const isDraft = status === "draft";
 
     // Prepare payload structure
@@ -396,7 +396,7 @@ export async function updateCustomerHeaderStatus(req, res) {
     }
 
     // Validate status
-    const validStatuses = ["draft", "pending_approval", "approved_admin", "approved_salesman"];
+    const validStatuses = ["saved", "draft", "pending_approval", "approved_admin", "approved_salesman"];
     if (!status || !validStatuses.includes(status)) {
       return res
         .status(400)
@@ -464,7 +464,7 @@ export async function compileAndStoreAdminHeader(req, res) {
         storedAt: new Date(),
         externalUrl: null,
       },
-      status: body.status || "draft",
+      status: body.status || "saved", // Default to "saved" instead of "draft"
       createdBy: req.admin?.id || null,
       updatedBy: req.admin?.id || null,
       label: body.label || "",

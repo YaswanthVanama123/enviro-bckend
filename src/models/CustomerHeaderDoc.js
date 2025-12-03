@@ -152,6 +152,7 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
+        "saved",
         "draft",
         "in_progress",
         "active",
@@ -160,7 +161,7 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
         "approved_salesman",
         "approved_admin"
       ],
-      default: "draft",
+      default: "saved",
       index: true,
     },
 
