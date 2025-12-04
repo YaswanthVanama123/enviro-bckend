@@ -710,6 +710,40 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
+    // Handle janitorial-specific text fields
+    if (data.serviceType && data.serviceType.type === 'text' && data.serviceType.value) {
+      rows.push({
+        type: 'line',
+        label: data.serviceType.label || 'Service Type',
+        value: data.serviceType.value
+      });
+    }
+
+    if (data.vacuuming && data.vacuuming.type === 'text' && data.vacuuming.value) {
+      rows.push({
+        type: 'line',
+        label: data.vacuuming.label || 'Vacuuming',
+        value: data.vacuuming.value
+      });
+    }
+
+    if (data.dusting && data.dusting.type === 'text' && data.dusting.value) {
+      rows.push({
+        type: 'line',
+        label: data.dusting.label || 'Dusting',
+        value: data.dusting.value
+      });
+    }
+
+    // Handle additional janitorial text fields (if they exist)
+    if (data.addonTime && data.addonTime.type === 'text' && data.addonTime.value) {
+      rows.push({
+        type: 'line',
+        label: data.addonTime.label || 'Add-on Time',
+        value: data.addonTime.value
+      });
+    }
+
     // Add totals from new structured format
     if (data.totals) {
       if (data.totals.perVisit && data.totals.perVisit.amount != null) {
