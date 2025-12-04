@@ -543,53 +543,74 @@ const serviceConfigs = [
   },
 
   // 9. PURE JANITORIAL
-  {
-    serviceId: "pureJanitorial",
-    version: "v1.0",
-    label: "Pure Janitorial Services",
-    description: "General janitorial services",
-    config: {
-      baseHourlyRate: 30,
-      shortJobHourlyRate: 50,
-      minHoursPerVisit: 4,
-      tieredPricing: [
-        { upToHours: 0.25, price: 10, addonOnly: true },
-        { upToHours: 0.5, price: 20, addonOnly: true, standalonePrice: 35 },
-        { upToHours: 1, price: 50 },
-        { upToHours: 2, price: 80 },
-        { upToHours: 3, price: 100 },
-        { upToHours: 4, price: 120 },
-      ],
-      weeksPerMonth: 4.33,
-      minContractMonths: 2,
-      maxContractMonths: 36,
-      dirtyInitialMultiplier: 3,
-      infrequentMultiplier: 3,
-      defaultFrequency: "weekly",
-      dustingPlacesPerHour: 30,
-      dustingPricePerPlace: 1,
-      vacuumingDefaultHours: 1,
-      rateCategories: {
-        redRate: {
-          multiplier: 1,
-          commissionRate: "20%",
-        },
-        greenRate: {
-          multiplier: 1.3,
-          commissionRate: "25%",
-        },
+{
+  "version": "v2.0",
+  "serviceId": "pureJanitorial",
+  "description": "General janitorial services with recurring and one-time options",
+  "config": {
+    "baseHourlyRate": 30,
+    "shortJobHourlyRate": 50,
+    "minHoursPerVisit": 4,
+    "tieredPricing": [
+      {
+        "upToMinutes": 15,
+        "price": 10,
+        "description": "0-15 minutes",
+        "addonOnly": true
       },
-    },
-    defaultFormState: {
-      serviceId: "pureJanitorial",
-      hours: 0,
-      frequency: "weekly",
-      contractMonths: 12,
-      notes: "",
-    },
-    isActive: true,
-    tags: ["janitorial", "cleaning"],
+      {
+        "upToMinutes": 30,
+        "price": 20,
+        "description": "15-30 minutes",
+        "addonOnly": true,
+        "standalonePrice": 35
+      },
+      {
+        "upToHours": 1,
+        "price": 50,
+        "description": "30 min - 1 hour"
+      },
+      {
+        "upToHours": 2,
+        "price": 80,
+        "description": "1-2 hours"
+      },
+      {
+        "upToHours": 3,
+        "price": 100,
+        "description": "2-3 hours"
+      },
+      {
+        "upToHours": 4,
+        "price": 120,
+        "description": "3-4 hours"
+      },
+      {
+        "upToHours": 999,
+        "ratePerHour": 30,
+        "description": "4+ hours"
+      }
+    ],
+    "weeksPerMonth": 4.33,
+    "minContractMonths": 2,
+    "maxContractMonths": 36,
+    "dustingPlacesPerHour": 30,
+    "dustingPricePerPlace": 1,
+    "vacuumingDefaultHours": 1
   },
+  "defaultFormState": {
+    "serviceId": "pureJanitorial",
+    "serviceType": "recurring",
+    "manualHours": 0,
+    "vacuumingHours": 0,
+    "dustingPlaces": 0,
+    "addonTimeMinutes": 0,
+    "installation": false,
+    "contractMonths": 12,
+    "notes": ""
+  }
+}
+
 
   // 10. STRIP & WAX
   {

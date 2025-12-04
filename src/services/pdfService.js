@@ -420,7 +420,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
   // Handle NEW structured format (with label/type/qty/rate/total objects)
   // Check if this is the new structured format
-  if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service)) {
+  if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service || data.restroomFixtures || data.nonBathroomArea)) {
     console.log(`✓ Using NEW structured format for ${serviceKey}`);
 
     // Handle fixture breakdown (SaniClean)
@@ -719,6 +719,14 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
+    if (data.otherTasks && data.otherTasks.type === 'text' && data.otherTasks.value) {
+      rows.push({
+        type: 'line',
+        label: data.otherTasks.label || 'Other Tasks',
+        value: data.otherTasks.value
+      });
+    }
+ 
     if (data.vacuuming && data.vacuuming.type === 'text' && data.vacuuming.value) {
       rows.push({
         type: 'line',
@@ -735,7 +743,13 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Handle additional janitorial text fields (if they exist)
+    if (data.visitsPerWeek && data.visitsPerWeek.type === 'text' && data.visitsPerWeek.value) {
+      rows.push({
+        type: 'line',
+        label: data.visitsPerWeek.label || 'Visits per Week',
+        value: data.visitsPerWeek.value
+      });
+    }
     if (data.addonTime && data.addonTime.type === 'text' && data.addonTime.value) {
       rows.push({
         type: 'line',
@@ -778,6 +792,14 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         });
       }
 
+      if (data.totals.firstMonth && data.totals.firstMonth.amount != null) {
+        rows.push({
+          type: 'bold',
+          label: data.totals.firstMonth.label || 'First Month Total',
+          value: typeof data.totals.firstMonth.amount === 'number' ? `$${data.totals.firstMonth.amount.toFixed(2)}` : String(data.totals.firstMonth.amount)
+        });
+      }
+
       if (data.totals.contract && data.totals.contract.amount != null) {
         rows.push({
           type: 'bold',
@@ -797,15 +819,71 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
     // Add custom fields from new format
     if (data.customFields && Array.isArray(data.customFields)) {
+      console.log('🔧 Processing custom fields for PDF:', JSON.stringify(data.customFields, null, 2));
+
       for (const field of data.customFields) {
-        if (field && field.label && field.value !== undefined && field.value !== '') {
-          let value = String(field.value);
-          if (field.type === 'dollar' && typeof field.value === 'number') {
-            value = `$${field.value.toFixed(2)}`;
+        // Support both 'label' and 'name' properties
+        const fieldLabel = field.label || field.name;
+
+        if (field && fieldLabel) {
+          console.log(`🔧 Processing custom field: ${fieldLabel} (type: ${field.type})`);
+
+          // Handle different custom field types
+          if (field.type === 'calc') {
+            // Handle calc fields with calcValues structure (left @ middle = right)
+            if (field.calcValues &&
+                (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
+              console.log(`✅ Adding calc field (calcValues): ${fieldLabel}`);
+              rows.push({
+                type: 'atCharge',
+                label: fieldLabel,
+                v1: String(field.calcValues.left || ''),
+                v2: String(field.calcValues.middle || ''),
+                v3: String(field.calcValues.right || '')
+              });
+            }
+            // Handle calc fields with legacy value structure (qty @ rate = total)
+            else if (field.value && typeof field.value === 'object') {
+              const calcValue = field.value;
+              if (calcValue.qty != null && calcValue.rate != null && calcValue.total != null) {
+                console.log(`✅ Adding calc field (legacy): ${fieldLabel}`);
+                rows.push({
+                  type: 'atCharge',
+                  label: fieldLabel,
+                  v1: String(calcValue.qty || ''),
+                  v2: typeof calcValue.rate === 'number' ? `$${calcValue.rate.toFixed(2)}` : String(calcValue.rate || ''),
+                  v3: typeof calcValue.total === 'number' ? `$${calcValue.total.toFixed(2)}` : String(calcValue.total || '')
+                });
+              }
+            }
+          } else if (field.type === 'money' || field.type === 'dollar') {
+            // Handle money/dollar fields
+            if (field.value !== undefined && field.value !== '') {
+              const amount = typeof field.value === 'number' ? field.value : parseFloat(field.value) || 0;
+              console.log(`✅ Adding money field: ${fieldLabel} = $${amount.toFixed(2)}`);
+              rows.push({
+                type: 'line',
+                label: fieldLabel,
+                value: `$${amount.toFixed(2)}`
+              });
+            }
+          } else if (field.value !== undefined && field.value !== '') {
+            // Handle text and other field types
+            let value = String(field.value);
+            if (field.type === 'dollar' && typeof field.value === 'number') {
+              value = `$${field.value.toFixed(2)}`;
+            }
+            console.log(`✅ Adding text field: ${fieldLabel} = ${value}`);
+            rows.push({
+              type: 'line',
+              label: fieldLabel,
+              value
+            });
           }
-          rows.push({ type: 'line', label: field.label, value });
         }
       }
+    } else {
+      console.log('🔧 No custom fields found in data or customFields is not an array');
     }
 
     // Add notes if present
@@ -871,15 +949,30 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
   // Add custom fields if present (OLD format)
   if (data.customFields && Array.isArray(data.customFields)) {
     for (const field of data.customFields) {
-      if (field && field.label && field.value !== undefined && field.value !== '') {
-        let value = String(field.value);
-        // Format based on field type
-        if (field.type === 'dollar' && typeof field.value === 'number') {
-          value = `$${field.value.toFixed(2)}`;
-        } else if (field.type === 'calc' && typeof field.value === 'number') {
-          value = value;
+      // Support both 'label' and 'name' properties for OLD format too
+      const fieldLabel = field.label || field.name;
+
+      if (field && fieldLabel) {
+        // Handle calc fields with calcValues structure
+        if (field.type === 'calc' && field.calcValues &&
+            (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
+          rows.push({
+            type: 'atCharge',
+            label: fieldLabel,
+            v1: String(field.calcValues.left || ''),
+            v2: String(field.calcValues.middle || ''),
+            v3: String(field.calcValues.right || '')
+          });
         }
-        rows.push({ type: 'line', label: field.label, value });
+        // Handle other field types with value property
+        else if (field.value !== undefined && field.value !== '') {
+          let value = String(field.value);
+          // Format based on field type
+          if (field.type === 'dollar' && typeof field.value === 'number') {
+            value = `$${field.value.toFixed(2)}`;
+          }
+          rows.push({ type: 'line', label: fieldLabel, value });
+        }
       }
     }
   }
@@ -894,28 +987,51 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 }
 
 function transformCustomServiceToColumn(customService) {
+  console.log('🔧 Transforming custom service:', JSON.stringify(customService, null, 2));
   const rows = [];
 
   const label = customService.name || customService.label || 'CUSTOM SERVICE';
   const fields = customService.fields || [];
 
   for (const field of fields) {
-    if (field && field.label && field.value !== undefined && field.value !== '') {
-      let value = String(field.value);
+    // Support both 'label' and 'name' properties
+    const fieldLabel = field.label || field.name;
 
-      // Format based on field type
-      if (field.type === 'dollar') {
-        const numValue = parseFloat(field.value);
-        if (!isNaN(numValue)) {
-          value = `$${numValue.toFixed(2)}`;
-        }
+    if (field && fieldLabel) {
+      console.log(`🔧 Processing custom service field: ${fieldLabel} (type: ${field.type})`);
+
+      // Handle calc fields with calcValues structure
+      if (field.type === 'calc' && field.calcValues &&
+          (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
+        console.log(`✅ Adding custom service calc field: ${fieldLabel}`);
+        rows.push({
+          type: 'atCharge',
+          label: fieldLabel,
+          v1: String(field.calcValues.left || ''),
+          v2: String(field.calcValues.middle || ''),
+          v3: String(field.calcValues.right || '')
+        });
       }
+      // Handle other field types with value property
+      else if (field.value !== undefined && field.value !== '') {
+        let value = String(field.value);
 
-      const rowType = field.type === 'calc' ? 'bold' : 'line';
-      rows.push({ type: rowType, label: field.label, value });
+        // Format based on field type
+        if (field.type === 'dollar') {
+          const numValue = parseFloat(field.value);
+          if (!isNaN(numValue)) {
+            value = `$${numValue.toFixed(2)}`;
+          }
+        }
+
+        console.log(`✅ Adding custom service ${field.type} field: ${fieldLabel} = ${value}`);
+        const rowType = field.type === 'calc' ? 'bold' : 'line';
+        rows.push({ type: rowType, label: fieldLabel, value });
+      }
     }
   }
 
+  console.log(`✓ Generated ${rows.length} rows for custom service: ${label}`);
   return {
     heading: label,
     rows
@@ -950,6 +1066,7 @@ function buildServicesLatex(services = {}) {
     if (data.isActive === false) return false;
 
     // Core totals we care about (covers saniscrub, sanipod, etc.)
+    // Check both old flat format and new structured format
     if (
       data.weeklyTotal ||
       data.monthlyTotal ||
@@ -958,6 +1075,20 @@ function buildServicesLatex(services = {}) {
       data.ongoingMonthly
     )
       return true;
+
+    // Check NEW structured totals format
+    if (data.totals) {
+      if (
+        (data.totals.weekly && data.totals.weekly.amount) ||
+        (data.totals.monthly && data.totals.monthly.amount) ||
+        (data.totals.monthlyRecurring && data.totals.monthlyRecurring.amount) ||
+        (data.totals.contract && data.totals.contract.amount) ||
+        (data.totals.firstMonth && data.totals.firstMonth.amount) ||
+        (data.totals.perVisit && data.totals.perVisit.amount) ||
+        (data.totals.annual && data.totals.annual.amount)
+      )
+        return true;
+    }
 
     if (data.total || data.amount || data.charge) return true;
 
