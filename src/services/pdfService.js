@@ -87,22 +87,39 @@ function latexEscape(value = "") {
 }
 
 function buildProductsLatex(products = {}) {
-  const { smallProducts = [], dispensers = [], bigProducts = [] } = products;
+  // Handle BOTH payload formats:
+  // 1. Original frontend format: { smallProducts: [...], dispensers: [...], bigProducts: [...] }
+  // 2. Transformed format: { products: [...], dispensers: [...] }
+
+  let mergedProducts = [];
+  let dispensers = [];
+
+  // Check which format we're receiving
+  if (products.products && Array.isArray(products.products)) {
+    // Format 2: Already merged products array (from frontend transformer)
+    mergedProducts = products.products;
+    dispensers = products.dispensers || [];
+    console.log('[PDF] Using transformed format - products array already merged');
+  } else {
+    // Format 1: Separate smallProducts + bigProducts (original format)
+    const { smallProducts = [], bigProducts = [] } = products;
+    mergedProducts = [...smallProducts, ...bigProducts];
+    dispensers = products.dispensers || [];
+    console.log('[PDF] Using original format - merging smallProducts + bigProducts');
+  }
 
   // Add debug logging
   console.log('[PDF] buildProductsLatex called with:', {
-    smallProductsCount: smallProducts.length,
+    mergedProductsCount: mergedProducts.length,
     dispensersCount: dispensers.length,
-    bigProductsCount: bigProducts.length,
   });
-  if (smallProducts.length > 0) {
-    console.log('[PDF] First smallProduct:', JSON.stringify(smallProducts[0]));
+  console.log('[PDF] Raw products object keys:', Object.keys(products));
+
+  if (mergedProducts.length > 0) {
+    console.log('[PDF] First mergedProduct:', JSON.stringify(mergedProducts[0], null, 2));
   }
   if (dispensers.length > 0) {
     console.log('[PDF] First dispenser:', JSON.stringify(dispensers[0]));
-  }
-  if (bigProducts.length > 0) {
-    console.log('[PDF] First bigProduct:', JSON.stringify(bigProducts[0]));
   }
 
   // Helper: pick first non-null value from a list of keys
@@ -132,11 +149,10 @@ function buildProductsLatex(products = {}) {
   const toStr = (v) =>
     v === null || v === undefined ? "" : String(v);
 
-  // How many rows?  (zip the three arrays)
+  // How many rows? (zip the two arrays: products + dispensers)
   const rowCount = Math.max(
-    smallProducts.length,
-    dispensers.length,
-    bigProducts.length
+    mergedProducts.length,
+    dispensers.length
   );
 
   if (rowCount === 0) {
@@ -147,21 +163,18 @@ function buildProductsLatex(products = {}) {
     };
   }
 
-  // 14 columns, exactly like the UI grid
+  // 11 columns total: Products (5) + Dispensers (6)
   const headers = [
     "Products",
-    "Amount Per Unit",
     "Qty",
+    "Unit Price/Amount",
+    "Frequency",
     "Total",
     "Dispensers",
     "Qty",
     "Warranty Rate",
     "Replacement Rate/Install",
-    "Total",
-    "Products",
-    "Qty",
-    "Amount",
-    "Frequency of Service",
+    "Frequency",
     "Total",
   ];
 
@@ -174,132 +187,112 @@ function buildProductsLatex(products = {}) {
   let productsBodyRowsLatex = "";
 
   for (let i = 0; i < rowCount; i++) {
-    const sp = smallProducts[i] || {};
+    const mp = mergedProducts[i] || {}; // merged product (small or big)
     const dp = dispensers[i] || {};
-    const bp = bigProducts[i] || {};
 
-    // ----- LEFT BLOCK: small products (Products / Amount Per Unit / Qty / Total)
+    // ----- LEFT BLOCK: merged products (Products / Qty / Unit Price or Amount / Frequency / Total)
     const leftName =
-      sp.customName ||
-      sp.displayName ||
-      sp.productName ||
-      sp.productKey ||
+      mp.customName ||
+      mp.displayName ||
+      mp.productName ||
+      mp.productKey ||
       "";
 
-    const leftAmount = pick(sp, [
-      "amountPerUnit",
-      "unitPriceOverride",
+    const leftQty = pick(mp, ["qty", "quantity"]);
+
+    // For merged products, try both unitPrice (small) and amount (big)
+    const leftAmount = pick(mp, [
       "unitPrice",
+      "unitPriceOverride",
       "amount",
+      "amountPerUnit",
     ]);
 
-    const leftQty = pick(sp, ["qty", "quantity"]);
+    const leftFreq = pick(mp, [
+      "frequency",
+      "frequencyOfService",
+      "frequencyLabel",
+    ]) || "";
 
-    const leftTotal = pick(sp, [
+    const leftTotal = pick(mp, [
+      "total",
+      "totalOverride",
       "lineTotal",
       "extPrice",
-      "totalOverride",
-      "total",
     ]);
 
     // Debug logging for first row
     if (i === 0 && leftName) {
-      console.log(`[PDF] Row ${i} smallProduct - name: ${leftName}, amount: ${leftAmount}, qty: ${leftQty}, total: ${leftTotal}`);
+      console.log(`[PDF] Row ${i} mergedProduct - name: ${leftName}, qty: ${leftQty}, price: ${leftAmount}, frequency: ${leftFreq}, total: ${leftTotal}`);
     }
 
-    // ----- MIDDLE BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Total)
-    const dispName =
+    // ----- RIGHT BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Frequency / Total)
+    const rightName =
       dp.customName ||
       dp.displayName ||
       dp.productName ||
       dp.productKey ||
       "";
 
-    const dispQty = pick(dp, ["qty", "quantity"]);
+    const rightQty = pick(dp, ["qty", "quantity"]);
 
-    const dispWarranty = pick(dp, [
-      "warrantyPriceOverride",
+    const rightWarranty = pick(dp, [
       "warrantyRate",
+      "warrantyPriceOverride",
       "warranty",
     ]);
 
-    const dispReplacement = pick(dp, [
-      "replacementPriceOverride",
+    const rightReplacement = pick(dp, [
       "replacementRate",
+      "replacementPriceOverride",
       "replacement",
     ]);
 
-    const dispTotal = pick(dp, [
-      "lineTotal",
-      "extPrice",
-      "totalOverride",
-      "total",
-    ]);
-
-    // Debug logging for first row
-    if (i === 0 && dispName) {
-      console.log(`[PDF] Row ${i} dispenser - name: ${dispName}, qty: ${dispQty}, warranty: ${dispWarranty}, replacement: ${dispReplacement}, total: ${dispTotal}`);
-    }
-
-    // ----- RIGHT BLOCK: big products / extras (Products / Qty / Amount / Freq / Total)
-    const rightName =
-      bp.customName ||
-      bp.displayName ||
-      bp.productName ||
-      bp.productKey ||
-      "";
-
-    const rightQty = pick(bp, ["qty", "quantity"]);
-
-    const rightAmount = pick(bp, [
-      "amount",
-      "amountPerUnit",
-      "unitPriceOverride",
-      "unitPrice",
-    ]);
-
-    const rightFreq = pick(bp, [
+    const rightFreq = pick(dp, [
+      "frequency",
       "frequencyOfService",
       "frequencyLabel",
-      "frequency",
     ]) || "";
 
-    const rightTotal = pick(bp, [
+    const rightTotal = pick(dp, [
+      "total",
+      "totalOverride",
       "lineTotal",
       "extPrice",
-      "totalOverride",
-      "total",
     ]);
 
-    // Debug logging for first row
+    // Debug logging for first dispenser row
     if (i === 0 && rightName) {
-      console.log(`[PDF] Row ${i} bigProduct - name: ${rightName}, qty: ${rightQty}, amount: ${rightAmount}, freq: ${rightFreq}, total: ${rightTotal}`);
+      console.log(`[PDF] Row ${i} dispenser - name: ${rightName}, qty: ${rightQty}, warranty: ${rightWarranty}, replacement: ${rightReplacement}, frequency: ${rightFreq}, total: ${rightTotal}`);
     }
 
     const rowCells = [
-      // LEFT BLOCK
+      // LEFT BLOCK: Products / Qty / Unit Price or Amount / Frequency / Total
       latexEscape(leftName),
-      latexEscape(fmtDollar(leftAmount)),
       latexEscape(toStr(leftQty)),
+      latexEscape(fmtDollar(leftAmount)),
+      latexEscape(leftFreq),
       latexEscape(fmtDollar(leftTotal)),
 
-      // MIDDLE BLOCK
-      latexEscape(dispName),
-      latexEscape(toStr(dispQty)),
-      latexEscape(fmtDollar(dispWarranty)),
-      latexEscape(fmtDollar(dispReplacement)),
-      latexEscape(fmtDollar(dispTotal)),
-
-      // RIGHT BLOCK
+      // RIGHT BLOCK: Dispensers / Qty / Warranty Rate / Replacement Rate / Frequency / Total
       latexEscape(rightName),
       latexEscape(toStr(rightQty)),
-      latexEscape(fmtDollar(rightAmount)),
-      latexEscape(rightFreq ? latexEscape(rightFreq) : ""),
+      latexEscape(fmtDollar(rightWarranty)),
+      latexEscape(fmtDollar(rightReplacement)),
+      latexEscape(rightFreq),
       latexEscape(fmtDollar(rightTotal)),
     ];
 
+    // Debug logging for first few rows
+    if (i <= 2) {
+      console.log(`[PDF] Row ${i} - Left: "${leftName}" (qty: ${leftQty}, amt: ${fmtDollar(leftAmount)}) | Right: "${rightName}" (qty: ${rightQty})`);
+    }
+
     productsBodyRowsLatex += rowCells.join(" & ") + " \\\\ \\hline\n";
   }
+
+  console.log(`[PDF] Final LaTeX generation - ${rowCount} rows total`);
+  console.log(`[PDF] Products body LaTeX preview:`, productsBodyRowsLatex.substring(0, 500));
 
   return {
     productsColSpecLatex,
@@ -1039,10 +1032,6 @@ function transformCustomServiceToColumn(customService) {
 }
 
 function buildServicesLatex(services = {}) {
-  console.log('\n========== SERVICES DATA RECEIVED ==========');
-  console.log(JSON.stringify(services, null, 2));
-  console.log('============================================\n');
-
   // Helper: unwrap nested formData.formData... and return the deepest "data" object
   const resolveServiceData = (serviceData) => {
     if (!serviceData) return null;
@@ -1065,14 +1054,14 @@ function buildServicesLatex(services = {}) {
     if (serviceData.isActive === false) return false;
     if (data.isActive === false) return false;
 
-    // Core totals we care about (covers saniscrub, sanipod, etc.)
+    // Core totals we care about - FIXED: Check for numeric values > 0
     // Check both old flat format and new structured format
     if (
-      data.weeklyTotal ||
-      data.monthlyTotal ||
-      data.contractTotal ||
-      data.firstVisit ||
-      data.ongoingMonthly
+      (data.weeklyTotal && (typeof data.weeklyTotal === 'number' ? data.weeklyTotal > 0 : parseFloat(data.weeklyTotal) > 0)) ||
+      (data.monthlyTotal && (typeof data.monthlyTotal === 'number' ? data.monthlyTotal > 0 : parseFloat(data.monthlyTotal) > 0)) ||
+      (data.contractTotal && (typeof data.contractTotal === 'number' ? data.contractTotal > 0 : parseFloat(data.contractTotal) > 0)) ||
+      (data.firstVisit && (typeof data.firstVisit === 'number' ? data.firstVisit > 0 : parseFloat(data.firstVisit) > 0)) ||
+      (data.ongoingMonthly && (typeof data.ongoingMonthly === 'number' ? data.ongoingMonthly > 0 : parseFloat(data.ongoingMonthly) > 0))
     )
       return true;
 
@@ -1091,6 +1080,17 @@ function buildServicesLatex(services = {}) {
     }
 
     if (data.total || data.amount || data.charge) return true;
+
+    // Additional specific field checks for various service types
+    if (
+      (data.fixtureCount && data.fixtureCount > 0) ||
+      (data.drainCount && data.drainCount > 0) ||
+      (data.squareFeet && data.squareFeet > 0) ||
+      (data.quantity && data.quantity > 0) ||
+      (data.trapCount && data.trapCount > 0) ||
+      (data.hoursPerWeek && data.hoursPerWeek > 0) ||
+      (data.windowCount && data.windowCount > 0)
+    ) return true;
 
     // Custom fields (e.g. equipment rental, deep cleaning premium, etc.)
     if (Array.isArray(data.customFields) && data.customFields.length > 0) {
@@ -1251,17 +1251,26 @@ function buildServicesLatex(services = {}) {
     "electrostaticSpray",
   ];
 
-  console.log('\n========== CHECKING SERVICES FOR USAGE ==========');
   for (const serviceKey of allServiceKeys) {
     const svc = services[serviceKey];
     const isUsed = svc && isServiceUsed(svc);
-    console.log(`[${serviceKey}]: ${isUsed ? '✓ ACTIVE' : '✗ inactive'}`);
+
+    // Debug logging to track service filtering
+    if (svc) {
+      const data = svc.formData || svc;
+      console.log(`🔍 [PDF] Service ${serviceKey}:`);
+      console.log(`  └ isActive (wrapper): ${svc.isActive}`);
+      console.log(`  └ isActive (data): ${data.isActive}`);
+      console.log(`  └ weeklyTotal: ${data.weeklyTotal}`);
+      console.log(`  └ monthlyTotal: ${data.monthlyTotal}`);
+      console.log(`  └ contractTotal: ${data.contractTotal}`);
+      console.log(`  └ isUsed: ${isUsed}`);
+    }
+
     if (isUsed) {
-      console.log(`  Data:`, JSON.stringify(svc, null, 2));
       usedServices[serviceKey] = svc;
     }
   }
-  console.log('=================================================\n');
 
   // Custom services if present
   if (services.customServices && Array.isArray(services.customServices)) {
@@ -1273,8 +1282,13 @@ function buildServicesLatex(services = {}) {
     }
   }
 
+  // Debug logging to show what services were detected as used
+  console.log(`🔍 [PDF] Services detected as used:`, Object.keys(usedServices));
+  console.log(`🔍 [PDF] Total used services count: ${Object.keys(usedServices).length}`);
+
   // If nothing is actually used, return empty strings
   if (Object.keys(usedServices).length === 0) {
+    console.log(`⚠️ [PDF] No services detected as used - returning empty LaTeX`);
     return {
       servicesTopRowLatex: "",
       servicesBottomRowLatex: "",
@@ -1288,28 +1302,19 @@ function buildServicesLatex(services = {}) {
   const topRowCols = transformedServices.topRow || [];
   const bottomRowCols = transformedServices.bottomRow || [];
 
-  console.log('\n========== TRANSFORMED SERVICES ==========');
-  console.log('Top Row Columns:', JSON.stringify(topRowCols, null, 2));
-  console.log('Bottom Row Columns:', JSON.stringify(bottomRowCols, null, 2));
-  console.log('==========================================\n');
+  console.log(`🔍 [PDF] Transformed services - topRow: ${topRowCols.length} columns, bottomRow: ${bottomRowCols.length} columns`);
 
   const filteredTopRowCols = filterServiceColumns(topRowCols);
   const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-  console.log('\n========== FILTERED SERVICES (for LaTeX) ==========');
-  console.log('Filtered Top Row:', JSON.stringify(filteredTopRowCols, null, 2));
-  console.log('Filtered Bottom Row:', JSON.stringify(filteredBottomRowCols, null, 2));
-  console.log('===================================================\n');
+  console.log(`🔍 [PDF] After filtering - topRow: ${filteredTopRowCols.length} columns, bottomRow: ${filteredBottomRowCols.length} columns`);
 
+  // Generate LaTeX for the service rows
   servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
   servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
 
-  console.log('\n========== GENERATED LATEX ==========');
-  console.log('Top Row LaTeX:');
-  console.log(servicesTopRowLatex);
-  console.log('\nBottom Row LaTeX:');
-  console.log(servicesBottomRowLatex);
-  console.log('=====================================\n');
+  console.log(`🔍 [PDF] Generated LaTeX - topRow length: ${servicesTopRowLatex.length}, bottomRow length: ${servicesBottomRowLatex.length}`);
+
 
   // Refresh Power Scrub from *your* JSON:
   // services.refreshPowerScrub is the object with heading/columns/freqLabels
@@ -1377,6 +1382,13 @@ function buildServicesLatex(services = {}) {
       }
     }
   }
+
+  // Final debug summary of generated LaTeX content
+  console.log(`✅ [PDF] Services LaTeX generation complete:`);
+  console.log(`  └ Top row LaTeX: ${servicesTopRowLatex ? 'Generated' : 'Empty'} (${servicesTopRowLatex.length} chars)`);
+  console.log(`  └ Bottom row LaTeX: ${servicesBottomRowLatex ? 'Generated' : 'Empty'} (${servicesBottomRowLatex.length} chars)`);
+  console.log(`  └ Refresh section LaTeX: ${refreshSectionLatex ? 'Generated' : 'Empty'} (${refreshSectionLatex.length} chars)`);
+  console.log(`  └ Service notes LaTeX: ${serviceNotesLatex ? 'Generated' : 'Empty'} (${serviceNotesLatex.length} chars)`);
 
   return {
     servicesTopRowLatex,
