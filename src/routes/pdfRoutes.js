@@ -9,6 +9,7 @@ import {
   compileAndStoreCustomerHeader,
   getCustomerHeaders,
   getCustomerHeaderById,
+  getCustomerHeaderForEdit,
   updateCustomerHeader,
   updateCustomerHeaderStatus,
   compileAndStoreAdminHeader,
@@ -37,6 +38,7 @@ router.post("/customer-header-preview", compileCustomerHeaderPdf);
 router.post("/customer-header", compileAndStoreCustomerHeader);
 router.get("/customer-headers", getCustomerHeaders);
 router.get("/customer-headers/:id", getCustomerHeaderById);
+router.get("/customer-headers/:id/edit-format", getCustomerHeaderForEdit); // ← NEW: Edit-optimized format
 router.put("/customer-headers/:id", updateCustomerHeader);
 router.patch("/customer-headers/:id/status", updateCustomerHeaderStatus);
 

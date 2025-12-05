@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const { Schema } = mongoose;
 
-export const PRICE_CATEGORIES = ["small_product", "dispenser", "big_product"];
+export const PRICE_CATEGORIES = ["product", "dispenser"];
 
 const PriceFixSchema = new Schema(
   {

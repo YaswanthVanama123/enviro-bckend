@@ -86,14 +86,29 @@ export async function compileAndStoreCustomerHeader(req, res) {
       agreement: body.agreement || {},
     };
 
-    // DEBUG: Log the products structure being sent to PDF service
+    // DEBUG: Log the products structure being sent from frontend
     console.log("🐛 [DEBUG] Products payload structure:", JSON.stringify(body.products, null, 2));
     if (body.products) {
-      console.log("🐛 [DEBUG] Product counts:", {
-        smallProducts: (body.products.smallProducts || []).length,
-        bigProducts: (body.products.bigProducts || []).length,
-        dispensers: (body.products.dispensers || []).length
-      });
+      // Check for NEW 2-category format (products[] + dispensers[])
+      if (body.products.products && body.products.dispensers) {
+        console.log("🐛 [DEBUG] NEW FORMAT - Product counts:", {
+          mergedProducts: (body.products.products || []).length,
+          dispensers: (body.products.dispensers || []).length
+        });
+        console.log("🐛 [DEBUG] Sample merged product:", body.products.products[0]);
+        console.log("🐛 [DEBUG] Sample dispenser:", body.products.dispensers[0]);
+      }
+      // Check for OLD 3-category format (for backward compatibility)
+      else if (body.products.smallProducts || body.products.bigProducts || body.products.dispensers) {
+        console.log("🐛 [DEBUG] OLD FORMAT - Product counts:", {
+          smallProducts: (body.products.smallProducts || []).length,
+          bigProducts: (body.products.bigProducts || []).length,
+          dispensers: (body.products.dispensers || []).length
+        });
+      }
+      else {
+        console.log("🐛 [DEBUG] UNKNOWN FORMAT - Product keys:", Object.keys(body.products));
+      }
     }
 
     let buffer = null;
@@ -297,6 +312,188 @@ export async function getCustomerHeaderById(req, res) {
       });
     }
 
+    res
+      .status(500)
+      .json({ error: "server_error", detail: err?.message || String(err) });
+  }
+}
+
+// GET /api/pdf/customer-headers/:id/edit-format
+// Special endpoint that converts stored data to frontend-expected format for editing
+export async function getCustomerHeaderForEdit(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res
+        .status(400)
+        .json({ error: "bad_request", detail: "Invalid id" });
+    }
+
+    const doc = await CustomerHeaderDoc.findById(id).lean();
+    if (!doc) {
+      return res
+        .status(404)
+        .json({ error: "not_found", detail: "Document not found" });
+    }
+
+    console.log(`🔄 [EDIT FORMAT] Converting document for edit mode - ID: ${id}`);
+
+    // Convert stored format to edit-friendly format while preserving ALL data
+    const originalProducts = doc.payload?.products || {};
+
+    console.log(`🔄 [EDIT FORMAT] Original storage format detected:`, {
+      hasProducts: !!(originalProducts.products),
+      hasSmallProducts: !!(originalProducts.smallProducts),
+      hasBigProducts: !!(originalProducts.bigProducts),
+      hasDispensers: !!(originalProducts.dispensers),
+      productsCount: (originalProducts.products || []).length,
+      smallProductsCount: (originalProducts.smallProducts || []).length,
+      bigProductsCount: (originalProducts.bigProducts || []).length,
+      dispensersCount: (originalProducts.dispensers || []).length
+    });
+
+    let mergedProductsArray = [];
+
+    // Handle NEW format (products[] array exists)
+    if (originalProducts.products && Array.isArray(originalProducts.products)) {
+      console.log(`🆕 [EDIT FORMAT] Using NEW format - found ${originalProducts.products.length} products in merged array`);
+      mergedProductsArray = originalProducts.products.map(p => ({
+        ...p,
+        // Preserve existing _productType or infer from product structure
+        _productType: p._productType || (p.amount !== undefined ? 'big' : 'small'),
+        // Ensure all critical fields are preserved
+        productKey: p.productKey,
+        customName: p.customName || p.displayName,
+        displayName: p.displayName || p.customName,
+        qty: p.qty || 0,
+        // Handle both small product (unitPrice) and big product (amount) fields
+        unitPrice: p.unitPrice,
+        unitPriceOverride: p.unitPriceOverride,
+        amount: p.amount,
+        amountOverride: p.amountOverride,
+        frequency: p.frequency || '', // ← PRESERVE frequency
+        total: p.total || p.extPrice,
+        extPrice: p.extPrice || p.total
+      }));
+    }
+    // Handle OLD format (smallProducts[] + bigProducts[] arrays exist)
+    else {
+      console.log(`🔄 [EDIT FORMAT] Using OLD format - merging ${(originalProducts.smallProducts || []).length} small + ${(originalProducts.bigProducts || []).length} big products`);
+      mergedProductsArray = [
+        ...(originalProducts.smallProducts || []).map(p => ({
+          ...p,
+          _productType: 'small',
+          // Ensure all critical fields are preserved
+          productKey: p.productKey,
+          customName: p.customName || p.displayName,
+          displayName: p.displayName || p.customName,
+          qty: p.qty || 0,
+          unitPrice: p.unitPrice,
+          unitPriceOverride: p.unitPriceOverride,
+          frequency: p.frequency || '', // ← PRESERVE frequency
+          total: p.total || p.extPrice,
+          extPrice: p.extPrice || p.total
+        })),
+        ...(originalProducts.bigProducts || []).map(p => ({
+          ...p,
+          _productType: 'big',
+          // Ensure all critical fields are preserved
+          productKey: p.productKey,
+          customName: p.customName || p.displayName,
+          displayName: p.displayName || p.customName,
+          qty: p.qty || 0,
+          amount: p.amount,
+          amountOverride: p.amountOverride,
+          frequency: p.frequency || '', // ← PRESERVE frequency
+          total: p.total
+        }))
+      ];
+    }
+
+    const convertedProducts = {
+      // Use the merged products array
+      products: mergedProductsArray,
+      // Keep dispensers separate with enhanced data preservation
+      dispensers: (originalProducts.dispensers || []).map(d => ({
+        ...d,
+        _productType: 'dispenser',
+        // Ensure all critical fields are preserved for dispensers
+        productKey: d.productKey,
+        customName: d.customName || d.displayName,
+        displayName: d.displayName || d.customName,
+        qty: d.qty || 0,
+        warrantyRate: d.warrantyRate,
+        warrantyPriceOverride: d.warrantyPriceOverride,
+        replacementRate: d.replacementRate,
+        replacementPriceOverride: d.replacementPriceOverride,
+        frequency: d.frequency || '', // ← CRITICAL: PRESERVE dispenser frequency
+        total: d.total
+      }))
+    };
+
+    // Log frequency preservation for debugging
+    console.log(`🔄 [EDIT FORMAT] Dispenser frequency preservation:`);
+    convertedProducts.dispensers.forEach((d, i) => {
+      console.log(`  Dispenser ${i+1}: "${d.customName}" → frequency: "${d.frequency}"`);
+    });
+
+    // Create edit-friendly response
+    const editResponse = {
+      ...doc,
+      payload: {
+        ...doc.payload,
+        products: convertedProducts
+      },
+      _editFormatMetadata: {
+        originalStructure: {
+          // Show actual detected format
+          format: originalProducts.products ? 'NEW (merged products array)' : 'OLD (separate small/big arrays)',
+          products: (originalProducts.products || []).length,
+          smallProducts: (originalProducts.smallProducts || []).length,
+          dispensers: (originalProducts.dispensers || []).length,
+          bigProducts: (originalProducts.bigProducts || []).length
+        },
+        convertedStructure: {
+          products: convertedProducts.products.length,
+          dispensers: convertedProducts.dispensers.length
+        },
+        productFrequencyPreservation: convertedProducts.products.map(p => ({
+          name: p.customName || p.displayName,
+          frequency: p.frequency,
+          hasFrequency: !!p.frequency,
+          productType: p._productType
+        })),
+        dispenserFrequencyPreservation: convertedProducts.dispensers.map(d => ({
+          name: d.customName,
+          frequency: d.frequency,
+          hasFrequency: !!d.frequency
+        })),
+        conversionTime: new Date().toISOString()
+      }
+    };
+
+    console.log(`✅ [EDIT FORMAT] Conversion complete - preserved ${convertedProducts.products.length} products and ${convertedProducts.dispensers.length} dispensers with frequencies`);
+
+    // Log product frequency preservation for debugging
+    if (convertedProducts.products.length > 0) {
+      console.log(`🔄 [EDIT FORMAT] Product frequency preservation:`);
+      convertedProducts.products.forEach((p, i) => {
+        console.log(`  Product ${i+1}: "${p.customName || p.displayName}" (${p._productType}) → frequency: "${p.frequency}"`);
+      });
+    }
+
+    // Log dispenser frequency preservation for debugging
+    if (convertedProducts.dispensers.length > 0) {
+      console.log(`🔄 [EDIT FORMAT] Dispenser frequency preservation:`);
+      convertedProducts.dispensers.forEach((d, i) => {
+        console.log(`  Dispenser ${i+1}: "${d.customName}" → frequency: "${d.frequency}"`);
+      });
+    }
+
+    res.json(editResponse);
+  } catch (err) {
+    console.error("getCustomerHeaderForEdit error:", err);
     res
       .status(500)
       .json({ error: "server_error", detail: err?.message || String(err) });

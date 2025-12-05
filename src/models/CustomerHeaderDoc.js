@@ -16,6 +16,7 @@ const ProductRowSchema = new mongoose.Schema(
     id: String,
     productKey: String,
     displayName: String,  // Product display name (for PDF)
+    customName: String,   // Custom product name
     qty: Number,
 
     // Small Products fields
@@ -32,6 +33,9 @@ const ProductRowSchema = new mongoose.Schema(
     amount: Number,
     amountOverride: Number,
 
+    // Frequency field (ADDED for all product types)
+    frequency: { type: String, default: "" },
+
     // Totals
     total: Number,
     totalOverride: Number,
@@ -39,8 +43,10 @@ const ProductRowSchema = new mongoose.Schema(
 
     // Custom rows
     isCustom: Boolean,
-    customName: String,
     isDefault: Boolean,
+
+    // Product type identifier (for merged products array)
+    _productType: { type: String, enum: ["small", "big", "dispenser"], default: null },
 
     // Custom columns
     customFields: mongoose.Schema.Types.Mixed,
@@ -48,14 +54,22 @@ const ProductRowSchema = new mongoose.Schema(
   { _id: false, strict: false }  // strict: false allows additional fields
 );
 
-// Products schema matching frontend structure
+// Products schema - UPDATED to support both old and new formats
 const ProductsSchema = new mongoose.Schema(
   {
+    // NEW FORMAT: 2-category structure (frontend sends this)
+    products: [ProductRowSchema],     // Merged small + big products
+    dispensers: [ProductRowSchema],   // Dispensers only
+
+    // OLD FORMAT: 3-category structure (for backward compatibility)
     smallProducts: [ProductRowSchema],
-    dispensers: [ProductRowSchema],
     bigProducts: [ProductRowSchema],
+
+    // Legacy format (for very old data)
+    headers: [String],
+    rows: [[String]],
   },
-  { _id: false }
+  { _id: false, strict: false }  // Allow additional fields for flexibility
 );
 
 // Services schema matching frontend structure

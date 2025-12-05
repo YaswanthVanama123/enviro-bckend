@@ -27,6 +27,9 @@ const PriceSchema = new mongoose.Schema(
     quantityPerCase: Number,
     quantityPerCaseLabel: String,
 
+    // Frequency field (added to match CustomerHeaderDoc requirements)
+    frequency: { type: String, default: "" },
+
     displayByAdmin: { type: Boolean, default: false },
   },
   { _id: false }
