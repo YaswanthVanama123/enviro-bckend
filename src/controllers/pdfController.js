@@ -84,10 +84,12 @@ export async function compileAndStoreCustomerHeader(req, res) {
       products: body.products || {},
       services: body.services || {},
       agreement: body.agreement || {},
+      customColumns: body.customColumns || {}, // Store custom column definitions
     };
 
     // DEBUG: Log the products structure being sent from frontend
     console.log("🐛 [DEBUG] Products payload structure:", JSON.stringify(body.products, null, 2));
+    console.log("🐛 [DEBUG] Custom columns payload:", JSON.stringify(body.customColumns, null, 2));
     if (body.products) {
       // Check for NEW 2-category format (products[] + dispensers[])
       if (body.products.products && body.products.dispensers) {
@@ -443,7 +445,8 @@ export async function getCustomerHeaderForEdit(req, res) {
       ...doc,
       payload: {
         ...doc.payload,
-        products: convertedProducts
+        products: convertedProducts,
+        customColumns: doc.payload.customColumns || { products: [], dispensers: [] } // Include custom columns
       },
       _editFormatMetadata: {
         originalStructure: {
@@ -528,6 +531,7 @@ export async function updateCustomerHeader(req, res) {
     if (body.products !== undefined) doc.payload.products = body.products;
     if (body.services !== undefined) doc.payload.services = body.services;
     if (body.agreement !== undefined) doc.payload.agreement = body.agreement;
+    if (body.customColumns !== undefined) doc.payload.customColumns = body.customColumns; // Update custom columns
     doc.status = newStatus;
 
     // Update Zoho references if provided
@@ -566,6 +570,7 @@ export async function updateCustomerHeader(req, res) {
         products: productsData,  // Use the determined data source
         services: body.services || doc.payload.services,
         agreement: doc.payload.agreement,
+        customColumns: doc.payload.customColumns || body.customColumns || { products: [], dispensers: [] }, // Pass custom columns
       });
 
       buffer = pdfResult.buffer;
@@ -869,6 +874,7 @@ export async function updateAdminHeader(req, res) {
         products: doc.products,
         services: doc.services,
         agreement: doc.agreement,
+        customColumns: doc.customColumns || { products: [], dispensers: [] }, // Add custom columns
       });
 
       buffer = pdfBuf;

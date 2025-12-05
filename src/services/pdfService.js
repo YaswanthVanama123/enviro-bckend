@@ -86,7 +86,14 @@ function latexEscape(value = "") {
     .replace(/~/g, "\\textasciitilde{}");
 }
 
-function buildProductsLatex(products = {}) {
+function buildProductsLatex(products = {}, customColumns = { products: [], dispensers: [] }) {
+  // Debug custom columns data
+  console.log('[PDF] buildProductsLatex called with customColumns:', {
+    hasCustomColumns: !!(customColumns && (customColumns.products?.length || customColumns.dispensers?.length)),
+    productColumns: customColumns.products || [],
+    dispenserColumns: customColumns.dispensers || []
+  });
+
   // Handle BOTH payload formats:
   // 1. Original frontend format: { smallProducts: [...], dispensers: [...], bigProducts: [...] }
   // 2. Transformed format: { products: [...], dispensers: [...] }
@@ -163,20 +170,34 @@ function buildProductsLatex(products = {}) {
     };
   }
 
-  // 11 columns total: Products (5) + Dispensers (6)
+  // Build dynamic headers based on custom columns
+  const baseProductHeaders = ["Products", "Qty", "Unit Price/Amount", "Frequency", "Total"];
+  const baseDispenserHeaders = ["Dispensers", "Qty", "Warranty Rate", "Replacement Rate/Install", "Frequency", "Total"];
+
+  // Add custom column headers for products
+  const productCustomHeaders = (customColumns.products || []).map(col => col.label || col.id);
+
+  // Add custom column headers for dispensers
+  const dispenserCustomHeaders = (customColumns.dispensers || []).map(col => col.label || col.id);
+
+  // Combine all headers: Products (5) + Product Custom Columns + Dispensers (6) + Dispenser Custom Columns
   const headers = [
-    "Products",
-    "Qty",
-    "Unit Price/Amount",
-    "Frequency",
-    "Total",
-    "Dispensers",
-    "Qty",
-    "Warranty Rate",
-    "Replacement Rate/Install",
-    "Frequency",
-    "Total",
+    ...baseProductHeaders,
+    ...productCustomHeaders,
+    ...baseDispenserHeaders,
+    ...dispenserCustomHeaders,
   ];
+
+  console.log('[PDF] Dynamic headers generated:', {
+    totalColumns: headers.length,
+    productCustomColumns: productCustomHeaders.length,
+    dispenserCustomColumns: dispenserCustomHeaders.length,
+    headers: headers,
+    customColumnsDefinitions: {
+      products: customColumns.products,
+      dispensers: customColumns.dispensers
+    }
+  });
 
   const productsColSpecLatex = headers.map(() => "Y").join("|");
   const productsHeaderRowLatex =
@@ -266,26 +287,100 @@ function buildProductsLatex(products = {}) {
       console.log(`[PDF] Row ${i} dispenser - name: ${rightName}, qty: ${rightQty}, warranty: ${rightWarranty}, replacement: ${rightReplacement}, frequency: ${rightFreq}, total: ${rightTotal}`);
     }
 
+    // Debug: Log raw product and dispenser objects for first few rows
+    if (i <= 2) {
+      console.log(`[PDF] Row ${i} - Raw merged product:`, JSON.stringify(mp, null, 2));
+      console.log(`[PDF] Row ${i} - Raw dispenser:`, JSON.stringify(dp, null, 2));
+    }
+
+    // Extract custom field values for products
+    const leftCustomValues = (customColumns.products || []).map(col => {
+      const value = mp.customFields?.[col.id];
+      console.log(`[PDF] Product custom field - Column: ${col.id} (${col.label}), Value: ${value}, Type: ${typeof value}`);
+
+      // Handle different value types and empty values
+      if (value === undefined || value === null || value === "") {
+        return latexEscape("");
+      }
+
+      // For numeric values, format as dollar amount
+      if (typeof value === "number") {
+        return latexEscape(fmtDollar(value));
+      }
+
+      // For string values, check if it's a numeric string
+      if (typeof value === "string") {
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue)) {
+          return latexEscape(fmtDollar(numValue));
+        }
+        // Non-numeric string, return as-is
+        return latexEscape(value);
+      }
+
+      return latexEscape(String(value));
+    });
+
+    // Extract custom field values for dispensers
+    const rightCustomValues = (customColumns.dispensers || []).map(col => {
+      const value = dp.customFields?.[col.id];
+      console.log(`[PDF] Dispenser custom field - Column: ${col.id} (${col.label}), Value: ${value}, Type: ${typeof value}`);
+
+      // Handle different value types and empty values
+      if (value === undefined || value === null || value === "") {
+        return latexEscape("");
+      }
+
+      // For numeric values, format as dollar amount
+      if (typeof value === "number") {
+        return latexEscape(fmtDollar(value));
+      }
+
+      // For string values, check if it's a numeric string
+      if (typeof value === "string") {
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue)) {
+          return latexEscape(fmtDollar(numValue));
+        }
+        // Non-numeric string, return as-is
+        return latexEscape(value);
+      }
+
+      return latexEscape(String(value));
+    });
+
     const rowCells = [
-      // LEFT BLOCK: Products / Qty / Unit Price or Amount / Frequency / Total
+      // LEFT BLOCK: Products standard columns
       latexEscape(leftName),
       latexEscape(toStr(leftQty)),
       latexEscape(fmtDollar(leftAmount)),
       latexEscape(leftFreq),
       latexEscape(fmtDollar(leftTotal)),
 
-      // RIGHT BLOCK: Dispensers / Qty / Warranty Rate / Replacement Rate / Frequency / Total
+      // LEFT BLOCK: Products custom columns
+      ...leftCustomValues,
+
+      // RIGHT BLOCK: Dispensers standard columns
       latexEscape(rightName),
       latexEscape(toStr(rightQty)),
       latexEscape(fmtDollar(rightWarranty)),
       latexEscape(fmtDollar(rightReplacement)),
       latexEscape(rightFreq),
       latexEscape(fmtDollar(rightTotal)),
+
+      // RIGHT BLOCK: Dispensers custom columns
+      ...rightCustomValues,
     ];
 
     // Debug logging for first few rows
     if (i <= 2) {
       console.log(`[PDF] Row ${i} - Left: "${leftName}" (qty: ${leftQty}, amt: ${fmtDollar(leftAmount)}) | Right: "${rightName}" (qty: ${rightQty})`);
+      if (leftCustomValues.length > 0) {
+        console.log(`[PDF] Row ${i} - Product custom fields:`, leftCustomValues);
+      }
+      if (rightCustomValues.length > 0) {
+        console.log(`[PDF] Row ${i} - Dispenser custom fields:`, rightCustomValues);
+      }
     }
 
     productsBodyRowsLatex += rowCells.join(" & ") + " \\\\ \\hline\n";
@@ -1454,7 +1549,7 @@ export async function compileCustomerHeader(body = {}) {
     agreementEnviroOf: latexEscape(body.agreement?.enviroOf || ""),
     agreementExecutedOn: latexEscape(body.agreement?.customerExecutedOn || ""),
     agreementAdditionalMonths: latexEscape(body.agreement?.additionalMonths || ""),
-    ...buildProductsLatex(body.products || {}),
+    ...buildProductsLatex(body.products || {}, body.customColumns || { products: [], dispensers: [] }),
     ...buildServicesLatex(body.services || {}),
   };
 
