@@ -1549,7 +1549,7 @@ export async function compileCustomerHeader(body = {}) {
     agreementEnviroOf: latexEscape(body.agreement?.enviroOf || ""),
     agreementExecutedOn: latexEscape(body.agreement?.customerExecutedOn || ""),
     agreementAdditionalMonths: latexEscape(body.agreement?.additionalMonths || ""),
-    ...buildProductsLatex(body.products || {}, body.customColumns || { products: [], dispensers: [] }),
+    ...buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] }),
     ...buildServicesLatex(body.services || {}),
   };
 

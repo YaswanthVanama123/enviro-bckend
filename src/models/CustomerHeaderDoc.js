@@ -68,6 +68,12 @@ const ProductsSchema = new mongoose.Schema(
     // Legacy format (for very old data)
     headers: [String],
     rows: [[String]],
+
+    // Custom column definitions (added to support dynamic columns)
+    customColumns: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({ products: [], dispensers: [] })
+    },
   },
   { _id: false, strict: false }  // Allow additional fields for flexibility
 );

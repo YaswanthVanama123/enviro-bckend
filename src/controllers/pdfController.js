@@ -84,12 +84,11 @@ export async function compileAndStoreCustomerHeader(req, res) {
       products: body.products || {},
       services: body.services || {},
       agreement: body.agreement || {},
-      customColumns: body.customColumns || {}, // Store custom column definitions
     };
 
     // DEBUG: Log the products structure being sent from frontend
     console.log("🐛 [DEBUG] Products payload structure:", JSON.stringify(body.products, null, 2));
-    console.log("🐛 [DEBUG] Custom columns payload:", JSON.stringify(body.customColumns, null, 2));
+    console.log("🐛 [DEBUG] Custom columns from products:", JSON.stringify(body.products?.customColumns, null, 2));
     if (body.products) {
       // Check for NEW 2-category format (products[] + dispensers[])
       if (body.products.products && body.products.dispensers) {
@@ -349,6 +348,8 @@ export async function getCustomerHeaderForEdit(req, res) {
       hasSmallProducts: !!(originalProducts.smallProducts),
       hasBigProducts: !!(originalProducts.bigProducts),
       hasDispensers: !!(originalProducts.dispensers),
+      hasCustomColumns: !!(originalProducts.customColumns),
+      customColumnsContent: originalProducts.customColumns,
       productsCount: (originalProducts.products || []).length,
       smallProductsCount: (originalProducts.smallProducts || []).length,
       bigProductsCount: (originalProducts.bigProducts || []).length,
@@ -445,8 +446,10 @@ export async function getCustomerHeaderForEdit(req, res) {
       ...doc,
       payload: {
         ...doc.payload,
-        products: convertedProducts,
-        customColumns: doc.payload.customColumns || { products: [], dispensers: [] } // Include custom columns
+        products: {
+          ...convertedProducts,
+          customColumns: originalProducts.customColumns || { products: [], dispensers: [] } // Include custom columns inside products
+        },
       },
       _editFormatMetadata: {
         originalStructure: {
@@ -493,6 +496,14 @@ export async function getCustomerHeaderForEdit(req, res) {
         console.log(`  Dispenser ${i+1}: "${d.customName}" → frequency: "${d.frequency}"`);
       });
     }
+
+    // Debug: Show what customColumns are being returned
+    console.log(`🔍 [EDIT FORMAT] CustomColumns debug:`, {
+      originalCustomColumns: originalProducts.customColumns,
+      returnedCustomColumns: originalProducts.customColumns || { products: [], dispensers: [] },
+      willIncludeInResponse: !!(originalProducts.customColumns),
+      editResponseCustomColumns: editResponse.payload.products.customColumns
+    });
 
     res.json(editResponse);
   } catch (err) {
@@ -570,7 +581,7 @@ export async function updateCustomerHeader(req, res) {
         products: productsData,  // Use the determined data source
         services: body.services || doc.payload.services,
         agreement: doc.payload.agreement,
-        customColumns: doc.payload.customColumns || body.customColumns || { products: [], dispensers: [] }, // Pass custom columns
+        customColumns: doc.payload.products?.customColumns || body.products?.customColumns || { products: [], dispensers: [] }, // Pass custom columns from products section
       });
 
       buffer = pdfResult.buffer;
@@ -874,7 +885,7 @@ export async function updateAdminHeader(req, res) {
         products: doc.products,
         services: doc.services,
         agreement: doc.agreement,
-        customColumns: doc.customColumns || { products: [], dispensers: [] }, // Add custom columns
+        customColumns: doc.products?.customColumns || { products: [], dispensers: [] }, // Add custom columns from products section
       });
 
       buffer = pdfBuf;
