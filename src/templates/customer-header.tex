@@ -12,30 +12,37 @@
 % ---- Colors ----
 \definecolor{emred}{RGB}{228,0,43}
 \definecolor{linegray}{RGB}{190,190,190} % light gray for blanks
+\definecolor{totalcolor}{RGB}{120,120,120} % dark gray for totals
 
 \pagestyle{empty}
 
 % ====== GENERIC BLANK HELPERS =====================================
 
-% full-width underline with text on top (used in header + notes)
+% full-width underline with text centered on the line (used in header + notes)
 \newcommand{\filledline}[1]{%
   \leavevmode
-  \makebox[0pt][l]{\textcolor{linegray}{\rule{\linewidth}{0.25pt}}}%
-  \makebox[\linewidth][l]{\strut #1}%
+  \makebox[\linewidth][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\linewidth}{0.25pt}}}%
+    \makebox[0pt][c]{\strut #1}%
+  }%
 }
 
-% medium underline (generic inline field)
+% medium underline with text centered on the line (generic inline field)
 \newcommand{\smallfilled}[1]{%
   \leavevmode
-  \makebox[2.0cm][l]{\textcolor{linegray}{\rule{2.0cm}{0.25pt}}}%
-  \makebox[2.0cm][l]{\strut #1}%
+  \makebox[2.0cm][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{2.0cm}{0.25pt}}}%
+    \makebox[0pt][c]{\strut #1}%
+  }%
 }
 
-% short blank for "@  =  $" lines – made a bit narrower to avoid overlap
+% short blank for calc fields – wider width with normal font size to match other fields
 \newcommand{\smallfilledshort}[1]{%
   \leavevmode
-  \makebox[0.32cm][l]{\textcolor{linegray}{\rule{0.32cm}{0.25pt}}}%
-  \makebox[0.32cm][l]{\strut #1}%
+  \makebox[1.5cm][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{1.5cm}{0.25pt}}}%
+    \makebox[0pt][c]{\strut\small #1}%
+  }%
 }
 
 % small inline blank for things like "Dumpster $ _____"
@@ -56,32 +63,43 @@
 \setlength{\serviceGap}{0.2em}
 
 \newcommand{\serviceSection}[1]{%
-  {\bfseries\footnotesize\textcolor{emred}{#1}\par}%
-  \vspace{0.2em}%
+  {\bfseries\normalsize\textcolor{emred}{#1}\par}%
+  \vspace{0.7em}%
 }
 
-% Normal label + aligned blank (full width) – value printed on top of line
+% Normal label + aligned blank (appropriate width) – value centered on the line
 \newcommand{\serviceLine}[2]{%
-  \noindent\footnotesize
+  \noindent\normalsize
   % label
   \makebox[\serviceLabelWidth][l]{#1}%
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % gray line for remaining width
-  \makebox[0pt][l]{%
-    \textcolor{linegray}{%
-      \rule{\dimexpr\linewidth-\serviceLabelWidth-\serviceGap\relax}{0.25pt}%
-    }%
+  % Calculate appropriate width based on content, max 4cm
+  \setbox0=\hbox{\strut #2}%
+  \ifdim\wd0>4cm%
+    \def\fieldwidth{4cm}%
+  \else%
+    \ifdim\wd0<1.5cm%
+      \def\fieldwidth{1.5cm}%
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.5cm\relax}%
+    \fi%
+  \fi%
+  % Create container with calculated width
+  \makebox[\fieldwidth][c]{%
+    % gray line positioned at zero width
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    % value text centered on top of that line
+    \makebox[0pt][c]{\strut #2}%
   }%
-  % value text on top of that line
-  \makebox[\dimexpr\linewidth-\serviceLabelWidth-\serviceGap\relax][l]{\strut #2}%
   \par
+  \vspace{0.5em}%
 }
 
-% Red bold label + aligned blank (full width) – value printed on top of line
+% Red bold label + aligned blank (appropriate width) – value centered on the line
 \newcommand{\serviceBoldLine}[2]{%
-  \noindent\footnotesize
+  \noindent\normalsize
   % label (bold + red)
   \makebox[\serviceLabelWidth][l]{%
     \textbf{\textcolor{emred}{#1}}%
@@ -89,28 +107,74 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % gray line for remaining width
-  \makebox[0pt][l]{%
-    \textcolor{linegray}{%
-      \rule{\dimexpr\linewidth-\serviceLabelWidth-\serviceGap\relax}{0.25pt}%
-    }%
+  % Calculate appropriate width based on content, max 4cm
+  \setbox0=\hbox{\strut #2}%
+  \ifdim\wd0>4cm%
+    \def\fieldwidth{4cm}%
+  \else%
+    \ifdim\wd0<1.5cm%
+      \def\fieldwidth{1.5cm}%
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.5cm\relax}%
+    \fi%
+  \fi%
+  % Create container with calculated width
+  \makebox[\fieldwidth][c]{%
+    % gray line positioned at zero width
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    % value text centered on top of that line
+    \makebox[0pt][c]{\strut #2}%
   }%
-  % value text on top of that line
-  \makebox[\dimexpr\linewidth-\serviceLabelWidth-\serviceGap\relax][l]{\strut #2}%
   \par
+  \vspace{0.5em}%
+}
+
+% Dark gray bold label for totals – different color to distinguish from headers
+\newcommand{\serviceTotalLine}[2]{%
+  \noindent\normalsize
+  % label (bold + dark gray)
+  \makebox[\serviceLabelWidth][l]{%
+    \textbf{\textcolor{totalcolor}{#1}}%
+  }%
+  % small gap after label
+  \hspace{\serviceGap}%
+  \leavevmode
+  % Calculate appropriate width based on content, max 4cm
+  \setbox0=\hbox{\strut #2}%
+  \ifdim\wd0>4cm%
+    \def\fieldwidth{4cm}%
+  \else%
+    \ifdim\wd0<1.5cm%
+      \def\fieldwidth{1.5cm}%
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.5cm\relax}%
+    \fi%
+  \fi%
+  % Create container with calculated width
+  \makebox[\fieldwidth][c]{%
+    % gray line positioned at zero width
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    % value text centered on top of that line
+    \makebox[0pt][c]{\strut #2}%
+  }%
+  \par
+  \vspace{0.5em}%
 }
 
 % MICROMAX / RPM / SANIPOD: label ____@____=$__
-% Use slightly smaller font + narrower blanks so it doesn’t overflow
+% Bigger font size and better spacing for improved readability
 \newcommand{\serviceAtCharge}[4]{%
-  \noindent\scriptsize
+  \noindent\normalsize
   \mbox{#1}%
-  \smallfilledshort{#2}@\smallfilledshort{#3}=\$\smallfilledshort{#4}\par
+  \hspace{0.2em}%
+  \smallfilledshort{#2}\hspace{0.15em}@\hspace{0.15em}\smallfilledshort{#3}\hspace{0.15em}=\hspace{0.15em}\$\smallfilledshort{#4}\par
+  \vspace{0.5em}%
 }
 
 % Big red left-aligned heading (REFRESH POWER SCRUB / SERVICE NOTES)
 \newcommand{\serviceBigHeading}[1]{%
-  \noindent{\bfseries\small\textcolor{emred}{#1}\par}%
+  \noindent{\bfseries\normalsize\textcolor{emred}{#1}\par}%
+  \vspace{0.3em}%
 }
 
 % ====== AGREEMENT + SIGNATURE HELPERS =============================
@@ -199,8 +263,8 @@
 
 {{{servicesTopRowLatex}}}
 
-% slightly bigger gap between top and bottom rows
-\vspace{1.5em}
+% bigger gap between service rows for better readability and clarity
+\vspace{2.5em}
 
 {{{servicesBottomRowLatex}}}
 

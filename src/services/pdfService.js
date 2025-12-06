@@ -406,7 +406,21 @@ function buildServiceRows(rows = []) {
     if (type === "line") {
       out += `\\serviceLine{${latexEscape(" " + (r.label || ""))}}{${latexEscape(r.value || "")}}\n`;
     } else if (type === "bold") {
-      out += `\\serviceBoldLine{${latexEscape(" " + (r.label || ""))}}{${latexEscape(r.value || "")}}\n`;
+      // Check if this is a total field and use appropriate command
+      const label = r.label || "";
+      const isTotal = label.toLowerCase().includes('total') ||
+                     label.toLowerCase().includes('recurring') ||
+                     label.toLowerCase().includes('contract') ||
+                     label.toLowerCase().includes('monthly') ||
+                     label.toLowerCase().includes('weekly') ||
+                     label.toLowerCase().includes('annual') ||
+                     label.toLowerCase().includes('visit');
+
+      if (isTotal) {
+        out += `\\serviceTotalLine{${latexEscape(" " + label)}}{${latexEscape(r.value || "")}}\n`;
+      } else {
+        out += `\\serviceBoldLine{${latexEscape(" " + label)}}{${latexEscape(r.value || "")}}\n`;
+      }
     } else if (type === "atCharge") {
       out += `\\serviceAtCharge{${latexEscape(r.label || "")}}{${latexEscape(r.v1 || "")}}{${latexEscape(r.v2 || "")}}{${latexEscape(r.v3 || "")}}\n`;
     }
@@ -420,7 +434,7 @@ function buildServiceColumn(col = {}) {
     for (const sec of col.sections) {
       latex += `\\serviceSection{${latexEscape(sec.heading || "")}}\n`;
       latex += buildServiceRows(sec.rows || []);
-      latex += "\\vspace{0.4em}\n";
+      latex += "\\vspace{1.2em}\n";
     }
   } else {
     latex += `\\serviceSection{${latexEscape(col.heading || "")}}\n`;
@@ -433,7 +447,7 @@ function buildServicesRow(cols = []) {
   if (!cols || !cols.length) return "";
   let rowLatex = "\\noindent\n";
   cols.forEach((col, idx) => {
-    rowLatex += "\\begin{minipage}[t]{0.24\\textwidth}\n";
+    rowLatex += "\\begin{minipage}[t]{0.48\\textwidth}\n";
     rowLatex += buildServiceColumn(col);
     rowLatex += "\\end{minipage}%\n";
     if (idx !== cols.length - 1) rowLatex += "\\hfill\n";
