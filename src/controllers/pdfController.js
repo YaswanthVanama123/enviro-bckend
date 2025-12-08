@@ -89,6 +89,15 @@ export async function compileAndStoreCustomerHeader(req, res) {
     // DEBUG: Log the products structure being sent from frontend
     console.log("🐛 [DEBUG] Products payload structure:", JSON.stringify(body.products, null, 2));
     console.log("🐛 [DEBUG] Custom columns from products:", JSON.stringify(body.products?.customColumns, null, 2));
+
+    // DEBUG: Log the services structure being sent from frontend
+    console.log("🐛 [DEBUG] Services payload structure:", JSON.stringify(body.services, null, 2));
+    if (body.services?.refreshPowerScrub) {
+      console.log("🐛 [DEBUG] REFRESH POWER SCRUB - Full service data:", JSON.stringify(body.services.refreshPowerScrub, null, 2));
+      if (body.services.refreshPowerScrub.services) {
+        console.log("🐛 [DEBUG] REFRESH POWER SCRUB - Services breakdown:", JSON.stringify(body.services.refreshPowerScrub.services, null, 2));
+      }
+    }
     if (body.products) {
       // Check for NEW 2-category format (products[] + dispensers[])
       if (body.products.products && body.products.dispensers) {
@@ -163,6 +172,10 @@ export async function compileAndStoreCustomerHeader(req, res) {
       }
     }
 
+    // DEBUG: Log the full payload before storing to database
+    console.log("🐛 [DEBUG] PAYLOAD BEFORE STORAGE:", JSON.stringify(payload, null, 2));
+    console.log("🐛 [DEBUG] PAYLOAD SERVICES KEYS:", Object.keys(payload.services || {}));
+
     // Create document in database
     const doc = await CustomerHeaderDoc.create({
       payload,
@@ -188,6 +201,13 @@ export async function compileAndStoreCustomerHeader(req, res) {
     });
 
     console.log(`Document created with ID: ${doc._id}, status: ${status}`);
+
+    // DEBUG: Log what was actually stored in the database
+    const storedDoc = await CustomerHeaderDoc.findById(doc._id).lean();
+    console.log("🐛 [DEBUG] STORED DOC SERVICES:", JSON.stringify(storedDoc.payload.services, null, 2));
+    if (storedDoc.payload.services?.refreshPowerScrub) {
+      console.log("🐛 [DEBUG] STORED REFRESH POWER SCRUB:", JSON.stringify(storedDoc.payload.services.refreshPowerScrub, null, 2));
+    }
 
     // Return response based on draft or final
     if (isDraft) {
@@ -441,7 +461,193 @@ export async function getCustomerHeaderForEdit(req, res) {
       console.log(`  Dispenser ${i+1}: "${d.customName}" → frequency: "${d.frequency}"`);
     });
 
-    // Create edit-friendly response
+    // SERVICES TRANSFORMATION: Convert stored format to form-expected format
+    const originalServices = doc.payload?.services || {};
+    const convertedServices = { ...originalServices };
+
+    // Special handling for Refresh Power Scrub
+    if (originalServices.refreshPowerScrub && originalServices.refreshPowerScrub.services) {
+      console.log(`🔄 [EDIT FORMAT] Converting Refresh Power Scrub from stored format to form format`);
+
+      const storedRPS = originalServices.refreshPowerScrub;
+      console.log(`🔄 [EDIT FORMAT] Stored services keys:`, Object.keys(storedRPS.services || {}));
+
+      // Helper function to normalize frequency labels
+      const normalizeFrequencyLabel = (freq) => {
+        if (!freq || freq === "TBD") return "";
+        const normalized = freq.toLowerCase();
+        if (normalized.includes("bi-weekly") || normalized.includes("biweekly")) return "Bi-weekly";
+        if (normalized.includes("quarterly")) return "Quarterly";
+        if (normalized.includes("monthly")) return "Monthly";
+        if (normalized.includes("weekly")) return "Weekly";
+        return freq; // Return as-is if no match
+      };
+
+      // Extract actual stored values from serviceInfo if available
+      let hourlyRate = 200;
+      let minimumVisit = 400;
+      if (storedRPS.serviceInfo && storedRPS.serviceInfo.value) {
+        const serviceInfoStr = storedRPS.serviceInfo.value;
+        const hourlyMatch = serviceInfoStr.match(/Hourly Rate: \$(\d+)/);
+        const minMatch = serviceInfoStr.match(/Minimum: \$(\d+)/);
+        if (hourlyMatch) hourlyRate = parseInt(hourlyMatch[1]);
+        if (minMatch) minimumVisit = parseInt(minMatch[1]);
+      }
+
+      const convertedRPS = {
+        serviceId: storedRPS.serviceId,
+        displayName: storedRPS.displayName,
+        isActive: storedRPS.isActive,
+        // Extract actual stored values
+        hourlyRate: hourlyRate,
+        minimumVisit: minimumVisit,
+        frequency: "monthly", // Default - could be enhanced to extract from data
+        contractMonths: 12, // Default - could be enhanced to extract from data
+        notes: storedRPS.notes || "",
+        customFields: storedRPS.customFields || []
+      };
+
+      // Convert each area from services structure back to direct area structure
+      const areaMapping = {
+        'dumpster': 'dumpster',
+        'patio': 'patio',
+        'frontHouse': 'foh',
+        'backHouse': 'boh',
+        'walkway': 'walkway',
+        'other': 'other'
+      };
+
+      for (const [serviceKey, areaKey] of Object.entries(areaMapping)) {
+        console.log(`🔄 [EDIT FORMAT] Checking ${serviceKey} → ${areaKey}`);
+        if (storedRPS.services[serviceKey] && storedRPS.services[serviceKey].enabled) {
+          console.log(`🔄 [EDIT FORMAT] Processing enabled area: ${serviceKey} → ${areaKey}`);
+          const serviceData = storedRPS.services[serviceKey];
+          console.log(`🔄 [EDIT FORMAT] Service data for ${serviceKey}:`, JSON.stringify(serviceData, null, 2));
+
+          // Map pricing method back to form format
+          const pricingTypeMapping = {
+            'Per Hour': 'perHour',
+            'Per Worker': 'perWorker',
+            'Square Feet': 'squareFeet',
+            'Preset Package': 'preset',
+            'Custom Amount': 'custom'
+          };
+
+          const pricingType = pricingTypeMapping[serviceData.pricingMethod?.value] || 'preset';
+
+          const convertedArea = {
+            enabled: true,
+            pricingType: pricingType,
+
+            // Per Worker fields
+            workers: 2, // Default
+
+            // Per Hour fields
+            hours: 0, // Default
+            hourlyRate: 200, // Default
+
+            // Square Feet fields
+            insideSqFt: 0, // Default
+            outsideSqFt: 0, // Default
+            insideRate: 0.6, // Default
+            outsideRate: 0.4, // Default
+            sqFtFixedFee: 200, // Default
+
+            // Custom Amount field
+            customAmount: 0, // Default
+
+            // Area-specific fields
+            kitchenSize: "smallMedium", // Default (for boh)
+            patioMode: "standalone", // Default (for patio)
+
+            // Frequency and contract with normalized values
+            frequencyLabel: normalizeFrequencyLabel(serviceData.frequency?.value || "TBD"),
+            contractMonths: serviceData.contract?.quantity || 12
+          };
+
+          // Extract specific values based on pricing type
+          if (pricingType === 'perHour' && serviceData.hours) {
+            convertedArea.hours = Number(serviceData.hours.quantity) || 0;
+            convertedArea.hourlyRate = Number(serviceData.hours.priceRate) || 200;
+          } else if (pricingType === 'perWorker' && serviceData.workersCalc) {
+            convertedArea.workers = Number(serviceData.workersCalc.quantity) || 0;
+          } else if (pricingType === 'squareFeet') {
+            if (serviceData.fixedFee) {
+              convertedArea.sqFtFixedFee = Number(serviceData.fixedFee.value) || 200;
+            }
+            if (serviceData.insideSqft) {
+              convertedArea.insideSqFt = Number(serviceData.insideSqft.quantity) || 0;
+              convertedArea.insideRate = Number(serviceData.insideSqft.priceRate) || 0.6;
+            }
+            if (serviceData.outsideSqft) {
+              convertedArea.outsideSqFt = Number(serviceData.outsideSqft.quantity) || 0;
+              convertedArea.outsideRate = Number(serviceData.outsideSqft.priceRate) || 0.4;
+            }
+          } else if (pricingType === 'preset') {
+            if (serviceData.plan) {
+              if (areaKey === 'patio') {
+                convertedArea.patioMode = serviceData.plan.value === 'Upsell' ? 'upsell' : 'standalone';
+              } else if (areaKey === 'boh') {
+                convertedArea.kitchenSize = serviceData.plan.value === 'Large' ? 'large' : 'smallMedium';
+              }
+            }
+          } else if (pricingType === 'custom' && serviceData.total) {
+            convertedArea.customAmount = Number(serviceData.total.value) || 0;
+          }
+
+          convertedRPS[areaKey] = convertedArea;
+
+          console.log(`🔄 [EDIT FORMAT] Converted ${serviceKey} → ${areaKey}:`, {
+            enabled: convertedArea.enabled,
+            pricingType: convertedArea.pricingType,
+            frequency: convertedArea.frequencyLabel,
+            converted: convertedArea
+          });
+        }
+      }
+
+      // Add default disabled areas with all required fields
+      const defaultAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+      for (const areaKey of defaultAreas) {
+        if (!convertedRPS[areaKey]) {
+          convertedRPS[areaKey] = {
+            enabled: false,
+            pricingType: "preset",
+
+            // Per Worker fields
+            workers: 2,
+
+            // Per Hour fields
+            hours: 0,
+            hourlyRate: 200,
+
+            // Square Feet fields
+            insideSqFt: 0,
+            outsideSqFt: 0,
+            insideRate: 0.6,
+            outsideRate: 0.4,
+            sqFtFixedFee: 200,
+
+            // Custom Amount field
+            customAmount: 0,
+
+            // Area-specific fields
+            kitchenSize: "smallMedium",
+            patioMode: "standalone",
+
+            // Frequency and contract
+            frequencyLabel: "",
+            contractMonths: 12
+          };
+        }
+      }
+
+      convertedServices.refreshPowerScrub = convertedRPS;
+      console.log(`✅ [EDIT FORMAT] Refresh Power Scrub conversion complete`);
+      console.log(`🔄 [EDIT FORMAT] Final converted RPS:`, JSON.stringify(convertedRPS, null, 2));
+    }
+
+    // Create edit-friendly response AFTER services transformation
     const editResponse = {
       ...doc,
       payload: {
@@ -450,6 +656,7 @@ export async function getCustomerHeaderForEdit(req, res) {
           ...convertedProducts,
           customColumns: originalProducts.customColumns || { products: [], dispensers: [] } // Include custom columns inside products
         },
+        services: convertedServices, // Use converted services instead of original
       },
       _editFormatMetadata: {
         originalStructure: {
@@ -534,6 +741,15 @@ export async function updateCustomerHeader(req, res) {
     const statusChanged = previousStatus !== newStatus;
     const wasDraft = previousStatus === "draft";
     const isNowFinal = newStatus !== "draft";
+
+    // DEBUG: Log services data for updates
+    console.log("🐛 [UPDATE DEBUG] Services payload structure:", JSON.stringify(body.services, null, 2));
+    if (body.services?.refreshPowerScrub) {
+      console.log("🐛 [UPDATE DEBUG] REFRESH POWER SCRUB - Full service data:", JSON.stringify(body.services.refreshPowerScrub, null, 2));
+      if (body.services.refreshPowerScrub.services) {
+        console.log("🐛 [UPDATE DEBUG] REFRESH POWER SCRUB - Services breakdown:", JSON.stringify(body.services.refreshPowerScrub.services, null, 2));
+      }
+    }
 
     // Update payload fields
     doc.payload ||= {};
@@ -637,6 +853,13 @@ export async function updateCustomerHeader(req, res) {
     await doc.save();
 
     console.log(`Document ${id} updated, status: ${doc.status}, compiled: ${shouldCompilePdf}`);
+
+    // DEBUG: Log what was actually saved in the update
+    const updatedDoc = await CustomerHeaderDoc.findById(id).lean();
+    console.log("🐛 [UPDATE DEBUG] UPDATED DOC SERVICES:", JSON.stringify(updatedDoc.payload.services, null, 2));
+    if (updatedDoc.payload.services?.refreshPowerScrub) {
+      console.log("🐛 [UPDATE DEBUG] UPDATED REFRESH POWER SCRUB:", JSON.stringify(updatedDoc.payload.services.refreshPowerScrub, null, 2));
+    }
 
     // Return response based on whether PDF was compiled
     if (buffer) {

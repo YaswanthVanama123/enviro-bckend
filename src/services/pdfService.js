@@ -87,13 +87,6 @@ function latexEscape(value = "") {
 }
 
 function buildProductsLatex(products = {}, customColumns = { products: [], dispensers: [] }) {
-  // Debug custom columns data
-  console.log('[PDF] buildProductsLatex called with customColumns:', {
-    hasCustomColumns: !!(customColumns && (customColumns.products?.length || customColumns.dispensers?.length)),
-    productColumns: customColumns.products || [],
-    dispenserColumns: customColumns.dispensers || []
-  });
-
   // Handle BOTH payload formats:
   // 1. Original frontend format: { smallProducts: [...], dispensers: [...], bigProducts: [...] }
   // 2. Transformed format: { products: [...], dispensers: [...] }
@@ -106,28 +99,23 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     // Format 2: Already merged products array (from frontend transformer)
     mergedProducts = products.products;
     dispensers = products.dispensers || [];
-    console.log('[PDF] Using transformed format - products array already merged');
   } else {
     // Format 1: Separate smallProducts + bigProducts (original format)
     const { smallProducts = [], bigProducts = [] } = products;
     mergedProducts = [...smallProducts, ...bigProducts];
     dispensers = products.dispensers || [];
-    console.log('[PDF] Using original format - merging smallProducts + bigProducts');
   }
 
-  // Add debug logging
-  console.log('[PDF] buildProductsLatex called with:', {
-    mergedProductsCount: mergedProducts.length,
-    dispensersCount: dispensers.length,
-  });
-  console.log('[PDF] Raw products object keys:', Object.keys(products));
-
-  if (mergedProducts.length > 0) {
-    console.log('[PDF] First mergedProduct:', JSON.stringify(mergedProducts[0], null, 2));
-  }
-  if (dispensers.length > 0) {
-    console.log('[PDF] First dispenser:', JSON.stringify(dispensers[0]));
-  }
+  const fmtDollar = (v) => {
+    // Handle both number and string inputs
+    if (v === null || v === undefined || v === "") return "";
+    const num = typeof v === "number" ? v : parseFloat(v);
+    if (!isNaN(num)) {
+      return `$${num.toFixed(2)}`;
+    }
+    // Fallback for non-numeric strings
+    return `$${v}`;
+  };
 
   // Helper: pick first non-null value from a list of keys
   const pick = (obj, keys) => {
@@ -140,17 +128,6 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
       }
     }
     return null;
-  };
-
-  const fmtDollar = (v) => {
-    // Handle both number and string inputs
-    if (v === null || v === undefined || v === "") return "";
-    const num = typeof v === "number" ? v : parseFloat(v);
-    if (!isNaN(num)) {
-      return `$${num.toFixed(2)}`;
-    }
-    // Fallback for non-numeric strings
-    return `$${v}`;
   };
 
   const toStr = (v) =>
@@ -187,17 +164,6 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     ...baseDispenserHeaders,
     ...dispenserCustomHeaders,
   ];
-
-  console.log('[PDF] Dynamic headers generated:', {
-    totalColumns: headers.length,
-    productCustomColumns: productCustomHeaders.length,
-    dispenserCustomColumns: dispenserCustomHeaders.length,
-    headers: headers,
-    customColumnsDefinitions: {
-      products: customColumns.products,
-      dispensers: customColumns.dispensers
-    }
-  });
 
   const productsColSpecLatex = headers.map(() => "Y").join("|");
   const productsHeaderRowLatex =
@@ -242,11 +208,6 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
       "extPrice",
     ]);
 
-    // Debug logging for first row
-    if (i === 0 && leftName) {
-      console.log(`[PDF] Row ${i} mergedProduct - name: ${leftName}, qty: ${leftQty}, price: ${leftAmount}, frequency: ${leftFreq}, total: ${leftTotal}`);
-    }
-
     // ----- RIGHT BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Frequency / Total)
     const rightName =
       dp.customName ||
@@ -282,21 +243,9 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
       "extPrice",
     ]);
 
-    // Debug logging for first dispenser row
-    if (i === 0 && rightName) {
-      console.log(`[PDF] Row ${i} dispenser - name: ${rightName}, qty: ${rightQty}, warranty: ${rightWarranty}, replacement: ${rightReplacement}, frequency: ${rightFreq}, total: ${rightTotal}`);
-    }
-
-    // Debug: Log raw product and dispenser objects for first few rows
-    if (i <= 2) {
-      console.log(`[PDF] Row ${i} - Raw merged product:`, JSON.stringify(mp, null, 2));
-      console.log(`[PDF] Row ${i} - Raw dispenser:`, JSON.stringify(dp, null, 2));
-    }
-
     // Extract custom field values for products
     const leftCustomValues = (customColumns.products || []).map(col => {
       const value = mp.customFields?.[col.id];
-      console.log(`[PDF] Product custom field - Column: ${col.id} (${col.label}), Value: ${value}, Type: ${typeof value}`);
 
       // Handle different value types and empty values
       if (value === undefined || value === null || value === "") {
@@ -324,7 +273,6 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     // Extract custom field values for dispensers
     const rightCustomValues = (customColumns.dispensers || []).map(col => {
       const value = dp.customFields?.[col.id];
-      console.log(`[PDF] Dispenser custom field - Column: ${col.id} (${col.label}), Value: ${value}, Type: ${typeof value}`);
 
       // Handle different value types and empty values
       if (value === undefined || value === null || value === "") {
@@ -372,22 +320,8 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
       ...rightCustomValues,
     ];
 
-    // Debug logging for first few rows
-    if (i <= 2) {
-      console.log(`[PDF] Row ${i} - Left: "${leftName}" (qty: ${leftQty}, amt: ${fmtDollar(leftAmount)}) | Right: "${rightName}" (qty: ${rightQty})`);
-      if (leftCustomValues.length > 0) {
-        console.log(`[PDF] Row ${i} - Product custom fields:`, leftCustomValues);
-      }
-      if (rightCustomValues.length > 0) {
-        console.log(`[PDF] Row ${i} - Dispenser custom fields:`, rightCustomValues);
-      }
-    }
-
     productsBodyRowsLatex += rowCells.join(" & ") + " \\\\ \\hline\n";
   }
-
-  console.log(`[PDF] Final LaTeX generation - ${rowCount} rows total`);
-  console.log(`[PDF] Products body LaTeX preview:`, productsBodyRowsLatex.substring(0, 500));
 
   return {
     productsColSpecLatex,
@@ -464,6 +398,7 @@ function transformServicesToPdfFormat(usedServices) {
   // Service display configuration - determines which row each service goes into
   const topRowServices = ['saniclean', 'saniscrub', 'microfiberMopping', 'rpmWindows'];
   const bottomRowServices = ['foamingDrain', 'sanipod', 'carpetclean', 'janitorial', 'stripwax', 'greaseTrap', 'electrostaticSpray'];
+  // Note: refreshPowerScrub is handled separately in the refreshSectionLatex
 
   // Service labels mapping
   const serviceLabels = {
@@ -477,7 +412,8 @@ function transformServicesToPdfFormat(usedServices) {
     janitorial: 'JANITORIAL',
     stripwax: 'STRIP & WAX',
     greaseTrap: 'GREASE TRAP',
-    electrostaticSpray: 'ELECTROSTATIC SPRAY'
+    electrostaticSpray: 'ELECTROSTATIC SPRAY',
+    refreshPowerScrub: 'REFRESH POWER SCRUB'
   };
 
   // Transform each service into column format
@@ -510,20 +446,30 @@ function transformServicesToPdfFormat(usedServices) {
 }
 
 function transformServiceToColumn(serviceKey, serviceData, label) {
-  console.log(`\n--- Transforming service: ${serviceKey} ---`);
-  console.log('Input serviceData:', JSON.stringify(serviceData, null, 2));
+  // Only log for refreshPowerScrub
+  if (serviceKey === 'refreshPowerScrub') {
+    // console.log('🔧 [REFRESH POWER SCRUB DEBUG] Transforming service to column:');
+    // console.log('  └ Input serviceData keys:', Object.keys(serviceData));
+  }
 
   const rows = [];
 
   // Extract formData if present (newer format)
   const data = serviceData.formData || serviceData;
 
-  console.log('Resolved data:', JSON.stringify(data, null, 2));
+  if (serviceKey === 'refreshPowerScrub') {
+    // console.log('  └ Resolved data keys:', Object.keys(data));
+    // console.log('  └ isActive:', data.isActive);
+  }
 
   // Handle NEW structured format (with label/type/qty/rate/total objects)
   // Check if this is the new structured format
-  if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service || data.restroomFixtures || data.nonBathroomArea)) {
-    console.log(`✓ Using NEW structured format for ${serviceKey}`);
+  if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service || data.restroomFixtures || data.nonBathroomArea ||
+      // Refresh Power Scrub area keys
+      data.dumpster || data.patio || data.walkway || data.foh || data.boh || data.other)) {
+    if (serviceKey === 'refreshPowerScrub') {
+      // console.log('  └ Using NEW structured format');
+    }
 
     // Handle fixture breakdown (SaniClean)
     if (data.fixtureBreakdown && Array.isArray(data.fixtureBreakdown)) {
@@ -677,42 +623,62 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Add extras (warranty, luxury upgrades, etc.)
-    if (data.warranty && data.warranty.qty) {
-      const hasRate = data.warranty.rate != null && data.warranty.rate !== '';
-      const hasTotal = data.warranty.total != null && data.warranty.total !== '';
+    // Handle Refresh Power Scrub area-based structure
+    const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+    for (const areaKey of refreshAreas) {
+      if (data[areaKey] && typeof data[areaKey] === 'object') {
+        const area = data[areaKey];
 
-      if (hasRate || hasTotal) {
-        rows.push({
-          type: 'atCharge',
-          label: data.warranty.label || 'Warranty',
-          v1: String(data.warranty.qty || ''),
-          v2: typeof data.warranty.rate === 'number' ? `$${data.warranty.rate.toFixed(2)}` : String(data.warranty.rate || ''),
-          v3: typeof data.warranty.total === 'number' ? `$${data.warranty.total.toFixed(2)}` : String(data.warranty.total || '')
-        });
-      } else {
-        // Fallback: show quantity only
-        rows.push({
-          type: 'line',
-          label: data.warranty.label || 'Warranty',
-          value: `${data.warranty.qty} item${data.warranty.qty !== 1 ? 's' : ''}`
-        });
+        if (serviceKey === 'refreshPowerScrub') {
+          // console.log(`  └ Processing ${areaKey}:`, JSON.stringify(area, null, 2));
+        }
+
+        // Handle new calc-type format from frontend
+        if (area.type === 'calc' && area.qty != null && area.rate != null && area.total != null) {
+          rows.push({
+            type: 'atCharge',
+            label: area.label || areaKey.charAt(0).toUpperCase() + areaKey.slice(1),
+            v1: String(area.qty || ''),
+            v2: typeof area.rate === 'number' ? `$${area.rate.toFixed(2)}` : String(area.rate || ''),
+            v3: typeof area.total === 'number' ? `$${area.total.toFixed(2)}` : String(area.total || '')
+          });
+        }
+        // Handle legacy format
+        else {
+          const hasRate = area.rate != null && area.rate !== '';
+          const hasTotal = area.total != null && area.total !== '';
+          const hasQty = area.qty != null && area.qty !== '' && area.qty > 0;
+
+          if (serviceKey === 'refreshPowerScrub') {
+            // console.log(`  └ Processing ${areaKey}: qty=${area.qty}, rate=${area.rate}, total=${area.total}`);
+          }
+
+          if (hasQty && (hasRate || hasTotal)) {
+            rows.push({
+              type: 'atCharge',
+              label: area.label || areaKey.charAt(0).toUpperCase() + areaKey.slice(1),
+              v1: `${area.qty || ''} ${area.unit || ''}`.trim(),
+              v2: typeof area.rate === 'number' ? `$${area.rate.toFixed(2)}` : String(area.rate || ''),
+              v3: typeof area.total === 'number' ? `$${area.total.toFixed(2)}` : String(area.total || '')
+            });
+          } else if (hasQty) {
+            // Just show quantity if no rate/total available
+            rows.push({
+              type: 'line',
+              label: area.label || areaKey.charAt(0).toUpperCase() + areaKey.slice(1),
+              value: `${area.qty} ${area.unit || 'service'}${area.qty !== 1 ? 's' : ''}`
+            });
+          }
+        }
       }
     }
 
-    if (data.luxuryUpgrade) {
+    // Add service info for Refresh Power Scrub
+    if (data.serviceInfo && data.serviceInfo.value) {
       rows.push({
         type: 'line',
-        label: data.luxuryUpgrade.label || 'Luxury Soap Upgrade',
-        value: typeof data.luxuryUpgrade.total === 'number' ? `$${data.luxuryUpgrade.total.toFixed(2)}` : String(data.luxuryUpgrade.total || '')
-      });
-    }
-
-    if (data.extraSoap) {
-      rows.push({
-        type: 'line',
-        label: data.extraSoap.label || 'Extra Soap',
-        value: typeof data.extraSoap.total === 'number' ? `$${data.extraSoap.total.toFixed(2)}` : String(data.extraSoap.total || '')
+        label: data.serviceInfo.label || 'Service Info',
+        value: data.serviceInfo.value
       });
     }
 
@@ -778,6 +744,45 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
+    // Add extras (warranty, luxury upgrades, etc.)
+    if (data.warranty && data.warranty.qty) {
+      const hasRate = data.warranty.rate != null && data.warranty.rate !== '';
+      const hasTotal = data.warranty.total != null && data.warranty.total !== '';
+
+      if (hasRate || hasTotal) {
+        rows.push({
+          type: 'atCharge',
+          label: data.warranty.label || 'Warranty',
+          v1: String(data.warranty.qty || ''),
+          v2: typeof data.warranty.rate === 'number' ? `$${data.warranty.rate.toFixed(2)}` : String(data.warranty.rate || ''),
+          v3: typeof data.warranty.total === 'number' ? `$${data.warranty.total.toFixed(2)}` : String(data.warranty.total || '')
+        });
+      } else {
+        // Fallback: show quantity only
+        rows.push({
+          type: 'line',
+          label: data.warranty.label || 'Warranty',
+          value: `${data.warranty.qty} item${data.warranty.qty !== 1 ? 's' : ''}`
+        });
+      }
+    }
+
+    if (data.luxuryUpgrade) {
+      rows.push({
+        type: 'line',
+        label: data.luxuryUpgrade.label || 'Luxury Soap Upgrade',
+        value: typeof data.luxuryUpgrade.total === 'number' ? `$${data.luxuryUpgrade.total.toFixed(2)}` : String(data.luxuryUpgrade.total || '')
+      });
+    }
+
+    if (data.extraSoap) {
+      rows.push({
+        type: 'line',
+        label: data.extraSoap.label || 'Extra Soap',
+        value: typeof data.extraSoap.total === 'number' ? `$${data.extraSoap.total.toFixed(2)}` : String(data.extraSoap.total || '')
+      });
+    }
+
     // Add metadata fields (pricing method, combined service, etc.)
     if (data.pricingMethod && data.pricingMethod.value) {
       rows.push({
@@ -828,7 +833,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         value: data.otherTasks.value
       });
     }
- 
+
     if (data.vacuuming && data.vacuuming.type === 'text' && data.vacuuming.value) {
       rows.push({
         type: 'line',
@@ -921,21 +926,16 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
     // Add custom fields from new format
     if (data.customFields && Array.isArray(data.customFields)) {
-      console.log('🔧 Processing custom fields for PDF:', JSON.stringify(data.customFields, null, 2));
-
       for (const field of data.customFields) {
         // Support both 'label' and 'name' properties
         const fieldLabel = field.label || field.name;
 
         if (field && fieldLabel) {
-          console.log(`🔧 Processing custom field: ${fieldLabel} (type: ${field.type})`);
-
           // Handle different custom field types
           if (field.type === 'calc') {
             // Handle calc fields with calcValues structure (left @ middle = right)
             if (field.calcValues &&
                 (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
-              console.log(`✅ Adding calc field (calcValues): ${fieldLabel}`);
               rows.push({
                 type: 'atCharge',
                 label: fieldLabel,
@@ -948,7 +948,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             else if (field.value && typeof field.value === 'object') {
               const calcValue = field.value;
               if (calcValue.qty != null && calcValue.rate != null && calcValue.total != null) {
-                console.log(`✅ Adding calc field (legacy): ${fieldLabel}`);
                 rows.push({
                   type: 'atCharge',
                   label: fieldLabel,
@@ -962,7 +961,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             // Handle money/dollar fields
             if (field.value !== undefined && field.value !== '') {
               const amount = typeof field.value === 'number' ? field.value : parseFloat(field.value) || 0;
-              console.log(`✅ Adding money field: ${fieldLabel} = $${amount.toFixed(2)}`);
               rows.push({
                 type: 'line',
                 label: fieldLabel,
@@ -975,7 +973,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             if (field.type === 'dollar' && typeof field.value === 'number') {
               value = `$${field.value.toFixed(2)}`;
             }
-            console.log(`✅ Adding text field: ${fieldLabel} = ${value}`);
             rows.push({
               type: 'line',
               label: fieldLabel,
@@ -984,8 +981,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           }
         }
       }
-    } else {
-      console.log('🔧 No custom fields found in data or customFields is not an array');
     }
 
     // Add notes if present
@@ -993,8 +988,10 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       rows.push({ type: 'line', label: 'Notes', value: data.notes });
     }
 
-    console.log(`✓ Generated ${rows.length} rows for ${serviceKey}`);
-    console.log('Output rows:', JSON.stringify(rows, null, 2));
+    if (serviceKey === 'refreshPowerScrub') {
+      // console.log(`  └ Generated ${rows.length} rows for Refresh Power Scrub`);
+      // console.log(`  └ Rows:`, rows);
+    }
 
     return {
       heading: label || data.displayName || serviceKey.toUpperCase(),
@@ -1002,7 +999,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     };
   }
 
-  console.log(`✗ Using OLD format handler for ${serviceKey}`);
+  // OLD FORMAT handler (simplified logging)
   // Common fields to look for
   const commonMappings = [
     { key: 'fixtureCount', label: 'Fixtures' },
@@ -1079,9 +1076,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
   }
 
-  console.log(`✓ Generated ${rows.length} rows for ${serviceKey} (OLD FORMAT)`);
-  console.log('Output rows:', JSON.stringify(rows, null, 2));
-
   return {
     heading: label || serviceKey.toUpperCase(),
     rows
@@ -1089,7 +1083,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 }
 
 function transformCustomServiceToColumn(customService) {
-  console.log('🔧 Transforming custom service:', JSON.stringify(customService, null, 2));
   const rows = [];
 
   const label = customService.name || customService.label || 'CUSTOM SERVICE';
@@ -1100,12 +1093,9 @@ function transformCustomServiceToColumn(customService) {
     const fieldLabel = field.label || field.name;
 
     if (field && fieldLabel) {
-      console.log(`🔧 Processing custom service field: ${fieldLabel} (type: ${field.type})`);
-
       // Handle calc fields with calcValues structure
       if (field.type === 'calc' && field.calcValues &&
           (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
-        console.log(`✅ Adding custom service calc field: ${fieldLabel}`);
         rows.push({
           type: 'atCharge',
           label: fieldLabel,
@@ -1126,14 +1116,12 @@ function transformCustomServiceToColumn(customService) {
           }
         }
 
-        console.log(`✅ Adding custom service ${field.type} field: ${fieldLabel} = ${value}`);
         const rowType = field.type === 'calc' ? 'bold' : 'line';
         rows.push({ type: rowType, label: fieldLabel, value });
       }
     }
   }
 
-  console.log(`✓ Generated ${rows.length} rows for custom service: ${label}`);
   return {
     heading: label,
     rows
@@ -1159,6 +1147,21 @@ function buildServicesLatex(services = {}) {
     const data = resolveServiceData(serviceData);
     if (!data) return false;
 
+    // Special debugging for refreshPowerScrub only
+    if (data.serviceId === 'refreshPowerScrub') {
+      // console.log('🔍 [REFRESH POWER SCRUB DEBUG] Service detection:');
+      // console.log('  └ isActive:', data.isActive);
+      // console.log('  └ totals.perVisit.amount:', data.totals?.perVisit?.amount);
+
+      // Check individual areas
+      const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+      for (const area of refreshAreas) {
+        if (data[area]) {
+          // console.log(`  └ ${area}: qty=${data[area].qty}, total=${data[area].total}`);
+        }
+      }
+    }
+
     // Respect isActive at wrapper or data level
     if (serviceData.isActive === false) return false;
     if (data.isActive === false) return false;
@@ -1171,8 +1174,12 @@ function buildServicesLatex(services = {}) {
       (data.contractTotal && (typeof data.contractTotal === 'number' ? data.contractTotal > 0 : parseFloat(data.contractTotal) > 0)) ||
       (data.firstVisit && (typeof data.firstVisit === 'number' ? data.firstVisit > 0 : parseFloat(data.firstVisit) > 0)) ||
       (data.ongoingMonthly && (typeof data.ongoingMonthly === 'number' ? data.ongoingMonthly > 0 : parseFloat(data.ongoingMonthly) > 0))
-    )
+    ) {
+      if (data.serviceId === 'refreshPowerScrub') {
+        // console.log('  └ DETECTED via old format totals ✓');
+      }
       return true;
+    }
 
     // Check NEW structured totals format
     if (data.totals) {
@@ -1184,11 +1191,20 @@ function buildServicesLatex(services = {}) {
         (data.totals.firstMonth && data.totals.firstMonth.amount) ||
         (data.totals.perVisit && data.totals.perVisit.amount) ||
         (data.totals.annual && data.totals.annual.amount)
-      )
+      ) {
+        if (data.serviceId === 'refreshPowerScrub') {
+          // console.log('  └ DETECTED via new structured totals ✓');
+        }
         return true;
+      }
     }
 
-    if (data.total || data.amount || data.charge) return true;
+    if (data.total || data.amount || data.charge) {
+      if (data.serviceId === 'refreshPowerScrub') {
+        // console.log('  └ DETECTED via data.total/amount/charge ✓');
+      }
+      return true;
+    }
 
     // Additional specific field checks for various service types
     if (
@@ -1199,7 +1215,30 @@ function buildServicesLatex(services = {}) {
       (data.trapCount && data.trapCount > 0) ||
       (data.hoursPerWeek && data.hoursPerWeek > 0) ||
       (data.windowCount && data.windowCount > 0)
-    ) return true;
+    ) {
+      if (data.serviceId === 'refreshPowerScrub') {
+        // console.log('  └ DETECTED via specific field checks ✓');
+      }
+      return true;
+    }
+
+    // Check Refresh Power Scrub areas specifically
+    if (data.serviceId === 'refreshPowerScrub') {
+      const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+      for (const area of refreshAreas) {
+        if (data[area] && typeof data[area] === 'object') {
+          const areaData = data[area];
+          if (areaData.total && areaData.total > 0) {
+            // console.log(`  └ DETECTED via ${area} total: ${areaData.total} ✓`);
+            return true;
+          }
+          if (areaData.qty && areaData.qty > 0) {
+            // console.log(`  └ DETECTED via ${area} qty: ${areaData.qty} ✓`);
+            return true;
+          }
+        }
+      }
+    }
 
     // Custom fields (e.g. equipment rental, deep cleaning premium, etc.)
     if (Array.isArray(data.customFields) && data.customFields.length > 0) {
@@ -1211,7 +1250,12 @@ function buildServicesLatex(services = {}) {
         if (typeof v === "string") return v.trim() !== "" && v !== "0";
         return true;
       });
-      if (hasCustomValue) return true;
+      if (hasCustomValue) {
+        if (data.serviceId === 'refreshPowerScrub') {
+          // console.log('  └ DETECTED via custom fields ✓');
+        }
+        return true;
+      }
     }
 
     // Generic numeric/string fields; ignore pure config keys
@@ -1229,9 +1273,22 @@ function buildServicesLatex(services = {}) {
     for (const key of Object.keys(data)) {
       if (ignoreKeys.has(key)) continue;
       const val = data[key];
-      if (typeof val === "number" && val > 0) return true;
-      if (typeof val === "string" && val.trim() !== "" && val !== "0")
+      if (typeof val === "number" && val > 0) {
+        if (data.serviceId === 'refreshPowerScrub') {
+          // console.log(`  └ DETECTED via numeric field ${key}: ${val} ✓`);
+        }
         return true;
+      }
+      if (typeof val === "string" && val.trim() !== "" && val !== "0") {
+        if (data.serviceId === 'refreshPowerScrub') {
+          // console.log(`  └ DETECTED via string field ${key}: ${val} ✓`);
+        }
+        return true;
+      }
+    }
+
+    if (data.serviceId === 'refreshPowerScrub') {
+      // console.log('  └ NOT DETECTED - returning false ❌');
     }
 
     return false;
@@ -1300,7 +1357,7 @@ function buildServicesLatex(services = {}) {
               .join(" & ") +
             " \\\\";
           refreshSectionLatex += "\\vspace{0.9em}\n";
-          refreshSectionLatex += `\\serviceBigHeading{${heading}}\n\n`;
+          refreshSectionLatex += `\\serviceSection{${heading}}\n`;
           refreshSectionLatex += "\\vspace{0.25em}\n";
           refreshSectionLatex += "\\noindent\n";
           refreshSectionLatex += `\\begin{tabularx}{\\textwidth}{${colSpec}}\n`;
@@ -1320,7 +1377,7 @@ function buildServicesLatex(services = {}) {
       const hasContent = textLines.some((line) => line && line.trim() !== "");
       if (hasContent || lines > 0) {
         serviceNotesLatex += "\\vspace{1.0em}\n";
-        serviceNotesLatex += `\\serviceBigHeading{${latexEscape(
+        serviceNotesLatex += `\\serviceSection{${latexEscape(
           notes.heading || "SERVICE NOTES"
         )}}\n`;
         serviceNotesLatex += "\\vspace{0.35em}\n";
@@ -1340,9 +1397,6 @@ function buildServicesLatex(services = {}) {
   }
 
   /* ---------- CASE 2: "storage" format (your JSON from frontend) ---------- */
-  console.log(
-    "[PDF Service] Converting individual service objects to PDF format"
-  );
 
   const usedServices = {};
   const allServiceKeys = [
@@ -1364,16 +1418,16 @@ function buildServicesLatex(services = {}) {
     const svc = services[serviceKey];
     const isUsed = svc && isServiceUsed(svc);
 
-    // Debug logging to track service filtering
-    if (svc) {
+    // Debug logging only for refreshPowerScrub
+    if (svc && serviceKey === 'refreshPowerScrub') {
       const data = svc.formData || svc;
-      console.log(`🔍 [PDF] Service ${serviceKey}:`);
-      console.log(`  └ isActive (wrapper): ${svc.isActive}`);
-      console.log(`  └ isActive (data): ${data.isActive}`);
-      console.log(`  └ weeklyTotal: ${data.weeklyTotal}`);
-      console.log(`  └ monthlyTotal: ${data.monthlyTotal}`);
-      console.log(`  └ contractTotal: ${data.contractTotal}`);
-      console.log(`  └ isUsed: ${isUsed}`);
+      // console.log(`🔍 [REFRESH POWER SCRUB] Service detection:`)
+      // console.log(`  └ isActive (wrapper): ${svc.isActive}`);
+      // console.log(`  └ isActive (data): ${data.isActive}`);
+      // console.log(`  └ weeklyTotal: ${data.weeklyTotal}`);
+      // console.log(`  └ monthlyTotal: ${data.monthlyTotal}`);
+      // console.log(`  └ contractTotal: ${data.contractTotal}`);
+      // console.log(`  └ isUsed: ${isUsed}`);
     }
 
     if (isUsed) {
@@ -1391,13 +1445,16 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Debug logging to show what services were detected as used
-  console.log(`🔍 [PDF] Services detected as used:`, Object.keys(usedServices));
-  console.log(`🔍 [PDF] Total used services count: ${Object.keys(usedServices).length}`);
+  // Debug logging only for Refresh Power Scrub
+  const refreshPowerScrubUsed = Object.keys(usedServices).includes('refreshPowerScrub');
+  if (refreshPowerScrubUsed || services.refreshPowerScrub) {
+    // console.log(`🔍 [REFRESH POWER SCRUB] Services detected as used:`, Object.keys(usedServices));
+    // console.log(`🔍 [REFRESH POWER SCRUB] Total used services count: ${Object.keys(usedServices).length}`);
+    // console.log(`🔍 [REFRESH POWER SCRUB] Refresh Power Scrub in used services: ${refreshPowerScrubUsed}`);
+  }
 
   // If nothing is actually used, return empty strings
   if (Object.keys(usedServices).length === 0) {
-    console.log(`⚠️ [PDF] No services detected as used - returning empty LaTeX`);
     return {
       servicesTopRowLatex: "",
       servicesBottomRowLatex: "",
@@ -1411,23 +1468,240 @@ function buildServicesLatex(services = {}) {
   const topRowCols = transformedServices.topRow || [];
   const bottomRowCols = transformedServices.bottomRow || [];
 
-  console.log(`🔍 [PDF] Transformed services - topRow: ${topRowCols.length} columns, bottomRow: ${bottomRowCols.length} columns`);
+  // Debug transformation results only for Refresh Power Scrub
+  if (refreshPowerScrubUsed || services.refreshPowerScrub) {
+    // console.log(`🔍 [REFRESH POWER SCRUB] Transformed services - topRow: ${topRowCols.length} columns, bottomRow: ${bottomRowCols.length} columns`);
+  }
 
   const filteredTopRowCols = filterServiceColumns(topRowCols);
   const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-  console.log(`🔍 [PDF] After filtering - topRow: ${filteredTopRowCols.length} columns, bottomRow: ${filteredBottomRowCols.length} columns`);
+  // Debug filtered results only for Refresh Power Scrub
+  if (refreshPowerScrubUsed || services.refreshPowerScrub) {
+    // console.log(`🔍 [REFRESH POWER SCRUB] After filtering - topRow: ${filteredTopRowCols.length} columns, bottomRow: ${filteredBottomRowCols.length} columns`);
+  }
 
   // Generate LaTeX for the service rows
   servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
   servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
 
-  console.log(`🔍 [PDF] Generated LaTeX - topRow length: ${servicesTopRowLatex.length}, bottomRow length: ${servicesBottomRowLatex.length}`);
+  // Debug generated LaTeX only for Refresh Power Scrub
+  if (refreshPowerScrubUsed || services.refreshPowerScrub) {
+    // console.log(`🔍 [REFRESH POWER SCRUB] Generated LaTeX - topRow length: ${servicesTopRowLatex.length}, bottomRow length: ${servicesBottomRowLatex.length}`);
+  }
 
 
-  // Refresh Power Scrub from *your* JSON:
-  // services.refreshPowerScrub is the object with heading/columns/freqLabels
-  if (services.refreshPowerScrub) {
+  // Refresh Power Scrub from frontend area-based format
+  if (usedServices.refreshPowerScrub) {
+    const refreshData = usedServices.refreshPowerScrub.formData || usedServices.refreshPowerScrub;
+
+    if (refreshData && refreshData.isActive) {
+      // console.log('🔍 [REFRESH POWER SCRUB] Building custom refresh section');
+      // console.log('🔍 [REFRESH POWER SCRUB] Full refresh data:', JSON.stringify(refreshData, null, 2));
+
+      // Check for new services structure vs old direct area structure
+      let enabledAreas = [];
+
+      if (refreshData.services) {
+        // New structure: services.dumpster, services.frontHouse, etc.
+        // console.log('🔍 [REFRESH POWER SCRUB] Using NEW services structure');
+        const serviceKeys = Object.keys(refreshData.services);
+
+        for (const serviceKey of serviceKeys) {
+          const serviceData = refreshData.services[serviceKey];
+          if (serviceData && serviceData.enabled && serviceData.total && serviceData.total.value > 0) {
+            // Map service keys back to area names for display
+            const displayName = serviceKey === 'frontHouse' ? 'FRONT HOUSE' :
+                              serviceKey === 'backHouse' ? 'BACK HOUSE' :
+                              serviceKey.toUpperCase();
+
+            enabledAreas.push({
+              key: serviceKey,
+              originalKey: serviceKey,
+              displayName: displayName,
+              data: serviceData
+            });
+          }
+        }
+      } else {
+        // Old structure: direct area keys (dumpster, patio, foh, boh, etc.)
+        // console.log('🔍 [REFRESH POWER SCRUB] Using LEGACY area structure');
+        const areas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+
+        for (const areaKey of areas) {
+          if (refreshData[areaKey] && typeof refreshData[areaKey] === 'object' &&
+              refreshData[areaKey].type === 'calc' &&
+              refreshData[areaKey].qty > 0) {
+            const displayName = areaKey === 'foh' ? 'FRONT HOUSE' :
+                              areaKey === 'boh' ? 'BACK HOUSE' :
+                              areaKey.toUpperCase();
+
+            enabledAreas.push({
+              key: areaKey,
+              originalKey: areaKey,
+              displayName: displayName,
+              data: refreshData[areaKey]
+            });
+          }
+        }
+      }
+
+      // console.log(`🔍 [REFRESH POWER SCRUB] Found ${enabledAreas.length} enabled areas:`, enabledAreas.map(a => a.key));
+
+      if (enabledAreas.length > 0) {
+        const maxAreas = Math.min(enabledAreas.length, 4); // Max 4 areas to fit on page
+        const colCount = maxAreas + 1; // +1 for the label column
+        const colSpec = "|l|" + Array(maxAreas).fill("Y").join("|") + "|"; // l for labels, Y for flexible areas
+
+        // Build header row with area names (empty first cell for label column)
+        const headerRow = "  & " +
+          enabledAreas.slice(0, maxAreas)
+            .map(area => `\\textbf{${latexEscape(area.displayName)}}`)
+            .join(" & ") +
+          " \\\\";
+
+        // Helper function to get pricing method display for each area
+        const getPricingMethodDisplay = (area) => {
+          if (refreshData.services) {
+            // New structure: get from pricingMethod field
+            return area.data.pricingMethod ? area.data.pricingMethod.value : 'N/A';
+          } else {
+            // Legacy structure: infer from data properties
+            if (area.data.unit === 'hours') return 'Per Hour';
+            if (area.data.unit === 'workers') return 'Per Worker';
+            if (area.data.unit === 'sq ft') return 'Square Feet';
+            return 'Service';
+          }
+        };
+
+        // Build pricing method row
+        const pricingMethodRow = "  Method & " +
+          enabledAreas.slice(0, maxAreas)
+            .map(area => `\\scriptsize ${latexEscape(getPricingMethodDisplay(area))}`)
+            .join(" & ") +
+          " \\\\";
+
+        // Helper function to detect if this is square footage pricing and get the breakdown (for legacy compatibility)
+        const getAreaBreakdown = (area) => {
+          // Check if this area has square footage breakdown data in the original service structure
+          const originalArea = refreshData[area.originalKey];
+          if (!originalArea) return null;
+
+          // Look for square footage fields in the original data structure
+          if (originalArea.insideSqFt !== undefined || originalArea.outsideSqFt !== undefined) {
+            return {
+              fixed: originalArea.sqFtFixedFee || 200,
+              insideSqFt: originalArea.insideSqFt || 0,
+              insideRate: originalArea.insideRate || 0.6,
+              outsideSqFt: originalArea.outsideSqFt || 0,
+              outsideRate: originalArea.outsideRate || 0.4
+            };
+          }
+          return null;
+        };
+
+        // Helper function to get calculation details for each area
+        const getCalculationDetails = (area) => {
+          if (refreshData.services) {
+            // New structure: detailed breakdown
+            const serviceData = area.data;
+            let details = [];
+
+            // Handle different pricing methods
+            if (serviceData.hours) {
+              details.push(`${serviceData.hours.quantity} hrs @ \\$${serviceData.hours.priceRate}`);
+            } else if (serviceData.workersCalc) {
+              details.push(`${serviceData.workersCalc.quantity} workers @ \\$${serviceData.workersCalc.priceRate}`);
+            } else if (serviceData.insideSqft || serviceData.outsideSqft) {
+              // Square feet breakdown
+              if (serviceData.fixedFee) {
+                details.push(`Fixed: \\$${serviceData.fixedFee.value}`);
+              }
+              if (serviceData.insideSqft && serviceData.insideSqft.quantity > 0) {
+                details.push(`In: ${serviceData.insideSqft.quantity} @ \\$${serviceData.insideSqft.priceRate}`);
+              }
+              if (serviceData.outsideSqft && serviceData.outsideSqft.quantity > 0) {
+                details.push(`Out: ${serviceData.outsideSqft.quantity} @ \\$${serviceData.outsideSqft.priceRate}`);
+              }
+            } else if (serviceData.plan) {
+              details.push(`Plan: ${serviceData.plan.value}`);
+            }
+
+            return details.length > 0 ? details.join(", ") : "Service";
+          } else {
+            // Legacy structure: use old logic
+            const breakdown = getAreaBreakdown(area);
+            if (breakdown) {
+              let details = [];
+              if (breakdown.fixed > 0) {
+                details.push(`Fixed: \\$${breakdown.fixed.toFixed(2)}`);
+              }
+              if (breakdown.insideSqFt > 0) {
+                details.push(`Inside: ${breakdown.insideSqFt} @ \\$${breakdown.insideRate}`);
+              }
+              if (breakdown.outsideSqFt > 0) {
+                details.push(`Outside: ${breakdown.outsideSqFt} @ \\$${breakdown.outsideRate}`);
+              }
+              return details.length > 0 ? details.join(", ") : `${area.data.qty} ${area.data.unit || 'service'}${area.data.qty !== 1 ? 's' : ''}`;
+            } else {
+              return `${area.data.qty} ${area.data.unit || 'service'}${area.data.qty !== 1 ? 's' : ''}`;
+            }
+          }
+        };
+
+        // Build calculation details row
+        const detailsRow = "  Details & " +
+          enabledAreas.slice(0, maxAreas)
+            .map(area => `\\scriptsize ${getCalculationDetails(area)}`)
+            .join(" & ") +
+          " \\\\";
+
+        // Build frequency row
+        const frequencyRow = "  Frequency & " +
+          enabledAreas.slice(0, maxAreas)
+            .map(area => {
+              if (refreshData.services) {
+                return `\\scriptsize ${latexEscape(area.data.frequency ? area.data.frequency.value : 'TBD')}`;
+              } else {
+                return `\\scriptsize TBD`; // Legacy doesn't have frequency in this format
+              }
+            })
+            .join(" & ") +
+          " \\\\";
+
+        // Build total row
+        const totalRow = "  Total & " +
+          enabledAreas.slice(0, maxAreas)
+            .map(area => {
+              if (refreshData.services) {
+                return `\\textbf{\\$${area.data.total.value.toFixed(2)}}`;
+              } else {
+                return `\\textbf{\\$${area.data.total.toFixed(2)}}`;
+              }
+            })
+            .join(" & ") +
+          " \\\\";
+
+        refreshSectionLatex += "\\vspace{0.9em}\n";
+        refreshSectionLatex += `\\serviceSection{REFRESH POWER SCRUB}\n`;
+        refreshSectionLatex += "\\vspace{0.25em}\n";
+        refreshSectionLatex += "\\noindent\n";
+        refreshSectionLatex += `\\begin{tabularx}{\\textwidth}{${colSpec}}\n`;
+        refreshSectionLatex += "  \\hline\n" + headerRow + "\n";
+        refreshSectionLatex += "  \\hline\n" + pricingMethodRow + "\n";
+        refreshSectionLatex += "  \\hline\n" + detailsRow + "\n";
+        refreshSectionLatex += "  \\hline\n" + frequencyRow + "\n";
+        refreshSectionLatex += "  \\hline\n" + totalRow + "\n";
+        refreshSectionLatex += "  \\hline\n";
+        refreshSectionLatex += "\\end{tabularx}\n";
+
+        // console.log(`🔍 [REFRESH POWER SCRUB] Generated enhanced table with ${maxAreas} areas (${colCount} total columns)`);
+      }
+    }
+  }
+
+  // Legacy Refresh Power Scrub from columns/freqLabels format (for backward compatibility)
+  else if (services.refreshPowerScrub) {
     const secRoot = services.refreshPowerScrub;
     const sec = secRoot.formData || secRoot; // support both shapes
 
@@ -1460,7 +1734,7 @@ function buildServicesLatex(services = {}) {
               .join(" & ") +
             " \\\\";
           refreshSectionLatex += "\\vspace{0.9em}\n";
-          refreshSectionLatex += `\\serviceBigHeading{${heading}}\n\n`;
+          refreshSectionLatex += `\\serviceSection{${heading}}\n`;
           refreshSectionLatex += "\\vspace{0.25em}\n";
           refreshSectionLatex += "\\noindent\n";
           refreshSectionLatex += `\\begin{tabularx}{\\textwidth}{${colSpec}}\n`;
@@ -1481,7 +1755,7 @@ function buildServicesLatex(services = {}) {
     const hasContent = textLines.some((line) => line && line.trim() !== "");
     if (hasContent || lines > 0) {
       serviceNotesLatex += "\\vspace{1.0em}\n";
-      serviceNotesLatex += `\\serviceBigHeading{${latexEscape(
+      serviceNotesLatex += `\\serviceSection{${latexEscape(
         notes.heading || "SERVICE NOTES"
       )}}\n`;
       serviceNotesLatex += "\\vspace{0.35em}\n";
@@ -1492,12 +1766,14 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Final debug summary of generated LaTeX content
-  console.log(`✅ [PDF] Services LaTeX generation complete:`);
-  console.log(`  └ Top row LaTeX: ${servicesTopRowLatex ? 'Generated' : 'Empty'} (${servicesTopRowLatex.length} chars)`);
-  console.log(`  └ Bottom row LaTeX: ${servicesBottomRowLatex ? 'Generated' : 'Empty'} (${servicesBottomRowLatex.length} chars)`);
-  console.log(`  └ Refresh section LaTeX: ${refreshSectionLatex ? 'Generated' : 'Empty'} (${refreshSectionLatex.length} chars)`);
-  console.log(`  └ Service notes LaTeX: ${serviceNotesLatex ? 'Generated' : 'Empty'} (${serviceNotesLatex.length} chars)`);
+  // Final debug summary only for Refresh Power Scrub
+  // if (refreshPowerScrubUsed || services.refreshPowerScrub) {
+  //   console.log(`✅ [REFRESH POWER SCRUB] Services LaTeX generation complete:`);
+  //   console.log(`  └ Top row LaTeX: ${servicesTopRowLatex ? 'Generated' : 'Empty'} (${servicesTopRowLatex.length} chars)`);
+  //   console.log(`  └ Bottom row LaTeX: ${servicesBottomRowLatex ? 'Generated' : 'Empty'} (${servicesBottomRowLatex.length} chars)`);
+  //   console.log(`  └ Refresh section LaTeX: ${refreshSectionLatex ? 'Generated' : 'Empty'} (${refreshSectionLatex.length} chars)`);
+  //   console.log(`  └ Service notes LaTeX: ${serviceNotesLatex ? 'Generated' : 'Empty'} (${serviceNotesLatex.length} chars)`);
+  // }
 
   return {
     servicesTopRowLatex,
@@ -1552,6 +1828,8 @@ export async function compileProposalTemplate() {
 
 // (C) customer-header — render Mustache locally, then SEND BUNDLE with logo
 export async function compileCustomerHeader(body = {}) {
+  // console.log('🔍 [TEMPLATE DEBUG] Starting PDF compilation with template path:', PDF_HEADER_TEMPLATE_PATH);
+
   const view = {
     headerTitle: latexEscape(body.headerTitle || ""),
     headerRows: (body.headerRows || []).map((r) => ({
@@ -1567,8 +1845,22 @@ export async function compileCustomerHeader(body = {}) {
     ...buildServicesLatex(body.services || {}),
   };
 
+  // console.log('🔍 [TEMPLATE DEBUG] Template view data generated:', {
+  //   headerTitle: view.headerTitle,
+  //   headerRowsCount: view.headerRows?.length || 0,
+  //   servicesTopRowLength: view.servicesTopRowLatex?.length || 0,
+  //   servicesBottomRowLength: view.servicesBottomRowLatex?.length || 0,
+  //   refreshSectionLength: view.refreshSectionLatex?.length || 0,
+  // });
+
   const template = await fs.readFile(PDF_HEADER_TEMPLATE_PATH, "utf8");
+  // console.log('🔍 [TEMPLATE DEBUG] Template file read successfully, length:', template.length);
+  // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesTopRowLatex placeholder:', template.includes('{{{servicesTopRowLatex}}}'));
+  // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesBottomRowLatex placeholder:', template.includes('{{{servicesBottomRowLatex}}}'));
+
   const tex = Mustache.render(template, view);
+  // console.log('🔍 [TEMPLATE DEBUG] After Mustache rendering, LaTeX length:', tex.length);
+  // console.log('🔍 [TEMPLATE DEBUG] Rendered LaTeX contains service sections:', tex.includes('SERVICES'));
 
   const headerDir = path.dirname(PDF_HEADER_TEMPLATE_PATH);
   const logoBuf = await fs.readFile(path.join(headerDir, "images", "Envimaster.png"));

@@ -180,7 +180,13 @@ const PORT = process.env.PORT || 5000;
 
 (async () => {
   try {
-    await connectDB();
+    const dbConnected = await connectDB();
+    if (dbConnected) {
+      console.log('✅ Database connection successful');
+    } else {
+      console.log('⚠️ Running without database - some features may not work');
+    }
+
     app.listen(PORT, () =>
       console.log(`🚀 API listening on http://localhost:${PORT}`)
     );
