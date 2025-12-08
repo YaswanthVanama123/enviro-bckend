@@ -171,52 +171,140 @@ const serviceConfigs = [
     tags: ["restroom", "hygiene", "add-on"],
   },
 
-  // 3. SANISCRUB (REFRESH POWER SCRUB)
+  // 3. SANISCRUB - CORRECTED CONFIGURATION
   {
     serviceId: "saniscrub",
-    version: "v1.0",
-    label: "SaniScrub (Refresh Power Scrub)",
-    description: "Deep cleaning bathroom scrub service",
+    version: "v2.0",
+    label: "SaniScrub - Deep Cleaning Bathroom Service",
+    description: "Professional bathroom and front-of-house deep cleaning service designed to work with SaniClean",
     config: {
-      fixtureRates: {
-        monthly: 25,
-        twicePerMonth: 25,
-        bimonthly: 35,
-        quarterly: 40,
+      // Bathroom fixture pricing
+      bathroomPricing: {
+        monthly: {
+          ratePerFixture: 25,
+          minimumCharge: 175,
+          description: "Monthly deep cleaning service"
+        },
+        twicePerMonth: {
+          baseRatePerFixture: 25,
+          minimumCharge: 175,
+          combineWithSaniDiscount: 15,
+          description: "Twice per month service - combine with SaniClean for $15 discount"
+        },
+        bimonthly: {
+          ratePerFixture: 35,
+          minimumCharge: 250,
+          description: "Every two months service"
+        },
+        quarterly: {
+          ratePerFixture: 40,
+          minimumCharge: 250,
+          description: "Quarterly service"
+        }
       },
-      minimums: {
-        monthly: 175,
-        twicePerMonth: 175,
-        bimonthly: 250,
-        quarterly: 250,
+
+      // Non-bathroom (front of house) pricing
+      nonBathroomPricing: {
+        unitSqFt: 500,
+        firstUnitRate: 250,
+        additionalUnitRate: 125,
+        description: "Up to 500 sq ft = $250, each additional 500 sq ft = $125",
+        examples: {
+          "1000_sqft": "2 units = $250 + 1×$125 = $375",
+          "1500_sqft": "3 units = $250 + 2×$125 = $500",
+          "3000_sqft": "6 units = $250 + 5×$125 = $875"
+        }
       },
-      nonBathroomUnitSqFt: 500,
-      nonBathroomFirstUnitRate: 250,
-      nonBathroomAdditionalUnitRate: 125,
-      installMultipliers: {
-        dirty: 3,
-        clean: 1,
+
+      // Installation pricing
+      installationPricing: {
+        multipliers: {
+          dirty: 3,
+          clean: 1
+        },
+        tripCharge: 0,
+        parkingFee: 0,
+        strategy: {
+          sellAt: "3x normal cost",
+          canWaiveAsConsession: true,
+          noPriceConcessionIfInstallWaived: true
+        },
+        description: "Install: 3x normal price if dirty, 1x if clean. No trip charge."
       },
-      tripChargeBase: 0,
-      parkingFee: 0,
+
+      // Trip charges
+      tripCharges: {
+        standard: 0,
+        install: 0,
+        parkingFee: 0,
+        description: "No trip charges or parking fees for any SaniScrub services."
+      },
+
+      // Frequency configurations
       frequencyMeta: {
-        monthly: { visitsPerYear: 12 },
-        twicePerMonth: { visitsPerYear: 24 },
-        bimonthly: { visitsPerYear: 6 },
-        quarterly: { visitsPerYear: 4 },
+        monthly: {
+          visitsPerYear: 12,
+          monthlyMultiplier: 1.0,
+          recommended: true
+        },
+        twicePerMonth: {
+          visitsPerYear: 24,
+          monthlyMultiplier: 2.0,
+          requiresSaniCleanCombo: true,
+          discountWhenCombined: 15
+        },
+        bimonthly: {
+          visitsPerYear: 6,
+          monthlyMultiplier: 0.5
+        },
+        quarterly: {
+          visitsPerYear: 4,
+          monthlyMultiplier: 0.333
+        }
       },
-      twoTimesPerMonthDiscountFlat: 15,
+
+      // Business rules
+      businessRules: {
+        recommendCombineWithSaniClean: true,
+        twicePerMonthRequiresSaniClean: true,
+        discountForTwicePerMonthCombo: 15,
+        installCanBeWaivedAsConsession: true,
+        noPriceConcessionIfInstallWaived: true,
+        targetFrequency: "monthly"
+      },
+
+      // Value proposition
+      valueProposition: {
+        bathroomServices: [
+          "Add-on to SaniClean for maximum effectiveness",
+          "SaniClean reduces bacteria source, SaniScrub removes the remainder",
+          "Designed to work together for complete bacteria control",
+          "Saves customer mopping costs and time"
+        ],
+        frontOfHouseServices: [
+          "No comparable service available from janitorial companies",
+          "Addresses bacteria in grout that standard cleaning misses",
+          "Essential for maintaining food safety standards",
+          "Without this service, bacteria lives, feeds and breeds in grout"
+        ]
+      }
     },
     defaultFormState: {
       serviceId: "saniscrub",
+      serviceArea: "bathroom", // bathroom or frontOfHouse
       fixtures: 0,
+      squareFeet: 0, // for front of house
       frequency: "monthly",
+      combineWithSaniClean: false,
       installCondition: "clean",
+      addInstall: false,
       contractMonths: 12,
-      notes: "",
+      location: "standard",
+      needsParking: false,
+      notes: ""
     },
     isActive: true,
-    tags: ["restroom", "deep-cleaning"],
+    tags: ["bathroom", "deep-cleaning", "grout-cleaning", "bacteria-control", "sani-addon"]
   },
 
   // 4. FOAMING DRAIN
@@ -543,73 +631,76 @@ const serviceConfigs = [
   },
 
   // 9. PURE JANITORIAL
-{
-  "version": "v2.0",
-  "serviceId": "pureJanitorial",
-  "description": "General janitorial services with recurring and one-time options",
-  "config": {
-    "baseHourlyRate": 30,
-    "shortJobHourlyRate": 50,
-    "minHoursPerVisit": 4,
-    "tieredPricing": [
-      {
-        "upToMinutes": 15,
-        "price": 10,
-        "description": "0-15 minutes",
-        "addonOnly": true
-      },
-      {
-        "upToMinutes": 30,
-        "price": 20,
-        "description": "15-30 minutes",
-        "addonOnly": true,
-        "standalonePrice": 35
-      },
-      {
-        "upToHours": 1,
-        "price": 50,
-        "description": "30 min - 1 hour"
-      },
-      {
-        "upToHours": 2,
-        "price": 80,
-        "description": "1-2 hours"
-      },
-      {
-        "upToHours": 3,
-        "price": 100,
-        "description": "2-3 hours"
-      },
-      {
-        "upToHours": 4,
-        "price": 120,
-        "description": "3-4 hours"
-      },
-      {
-        "upToHours": 999,
-        "ratePerHour": 30,
-        "description": "4+ hours"
-      }
-    ],
-    "weeksPerMonth": 4.33,
-    "minContractMonths": 2,
-    "maxContractMonths": 36,
-    "dustingPlacesPerHour": 30,
-    "dustingPricePerPlace": 1,
-    "vacuumingDefaultHours": 1
+  {
+    version: "v2.0",
+    serviceId: "pureJanitorial",
+    label: "Pure Janitorial",
+    description: "General janitorial services with recurring and one-time options",
+    config: {
+      baseHourlyRate: 30,
+      shortJobHourlyRate: 50,
+      minHoursPerVisit: 4,
+      tieredPricing: [
+        {
+          upToMinutes: 15,
+          price: 10,
+          description: "0-15 minutes",
+          addonOnly: true
+        },
+        {
+          upToMinutes: 30,
+          price: 20,
+          description: "15-30 minutes",
+          addonOnly: true,
+          standalonePrice: 35
+        },
+        {
+          upToHours: 1,
+          price: 50,
+          description: "30 min - 1 hour"
+        },
+        {
+          upToHours: 2,
+          price: 80,
+          description: "1-2 hours"
+        },
+        {
+          upToHours: 3,
+          price: 100,
+          description: "2-3 hours"
+        },
+        {
+          upToHours: 4,
+          price: 120,
+          description: "3-4 hours"
+        },
+        {
+          upToHours: 999,
+          ratePerHour: 30,
+          description: "4+ hours"
+        }
+      ],
+      weeksPerMonth: 4.33,
+      minContractMonths: 2,
+      maxContractMonths: 36,
+      dustingPlacesPerHour: 30,
+      dustingPricePerPlace: 1,
+      vacuumingDefaultHours: 1
+    },
+    defaultFormState: {
+      serviceId: "pureJanitorial",
+      serviceType: "recurring",
+      manualHours: 0,
+      vacuumingHours: 0,
+      dustingPlaces: 0,
+      addonTimeMinutes: 0,
+      installation: false,
+      contractMonths: 12,
+      notes: ""
+    },
+    isActive: true,
+    tags: ["janitorial", "hourly", "recurring"]
   },
-  "defaultFormState": {
-    "serviceId": "pureJanitorial",
-    "serviceType": "recurring",
-    "manualHours": 0,
-    "vacuumingHours": 0,
-    "dustingPlaces": 0,
-    "addonTimeMinutes": 0,
-    "installation": false,
-    "contractMonths": 12,
-    "notes": ""
-  }
-}
 
 
   // 10. STRIP & WAX

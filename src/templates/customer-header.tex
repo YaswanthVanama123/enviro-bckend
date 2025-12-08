@@ -6,7 +6,6 @@
 \usepackage{helvet}
 \usepackage{tabularx}
 \usepackage{array}
-\usepackage{longtable}
 
 \renewcommand{\familydefault}{\sfdefault}
 
@@ -51,9 +50,6 @@
 
 % Flex column that wraps text (for tabularx)
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
-
-% Multi-line header column with automatic height adjustment
-\newcolumntype{Z}{>{\raggedright\arraybackslash\small}p}
 
 % ====== SERVICES HELPER MACROS ====================================
 
@@ -230,32 +226,24 @@
 \fcolorbox{emred}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
-    \bfseries\small\textcolor{white}{PRODUCTS}%
+    \bfseries\footnotesize\textcolor{white}{PRODUCTS}%
   }%
 }
 
 \vspace{0.2em}
 
-%==================== PRODUCTS TABLE (dynamic, page-breaking) ============
+%==================== PRODUCTS TABLE (dynamic, wrapping) ============
 
-\small
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.4}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.15}
 
-% Use longtable for automatic page breaking
-\begin{longtable}{|{{{productsColSpecLatex}}}|}
+\noindent
+\begin{tabularx}{\textwidth}{|{{{productsColSpecLatex}}}|}
   \hline
   {{{productsHeaderRowLatex}}}
-  \endfirsthead
-
-  % Header for subsequent pages
-  \hline
-  {{{productsHeaderRowLatex}}}
-  \endhead
-
-  % Body rows
   {{{productsBodyRowsLatex}}}
-\end{longtable}
+\end{tabularx}
 
 %==================== SERVICES TITLE BAR ============================
 
@@ -265,7 +253,7 @@
 \fcolorbox{emred}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
-    \bfseries\small\textcolor{white}{SERVICES}%
+    \bfseries\footnotesize\textcolor{white}{SERVICES}%
   }%
 }
 

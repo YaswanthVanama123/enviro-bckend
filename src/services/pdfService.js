@@ -199,15 +199,10 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     }
   });
 
-  // Calculate appropriate column widths for longtable
-  const columnCount = headers.length;
-  const availableWidth = "\\textwidth";
-  const columnWidth = columnCount > 0 ? `\\dimexpr(${availableWidth}-${columnCount + 1}\\arrayrulewidth)/${columnCount}\\relax` : "2cm";
-
-  const productsColSpecLatex = headers.map(() => `>{\\raggedright\\arraybackslash\\small}p{${columnWidth}}`).join("|");
+  const productsColSpecLatex = headers.map(() => "Y").join("|");
   const productsHeaderRowLatex =
     headers
-      .map((h) => `\\textbf{\\textcolor{emred}{${latexEscape(h)}}}`)
+      .map((h) => `\\textbf{${latexEscape(h)}}`)
       .join(" & ") + " \\\\ \\hline\n";
 
   let productsBodyRowsLatex = "";
