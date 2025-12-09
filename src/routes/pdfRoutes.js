@@ -20,7 +20,9 @@ import {
   proxyCompileBundle,
   getCustomerHeadersHighLevel,
   getCustomerHeaderViewerById,
-  downloadCustomerHeaderPdf
+  downloadCustomerHeaderPdf,
+  getSavedFilesList,
+  getSavedFileDetails
 } from "../controllers/pdfController.js";
 
 const router = Router();
@@ -52,6 +54,10 @@ router.put("/admin-headers/:id", updateAdminHeader);
 router.get("/viewer/getall/highlevel", getCustomerHeadersHighLevel);
 router.get("/viewer/getbyid/:id", getCustomerHeaderViewerById);
 router.get("/viewer/download/:id", downloadCustomerHeaderPdf)
+
+/* ---- NEW: saved-files API (lazy loading) ---- */
+router.get("/saved-files", getSavedFilesList); // Lightweight list with pagination
+router.get("/saved-files/:id/details", getSavedFileDetails); // Full payload on-demand
 
 /* ---- pass-through (files uploaded to your backend) ---- */
 router.post("/compile-file", upload.single("file"), proxyCompileFile);

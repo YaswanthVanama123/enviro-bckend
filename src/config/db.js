@@ -8,7 +8,8 @@ const connectDB = async () => {
     console.log('✅ MongoDB connected successfully');
   } catch (err) {
     console.error('❌ MongoDB connection failed:', err.message);
-    process.exit(1);
+    console.log('⚠️  Server will continue without MongoDB for testing Zoho functionality');
+    // process.exit(1); // ✅ COMMENTED: Allow server to start without MongoDB for Zoho testing
   }
 };
 
