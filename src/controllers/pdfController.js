@@ -559,6 +559,7 @@ export async function getCustomerHeaderForEdit(req, res) {
             // Area-specific fields
             kitchenSize: "smallMedium", // Default (for boh)
             patioMode: "standalone", // Default (for patio)
+            includePatioAddon: false, // Default (for patio)
 
             // Frequency and contract with normalized values
             frequencyLabel: normalizeFrequencyLabel(serviceData.frequency?.value || "TBD"),
@@ -587,6 +588,11 @@ export async function getCustomerHeaderForEdit(req, res) {
             if (serviceData.plan) {
               if (areaKey === 'patio') {
                 convertedArea.patioMode = serviceData.plan.value === 'Upsell' ? 'upsell' : 'standalone';
+                // ✅ Extract patio add-on selection from stored data
+                if (serviceData.includePatioAddon) {
+                  convertedArea.includePatioAddon = serviceData.includePatioAddon.value || false;
+                }
+                console.log(`🔄 [EDIT FORMAT] Patio conversion: patioMode=${convertedArea.patioMode}, includePatioAddon=${convertedArea.includePatioAddon}`);
               } else if (areaKey === 'boh') {
                 convertedArea.kitchenSize = serviceData.plan.value === 'Large' ? 'large' : 'smallMedium';
               }
@@ -634,6 +640,7 @@ export async function getCustomerHeaderForEdit(req, res) {
             // Area-specific fields
             kitchenSize: "smallMedium",
             patioMode: "standalone",
+            includePatioAddon: false, // ✅ NEW: Patio add-on selection
 
             // Frequency and contract
             frequencyLabel: "",

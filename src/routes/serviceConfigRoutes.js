@@ -46,4 +46,16 @@ router.put(
   serviceConfigController.partialUpdateServiceConfigController
 );
 
+// Delete config by id
+router.delete(
+  "/:id",
+  serviceConfigController.deleteServiceConfigController
+);
+
+// Delete all configs for a serviceId
+router.delete(
+  "/service/:serviceId",
+  serviceConfigController.deleteServiceConfigsByServiceIdController
+);
+
 export default router;

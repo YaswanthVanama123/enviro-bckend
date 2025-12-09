@@ -16,6 +16,7 @@ const baseSchema = {
   defaultFormState: Joi.object().unknown(true).optional(),
 
   isActive: Joi.boolean().optional(),
+  adminByDisplay: Joi.boolean().optional(), // ✅ Added missing field
   tags: Joi.array().items(Joi.string()).optional(),
 };
 
@@ -31,6 +32,7 @@ const partialUpdateServiceConfigSchema = Joi.object({
   config: Joi.object().unknown(true).optional(),
   defaultFormState: Joi.object().unknown(true).optional(),
   isActive: Joi.boolean().optional(),
+  adminByDisplay: Joi.boolean().optional(), // ✅ Added missing field
   tags: Joi.array().items(Joi.string()).optional(),
 }).min(1); // at least one field must be present
 

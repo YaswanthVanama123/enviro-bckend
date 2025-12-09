@@ -1624,7 +1624,21 @@ function buildServicesLatex(services = {}) {
                 details.push(`Out: ${serviceData.outsideSqft.quantity} @ \\$${serviceData.outsideSqft.priceRate}`);
               }
             } else if (serviceData.plan) {
-              details.push(`Plan: ${serviceData.plan.value}`);
+              // Handle preset plans - special case for patio with add-on
+              if (area.key === 'patio' && serviceData.includePatioAddon) {
+                // Check if this is the new format with includePatioAddon field
+                if (serviceData.includePatioAddon.value === true) {
+                  details.push(`Patio: \\$800 + Add-on: \\$500`);
+                } else {
+                  details.push(`Plan: ${serviceData.plan.value}`);
+                }
+              } else if (area.key === 'patio') {
+                // Patio without add-on or old format
+                details.push(`Patio Service: \\$800`);
+              } else {
+                // Other preset areas (dumpster, foh, boh, etc.)
+                details.push(`Plan: ${serviceData.plan.value}`);
+              }
             }
 
             return details.length > 0 ? details.join(", ") : "Service";
@@ -1682,6 +1696,21 @@ function buildServicesLatex(services = {}) {
             .join(" & ") +
           " \\\\";
 
+        // ✅ NEW: Build contract row showing each area's contract total
+        const contractRow = "  Contract & " +
+          enabledAreas.slice(0, maxAreas)
+            .map(area => {
+              if (refreshData.services && area.data.contract) {
+                const contractTotal = area.data.contract.total || 0;
+                const contractMonths = area.data.contract.quantity || 12;
+                return `\\textbf{\\$${contractTotal.toFixed(2)}} \\scriptsize{(${contractMonths}mo)}`;
+              } else {
+                return "\\textbf{TBD}";
+              }
+            })
+            .join(" & ") +
+          " \\\\";
+
         refreshSectionLatex += "\\vspace{0.9em}\n";
         refreshSectionLatex += `\\serviceSection{REFRESH POWER SCRUB}\n`;
         refreshSectionLatex += "\\vspace{0.25em}\n";
@@ -1692,6 +1721,7 @@ function buildServicesLatex(services = {}) {
         refreshSectionLatex += "  \\hline\n" + detailsRow + "\n";
         refreshSectionLatex += "  \\hline\n" + frequencyRow + "\n";
         refreshSectionLatex += "  \\hline\n" + totalRow + "\n";
+        refreshSectionLatex += "  \\hline\n" + contractRow + "\n";
         refreshSectionLatex += "  \\hline\n";
         refreshSectionLatex += "\\end{tabularx}\n";
 

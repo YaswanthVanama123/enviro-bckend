@@ -143,3 +143,19 @@ export async function mergeServiceConfig(id, partial) {
 
   return existing.save();
 }
+
+/**
+ * Delete a service config by id.
+ * Returns the deleted document if successful, null if not found.
+ */
+export async function deleteServiceConfig(id) {
+  return ServiceConfig.findByIdAndDelete(id);
+}
+
+/**
+ * Delete service configs by serviceId.
+ * Returns information about the deletion operation.
+ */
+export async function deleteServiceConfigsByServiceId(serviceId) {
+  return ServiceConfig.deleteMany({ serviceId });
+}

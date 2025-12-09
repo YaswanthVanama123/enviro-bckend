@@ -5,6 +5,8 @@ import {
   validatePartialUpdateServiceConfig,
 } from "../validations/serviceConfigValidation.js";
 
+import mongoose from "mongoose";
+
 import {
   createServiceConfig,
   getAllServiceConfigs,
@@ -13,6 +15,8 @@ import {
   getLatestConfigForService,
   replaceServiceConfig,
   mergeServiceConfig,
+  deleteServiceConfig,
+  deleteServiceConfigsByServiceId,
 } from "../services/serviceConfigService.js";
 
 export async function createServiceConfigController(req, res, next) {
@@ -134,6 +138,63 @@ export async function partialUpdateServiceConfigController(req, res, next) {
     }
 
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteServiceConfigController(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        message: "Invalid ID format. Expected MongoDB ObjectId.",
+        hint: "If you want to delete by serviceId (e.g., 'refreshPowerScrub'), use DELETE /api/service-configs/service/:serviceId"
+      });
+    }
+
+    const deleted = await deleteServiceConfig(id);
+
+    if (!deleted) {
+      return res.status(404).json({ message: "ServiceConfig not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "ServiceConfig deleted successfully",
+      deletedId: id,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteServiceConfigsByServiceIdController(req, res, next) {
+  try {
+    const { serviceId } = req.params;
+
+    if (!serviceId || serviceId.trim() === '') {
+      return res.status(400).json({
+        message: "serviceId parameter is required"
+      });
+    }
+
+    const result = await deleteServiceConfigsByServiceId(serviceId);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        message: `No service configs found for serviceId: ${serviceId}`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Deleted ${result.deletedCount} service config(s) for serviceId: ${serviceId}`,
+      serviceId: serviceId,
+      deletedCount: result.deletedCount,
+    });
   } catch (err) {
     next(err);
   }
