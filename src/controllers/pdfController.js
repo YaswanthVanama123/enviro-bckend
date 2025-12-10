@@ -10,7 +10,7 @@ import {
   proxyCompileBundleToRemote,
 } from "../services/pdfService.js";
 
-import { uploadToZohoBigin } from "../services/zohoService.js";
+import { uploadToZohoBigin, getZohoAccessToken, testZohoAccess } from "../services/zohoService.js";
 
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
@@ -21,6 +21,26 @@ import ServiceConfig from "../models/ServiceConfig.js";
 export async function pdfHealth(_req, res) {
   const info = await getPdfHealth();
   res.json(info);
+}
+
+// ✅ NEW: Test endpoint to verify Zoho API integration
+export async function testZohoAccessEndpoint(_req, res) {
+  try {
+    console.log("🧪 [TEST-ENDPOINT] Testing Zoho access...");
+    await testZohoAccess();
+
+    res.json({
+      success: true,
+      message: "Zoho access test completed - check server logs for detailed results"
+    });
+  } catch (error) {
+    console.error("❌ [TEST-ENDPOINT] Zoho access test failed:", error);
+    res.status(500).json({
+      success: false,
+      error: "Zoho access test failed",
+      detail: error.message
+    });
+  }
 }
 
 export async function compileFromRaw(req, res) {
@@ -230,7 +250,7 @@ if (!zohoData.bigin?.url || zohoData.bigin.url.includes("null")) {
             sizeBytes: buffer.length,
             contentType: "application/pdf",
             storedAt: new Date(),
-            pdfBuffer: null, // ✅ NEVER store PDF in MongoDB
+            pdfBuffer: buffer, // ✅ STORE PDF in MongoDB as Buffer (not base64)
             externalUrl: null,
           }
         : {
@@ -245,6 +265,13 @@ if (!zohoData.bigin?.url || zohoData.bigin.url.includes("null")) {
       updatedBy: req.admin?.id || null,
       zoho: zohoData,
     });
+
+    // ✅ Log PDF storage confirmation
+    if (buffer) {
+      console.log(`✅ PDF stored in MongoDB: ${doc._id} (${buffer.length} bytes → ${doc.pdf_meta.sizeBytes} bytes base64)`);
+    } else {
+      console.log(`📝 Document created without PDF: ${doc._id} (draft mode)`);
+    }
 
     // console.log(`Document created with ID: ${doc._id}, status: ${status}`);
 
@@ -912,9 +939,12 @@ export async function updateCustomerHeader(req, res) {
         sizeBytes: buffer.length,
         contentType: "application/pdf",
         storedAt: new Date(),
-        pdfBuffer: null, // ✅ NEVER store PDF in MongoDB
+        pdfBuffer: buffer, // ✅ STORE PDF in MongoDB as Buffer (not base64)
         externalUrl: doc.pdf_meta?.externalUrl || null,
       };
+
+      // ✅ Log PDF storage confirmation
+      console.log(`✅ PDF updated in MongoDB: ${doc._id} (${buffer.length} bytes → ${doc.pdf_meta.sizeBytes} bytes Buffer)`);
     }
 
     await doc.save();
@@ -1255,21 +1285,63 @@ export async function updateAdminHeader(req, res) {
 async function fetchZohoPdfFromBigin(zohoInfo) {
   if (!zohoInfo) return null;
 
-  const url = zohoInfo.url || zohoInfo.downloadUrl;
-  if (!url) return null;
+  const fileId = zohoInfo.fileId;
+  const dealId = zohoInfo.dealId;
 
-  const token = process.env.ZOHO_BIGIN_ACCESS_TOKEN;
-  if (!token) {
-    console.warn("ZOHO_BIGIN_ACCESS_TOKEN not set; cannot fetch PDF");
+  if (!fileId || !dealId) {
+    console.log("❌ Missing fileId or dealId in zohoInfo:", { fileId, dealId });
     return null;
   }
 
-  const resp = await axios.get(url, {
-    responseType: "arraybuffer",
-    headers: { Authorization: `Zoho-oauthtoken ${token}` },
-  });
+  try {
+    const token = await getZohoAccessToken();
+    // ✅ Use the correct base URL that was discovered
+    const baseUrl = process.env.ZOHO_BIGIN_WORKING_URL || "https://bigin.zoho.in/api/v2";
 
-  return Buffer.from(resp.data);
+    console.log("📥 Downloading PDF from Zoho Bigin deals/attachments...");
+    console.log("🌍 Using base URL:", baseUrl);
+    console.log("📎 File ID:", fileId);
+    console.log("🏢 Deal ID:", dealId);
+
+    // ✅ CORRECT: Use exact structure with correct base URL
+    const downloadUrl = `${baseUrl}/deals/${dealId}/attachments/${fileId}`;
+
+    console.log(`📥 Downloading from: ${downloadUrl}`);
+    const resp = await axios.get(downloadUrl, {
+      responseType: "arraybuffer",
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    });
+
+    console.log("✅ PDF downloaded successfully from deals/attachments");
+    return Buffer.from(resp.data);
+
+  } catch (error) {
+    console.error("❌ Failed to download PDF from Zoho deals/attachments:", error.message);
+    if (error.response) {
+      console.error("Status:", error.response.status);
+      console.error("Response data:", error.response.data);
+    }
+    return null;
+  }
+}
+
+// Helper function to extract file ID from URL
+function extractFileIdFromUrl(url) {
+  if (!url) return null;
+
+  // Extract file ID from various URL patterns
+  const patterns = [
+    /\/files\/([a-f0-9]+)/i,
+    /\/attachments\/([a-f0-9]+)/i,
+    /fileId[=:]([a-f0-9]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+
+  return null;
 }
 
 
@@ -1335,13 +1407,14 @@ export async function getCustomerHeaderViewerById(req, res) {
     let pdfBase64 = null;
     let pdfContentType = "application/pdf";
 
-    try {
-      const buf = await fetchZohoPdfFromBigin(doc.zoho?.bigin || {});
-      if (buf) {
-        pdfBase64 = buf.toString("base64");
-      }
-    } catch (e) {
-      console.error("Error fetching PDF from Zoho Bigin:", e);
+    // ✅ FIXED: Get PDF from MongoDB instead of Zoho
+    if (doc.pdf_meta?.pdfBuffer && doc.pdf_meta.pdfBuffer.length > 0) {
+      console.log(`📄 [PDF-VIEWER] Serving PDF from MongoDB for document ${id} (${doc.pdf_meta.sizeBytes} bytes)`);
+      pdfBase64 = doc.pdf_meta.pdfBuffer.toString("base64");
+      pdfContentType = doc.pdf_meta.contentType || "application/pdf";
+    } else {
+      console.log(`⚠️ [PDF-VIEWER] No PDF buffer found in MongoDB for document ${id}`);
+      console.log(`📊 Document info: status=${doc.status}, hasPdfMeta=${!!doc.pdf_meta}, bufferSize=${doc.pdf_meta?.pdfBuffer?.length || 0}`);
     }
 
     res.json({
@@ -1421,39 +1494,20 @@ export async function downloadCustomerHeaderPdf(req, res) {
         .json({ error: "not_found", detail: "CustomerHeaderDoc not found" });
     }
 
-    // ✅ UPDATED: Only fetch from Zoho CRM (no MongoDB buffer storage)
-    // Get Zoho information for PDF retrieval
-    const zohoInfo = doc.zoho?.bigin || {};
-
-    if (!zohoInfo || (!zohoInfo.url && !zohoInfo.downloadUrl)) {
-      console.error(`❌ [PDF-DOWNLOAD] No Zoho URL for document ${id}:`, {
-        zohoData: doc.zoho,
+    // ✅ FIXED: Get PDF from MongoDB instead of Zoho
+    if (!doc.pdf_meta?.pdfBuffer || doc.pdf_meta.pdfBuffer.length === 0) {
+      console.error(`❌ [PDF-DOWNLOAD] No PDF buffer in MongoDB for document ${id}:`, {
         status: doc.status,
+        hasPdfMeta: !!doc.pdf_meta,
+        bufferSize: doc.pdf_meta?.pdfBuffer?.length || 0,
         createdAt: doc.createdAt
       });
 
-      // ✅ COMMENTED: Fallback disabled to test Zoho functionality
-      // // ✅ DEVELOPMENT FALLBACK: Check if we have PDF buffer stored (when Zoho failed)
-      // if (doc.pdf_meta?.pdfBuffer) {
-      //   console.log(`🔧 [DEV-FALLBACK] Using stored PDF buffer for document ${id}`);
-
-      //   // Extract customer name from document
-      //   const customerName = extractCustomerNameFromDoc(doc);
-      //   const filename = `${customerName}.pdf`;
-
-      //   res.setHeader("Content-Type", "application/pdf");
-      //   res.setHeader(
-      //     "Content-Disposition",
-      //     `inline; filename="${filename}"`
-      //   );
-      //   return res.send(doc.pdf_meta.pdfBuffer);
-      // }
-
       return res.status(400).json({
         error: "no_pdf",
-        detail: "PDF not available for viewing. This can happen if: (1) Document is still a draft, (2) Zoho CRM upload failed during creation, or (3) PDF was created before Zoho integration. Please try regenerating the PDF.",
+        detail: "PDF not available for download. This can happen if: (1) Document is still a draft, (2) PDF compilation failed during creation, or (3) Document was created without generating PDF. Please try regenerating the PDF.",
         suggestions: [
-          "Edit the document and save again",
+          "Edit the document and save again to regenerate PDF",
           "Check if document status is 'draft'",
           "Contact admin if problem persists"
         ],
@@ -1461,30 +1515,26 @@ export async function downloadCustomerHeaderPdf(req, res) {
           id: doc._id,
           status: doc.status,
           title: doc.payload?.headerTitle || 'Untitled',
-          createdAt: doc.createdAt
+          createdAt: doc.createdAt,
+          hasPdfBuffer: !!doc.pdf_meta?.pdfBuffer,
+          pdfBufferSize: doc.pdf_meta?.pdfBuffer?.length || 0
         }
       });
     }
 
-    // Fetch PDF from Zoho CRM
-    const buf = await fetchZohoPdfFromBigin(zohoInfo);
-    if (!buf) {
-      return res.status(502).json({
-        error: "upstream_error",
-        detail: "Failed to download PDF from Zoho Bigin",
-      });
-    }
+    console.log(`📄 [PDF-DOWNLOAD] Serving PDF from MongoDB for document ${id} (${doc.pdf_meta.sizeBytes} bytes)`);
 
     // Extract customer name from headerRows or customerName field
     const customerName = extractCustomerNameFromDoc(doc);
     const filename = `${customerName}.pdf`;
 
-    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Type", doc.pdf_meta.contentType || "application/pdf");
     res.setHeader(
       "Content-Disposition",
       `inline; filename="${filename}"`
     );
-    res.send(buf);
+    res.send(doc.pdf_meta.pdfBuffer);
+
   } catch (err) {
     console.error("downloadCustomerHeaderPdf error:", err);
     res
@@ -1682,8 +1732,8 @@ export async function getSavedFileDetails(req, res) {
     // ✅ FULL QUERY: Fetch complete document with all payload data
     const file = await CustomerHeaderDoc.findById(id)
       .select({
-        // Include everything EXCEPT pdf buffer (which we removed anyway)
-        pdfBuffer: 0, // Explicitly exclude if any old docs still have it
+        // Include everything EXCEPT pdf buffer (for performance)
+        "pdf_meta.pdfBuffer": 0, // ✅ Exclude the actual PDF buffer field
       })
       .lean();
 

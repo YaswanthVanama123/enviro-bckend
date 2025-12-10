@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import {
   pdfHealth,
+  testZohoAccessEndpoint,
   compileFromRaw,
   compileFromProposalFile,
   compileCustomerHeaderPdf,
@@ -30,6 +31,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 /* ---- health ---- */
 router.get("/health", pdfHealth);
+router.get("/test-zoho-access", testZohoAccessEndpoint);
 
 /* ---- basic compile ---- */
 router.post("/compile", compileFromRaw);
