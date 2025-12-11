@@ -1932,11 +1932,24 @@ export async function createBiginDeal(dealData) {
 export async function createBiginNote(dealId, noteData) {
   console.log(`📝 Creating note for deal ${dealId}: ${noteData.title}`);
 
+  // ✅ FIX: Check what fields Notes module actually requires
+  try {
+    console.log(`🔍 [NOTE CREATION] Checking Notes module field requirements...`);
+    const notesFields = await getBiginModuleFields('Notes');
+    if (notesFields.success) {
+      const requiredFields = notesFields.fields.filter(f => f.required);
+      console.log(`🔍 [NOTE CREATION] Required fields for Notes:`, requiredFields.map(f => f.apiName));
+    }
+  } catch (e) {
+    console.log(`⚠️ [NOTE CREATION] Could not fetch Notes fields:`, e.message);
+  }
+
   const payload = {
     data: [{
       Note_Title: noteData.title || 'EnviroMaster Agreement Update',  // ✅ Correct Bigin field name
       Note_Content: noteData.content,                                 // ✅ Correct Bigin field name
       Parent_Id: dealId,                                              // ✅ Links note to the deal
+      $se_module: 'Deals',                                           // ✅ FIX: Specify which module the parent belongs to
       // Optional: set owner, created time, etc.
     }]
   };
@@ -1967,15 +1980,29 @@ export async function createBiginNote(dealId, noteData) {
       };
     } else {
       console.error(`❌ Note creation failed:`, result.data);
+
+      // ✅ FIX: Extract actual error message from Zoho response
+      const zohoError = result.data?.data?.[0];
+      const errorMessage = zohoError?.message || zohoError?.details || 'Unknown Zoho error';
+
+      console.error(`❌ Extracted error message:`, errorMessage);
+
       return {
         success: false,
-        error: result.data
+        error: errorMessage  // Return the actual error message, not the whole object
       };
     }
   }
 
   console.error(`❌ Note creation API call failed:`, result.error);
-  return result;
+
+  // ✅ FIX: Extract error message from failed API call
+  const errorMessage = result.error?.message || result.error || 'Unknown API error';
+
+  return {
+    success: false,
+    error: errorMessage
+  };
 }
 
 /**
@@ -2002,8 +2029,8 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName) {
       contentType: 'application/pdf'
     });
 
-    // Upload to deal's attachments - correct endpoint for Deals module
-    const uploadUrl = `${baseUrl}/Deals/${dealId}/Attachments`;
+    // ✅ V2 FIX: Upload to deal's attachments using Pipelines module (matches deal creation endpoint)
+    const uploadUrl = `${baseUrl}/Pipelines/${dealId}/Attachments`;
     console.log(`🔍 [FILE UPLOAD] URL: ${uploadUrl}`);
 
     const response = await axios.post(uploadUrl, formData, {
