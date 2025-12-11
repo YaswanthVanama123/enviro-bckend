@@ -1943,7 +1943,10 @@ export async function createBiginNote(dealId, noteData) {
 
   console.log(`🔍 [NOTE CREATION] Payload:`, JSON.stringify(payload, null, 2));
 
-  const endpoint = `/Deals/${dealId}/Notes`;  // ✅ FIXED: Use Deals endpoint for notes
+  // ✅ V2 FIX: Use Notes module directly, not nested under Deals
+  const endpoint = `/Notes`;  // ✅ FIXED: Use direct Notes endpoint for v2
+  console.log(`🔍 [NOTE CREATION] Using v2 Notes endpoint: ${endpoint}`);
+
   const result = await makeBiginRequest('POST', endpoint, payload);
 
   if (result.success) {
