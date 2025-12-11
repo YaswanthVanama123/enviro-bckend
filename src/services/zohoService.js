@@ -744,13 +744,55 @@ export async function uploadToZohoCRM(
   }
 }
 
+// ✅ RACE CONDITION FIX: Mutex to prevent concurrent token refreshes
+let tokenRefreshInProgress = false;
+let tokenRefreshPromise = null;
+
+// ✅ SMART CACHING: Cache valid tokens to reduce unnecessary refreshes
+let cachedAccessToken = null;
+let tokenExpiryTime = null;
+
+/**
+ * Check if cached token is still valid (with 5-minute buffer for safety)
+ */
+function isCachedTokenValid() {
+  if (!cachedAccessToken || !tokenExpiryTime) {
+    return false;
+  }
+
+  // Add 5-minute (300 seconds) buffer before expiry for safety
+  const bufferTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+  const now = Date.now();
+  const expiryWithBuffer = tokenExpiryTime - bufferTime;
+
+  return now < expiryWithBuffer;
+}
+
 /**
  * Get Zoho access token using refresh token with automatic refresh
  * 1. Try to get new access token using refresh token (automatic)
  * 2. If that fails, fall back to static ZOHO_ACCESS_TOKEN (admin setup)
  * 3. If no credentials, provide clear error for admin setup
+ * ✅ FIXED: Prevents race conditions when multiple requests refresh token simultaneously
  */
 export async function getZohoAccessToken() {
+  // ✅ SMART CACHING: Return cached token if still valid
+  if (isCachedTokenValid()) {
+    const remainingMinutes = Math.round((tokenExpiryTime - Date.now()) / 60000);
+    console.log(`🎯 [TOKEN-CACHE] Using cached token (${remainingMinutes} minutes remaining)`);
+    return cachedAccessToken;
+  }
+
+  // ✅ RACE CONDITION FIX: If another refresh is in progress, wait for it
+  if (tokenRefreshInProgress && tokenRefreshPromise) {
+    console.log('🔄 [TOKEN-MUTEX] Another token refresh in progress, waiting...');
+    try {
+      return await tokenRefreshPromise;
+    } catch (error) {
+      console.log('🔄 [TOKEN-MUTEX] Previous refresh failed, trying again...');
+      // Fall through to try refresh again
+    }
+  }
   // First, try to use refresh token to get new access token automatically
   const clientId = process.env.ZOHO_CLIENT_ID;
   const clientSecret = process.env.ZOHO_CLIENT_SECRET;
@@ -764,51 +806,73 @@ export async function getZohoAccessToken() {
   console.log(`  └ Accounts URL: ${accountsUrl}`);
 
   if (clientId && clientSecret && refreshToken) {
+    // ✅ RACE CONDITION FIX: Set mutex and create promise for concurrent requests
+    tokenRefreshInProgress = true;
+    tokenRefreshPromise = (async () => {
+      try {
+        console.log("🔄 Auto-refreshing Zoho access token...");
+        console.log(`🔑 Using refresh token: ${refreshToken.substring(0, 30)}...`);
+        console.log(`🌍 Accounts URL: ${accountsUrl}`);
+        console.log(`🆔 Client ID: ${clientId}`);
+
+        const response = await axios.post(
+          `${accountsUrl}/oauth/v2/token`,
+          null,
+          {
+            params: {
+              refresh_token: refreshToken,
+              client_id: clientId,
+              client_secret: clientSecret,
+              grant_type: "refresh_token",
+            },
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+          }
+        );
+
+        const { access_token, expires_in } = response.data;
+        console.log(`✅ Auto-refreshed Zoho token successfully!`);
+        console.log(`  ├ New access token: ${access_token.substring(0, 30)}...`);
+        console.log(`  ├ Expires in: ${expires_in} seconds (${Math.round(expires_in/3600)} hours)`);
+        console.log(`  └ Refresh token status: PERMANENT (never expires) ✅`);
+
+        // ✅ SMART CACHING: Cache the new token with expiry time
+        cachedAccessToken = access_token;
+        tokenExpiryTime = Date.now() + (expires_in * 1000); // Convert seconds to milliseconds
+        console.log(`🎯 [TOKEN-CACHE] Token cached until ${new Date(tokenExpiryTime).toLocaleString()}`);
+
+        return access_token;
+      } catch (error) {
+        console.error("❌ Failed to auto-refresh Zoho token:");
+        console.error("  ├ Error type:", error.name || 'Unknown');
+        console.error("  ├ Error message:", error.message);
+        console.error("  ├ Response status:", error.response?.status);
+        console.error("  ├ Response data:", JSON.stringify(error.response?.data, null, 2));
+        console.error("  ├ Request URL:", error.config?.url);
+        console.error("  └ Refresh token used:", refreshToken.substring(0, 30) + "...");
+
+        console.error("\n🔍 [DEBUG] Full request details:");
+        console.error("  ├ Accounts URL:", accountsUrl);
+        console.error("  ├ Client ID:", clientId);
+        console.error("  ├ Client Secret:", clientSecret ? clientSecret.substring(0, 10) + "..." : "MISSING");
+        console.error("  └ Grant type: refresh_token");
+
+        // Re-throw error to be handled by fallback logic
+        throw error;
+      }
+    })();
+
     try {
-      console.log("🔄 Auto-refreshing Zoho access token...");
-      console.log(`🔑 Using refresh token: ${refreshToken.substring(0, 30)}...`);
-      console.log(`🌍 Accounts URL: ${accountsUrl}`);
-      console.log(`🆔 Client ID: ${clientId}`);
-
-      const response = await axios.post(
-        `${accountsUrl}/oauth/v2/token`,
-        null,
-        {
-          params: {
-            refresh_token: refreshToken,
-            client_id: clientId,
-            client_secret: clientSecret,
-            grant_type: "refresh_token",
-          },
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-        }
-      );
-
-      const { access_token, expires_in } = response.data;
-      console.log(`✅ Auto-refreshed Zoho token successfully!`);
-      console.log(`  ├ New access token: ${access_token.substring(0, 30)}...`);
-      console.log(`  ├ Expires in: ${expires_in} seconds (${Math.round(expires_in/3600)} hours)`);
-      console.log(`  └ Refresh token status: PERMANENT (never expires) ✅`);
-
-      return access_token;
+      const token = await tokenRefreshPromise;
+      return token;
     } catch (error) {
-      console.error("❌ Failed to auto-refresh Zoho token:");
-      console.error("  ├ Error type:", error.name || 'Unknown');
-      console.error("  ├ Error message:", error.message);
-      console.error("  ├ Response status:", error.response?.status);
-      console.error("  ├ Response data:", JSON.stringify(error.response?.data, null, 2));
-      console.error("  ├ Request URL:", error.config?.url);
-      console.error("  └ Refresh token used:", refreshToken.substring(0, 30) + "...");
-
-      console.error("\n🔍 [DEBUG] Full request details:");
-      console.error("  ├ Accounts URL:", accountsUrl);
-      console.error("  ├ Client ID:", clientId);
-      console.error("  ├ Client Secret:", clientSecret ? clientSecret.substring(0, 10) + "..." : "MISSING");
-      console.error("  └ Grant type: refresh_token");
-
       // Fall through to static token fallback
+      console.log("🔄 [TOKEN-MUTEX] Refresh failed, falling back to static token");
+    } finally {
+      // ✅ RACE CONDITION FIX: Always clean up mutex
+      tokenRefreshInProgress = false;
+      tokenRefreshPromise = null;
     }
   } else {
     console.log("⚠️  Missing OAuth credentials:");
