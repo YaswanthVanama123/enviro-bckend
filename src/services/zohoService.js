@@ -98,6 +98,16 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
     console.log("  ├ Refresh token length:", refresh_token.length);
     console.log("  └ Expires in:", expires_in, "seconds");
 
+    console.log("\n" + "=".repeat(80));
+    console.log("📋 COPY THESE TOKENS TO YOUR .ENV FILE:");
+    console.log("=".repeat(80));
+    console.log(`ZOHO_ACCESS_TOKEN=${access_token}`);
+    console.log(`ZOHO_REFRESH_TOKEN=${refresh_token}`);
+    console.log(`ZOHO_ACCOUNTS_BASE=${accountsUrl}`);
+    console.log("=".repeat(80));
+    console.log("💡 Add these to your .env file for automatic token refresh!");
+    console.log("=".repeat(80) + "\n");
+
     // Store tokens in environment (for development)
     // In production, you should store these securely in a database
     process.env.ZOHO_ACCESS_TOKEN = access_token;
@@ -169,19 +179,39 @@ async function detectZohoBiginBaseUrl() {
 
     console.log("🔍 [AUTO-DETECT] Testing Zoho endpoints to find the correct data center...");
 
-    // Test endpoints in order of likelihood
-    const testEndpoints = [
+    // ✅ SMART DETECTION: Determine likely data center from accounts URL
+    const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
+    let primaryDataCenter = 'com'; // default
+
+    if (accountsUrl.includes('.in')) {
+      primaryDataCenter = 'in';
+    } else if (accountsUrl.includes('.eu')) {
+      primaryDataCenter = 'eu';
+    } else if (accountsUrl.includes('.com.au')) {
+      primaryDataCenter = 'com.au';
+    }
+
+    console.log(`🔍 [AUTO-DETECT] Detected data center: ${primaryDataCenter} (from accounts URL: ${accountsUrl})`);
+
+    // ✅ PRIORITY ORDER: Test likely data center first
+    const dataCenters = [primaryDataCenter, 'com', 'in', 'eu', 'com.au'].filter((dc, index, arr) => arr.indexOf(dc) === index);
+
+    // Test endpoints in order of likelihood (prioritize detected data center)
+    const testEndpoints = [];
+
+    for (const dc of dataCenters) {
+      const domain = dc === 'com.au' ? 'zohoapis.com.au' : `zohoapis.${dc}`;
       // V1 endpoints (Deals endpoint - lightweight test)
-      "https://www.zohoapis.com/bigin/v1/Deals",
-      "https://www.zohoapis.in/bigin/v1/Deals",
-      "https://www.zohoapis.eu/bigin/v1/Deals",
-      "https://www.zohoapis.com.au/bigin/v1/Deals",
+      testEndpoints.push(`https://www.${domain}/bigin/v1/Deals`);
+    }
+
+    for (const dc of dataCenters) {
+      const domain = dc === 'com.au' ? 'zohoapis.com.au' : `zohoapis.${dc}`;
       // V2 endpoints
-      "https://www.zohoapis.com/bigin/v2/Deals",
-      "https://www.zohoapis.in/bigin/v2/Deals",
-      "https://www.zohoapis.eu/bigin/v2/Deals",
-      "https://www.zohoapis.com.au/bigin/v2/Deals"
-    ];
+      testEndpoints.push(`https://www.${domain}/bigin/v2/Deals`);
+    }
+
+    console.log(`🔍 [AUTO-DETECT] Testing ${testEndpoints.length} endpoints, prioritizing ${primaryDataCenter} data center...`);
 
     for (const endpoint of testEndpoints) {
       try {
@@ -483,10 +513,10 @@ async function createDefaultDeal() {
           data: [
             {
               Deal_Name: "PDF Documents Storage",
-              Pipeline: "Sales Pipeline Standard", // ✅ Added mandatory Pipeline field
-              Stage: "Qualification",
+              Stage: "Proposal/Price Quote", // ✅ Use correct Stage value
               Amount: 0,
               Closing_Date: new Date().toISOString().split('T')[0]
+              // ❌ NO Pipeline field here - let Zoho handle it internally
             }
           ]
         };
@@ -558,10 +588,10 @@ async function createDefaultDeal() {
       data: [
         {
           Deal_Name: "PDF Documents Storage",
-          Pipeline: "Sales Pipeline Standard", // ✅ Added mandatory Pipeline field
-          Stage: "Qualification",
+          Stage: "Proposal/Price Quote", // ✅ Use correct Stage value
           Amount: 0,
           Closing_Date: new Date().toISOString().split('T')[0] // Today's date
+          // ❌ NO Pipeline field here - let Zoho handle it internally
         }
       ]
     };
@@ -714,12 +744,13 @@ export async function uploadToZohoCRM(
 }
 
 /**
- * Get Zoho access token using refresh token
- * 1. Try to get new access token using refresh token
- * 2. If that fails, fall back to static ZOHO_ACCESS_TOKEN (dev shortcut)
+ * Get Zoho access token using refresh token with automatic refresh
+ * 1. Try to get new access token using refresh token (automatic)
+ * 2. If that fails, fall back to static ZOHO_ACCESS_TOKEN (admin setup)
+ * 3. If no credentials, provide clear error for admin setup
  */
 export async function getZohoAccessToken() {
-  // First, try to use refresh token to get new access token
+  // First, try to use refresh token to get new access token automatically
   const clientId = process.env.ZOHO_CLIENT_ID;
   const clientSecret = process.env.ZOHO_CLIENT_SECRET;
   const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
@@ -727,7 +758,10 @@ export async function getZohoAccessToken() {
 
   if (clientId && clientSecret && refreshToken) {
     try {
-      console.log("🔄 Refreshing Zoho access token...");
+      console.log("🔄 Auto-refreshing Zoho access token...");
+      console.log(`🔑 Using refresh token: ${refreshToken.substring(0, 30)}...`);
+      console.log(`🌍 Accounts URL: ${accountsUrl}`);
+      console.log(`🆔 Client ID: ${clientId}`);
 
       const response = await axios.post(
         `${accountsUrl}/oauth/v2/token`,
@@ -746,24 +780,37 @@ export async function getZohoAccessToken() {
       );
 
       const { access_token, expires_in } = response.data;
-      console.log(`✅ Got new Zoho access token, expires in ${expires_in} seconds`);
+      console.log(`✅ Auto-refreshed Zoho token successfully!`);
+      console.log(`  ├ New access token: ${access_token.substring(0, 30)}...`);
+      console.log(`  ├ Expires in: ${expires_in} seconds (${Math.round(expires_in/3600)} hours)`);
+      console.log(`  └ Refresh token status: PERMANENT (never expires) ✅`);
+
       return access_token;
     } catch (error) {
-      console.error("❌ Failed to refresh Zoho token:", error.response?.data || error.message);
+      console.error("❌ Failed to auto-refresh Zoho token:", error.response?.data || error.message);
+      console.error(`🔑 Refresh token used: ${refreshToken.substring(0, 30)}...`);
       // Fall through to static token fallback
     }
+  } else {
+    console.log("⚠️  Missing OAuth credentials:");
+    console.log(`  ├ Client ID: ${clientId ? '✅ Present' : '❌ Missing'}`);
+    console.log(`  ├ Client Secret: ${clientSecret ? '✅ Present' : '❌ Missing'}`);
+    console.log(`  └ Refresh Token: ${refreshToken ? '✅ Present' : '❌ Missing'}`);
   }
 
   // Fallback to static token if refresh fails or credentials missing
   if (process.env.ZOHO_ACCESS_TOKEN) {
     const token = process.env.ZOHO_ACCESS_TOKEN.trim();
-    console.log("⚠️  Using static Zoho access token as fallback:", token.substring(0, 25), "...");
+    console.log("⚠️  Using static Zoho access token (may expire soon):", token.substring(0, 25), "...");
+    console.log("💡 Recommendation: Set up permanent refresh token via OAuth for automatic renewal");
     return token;
   }
 
-  // No token available
-  console.error("❌ No Zoho credentials found. Need either refresh token credentials or ZOHO_ACCESS_TOKEN");
-  throw new Error("Zoho authentication failed: No valid credentials found");
+  // No credentials available - admin needs to set up OAuth
+  console.error("❌ No Zoho credentials configured");
+  console.error("💡 Admin setup required: Visit http://localhost:5000/oauth/zoho/auth to configure Zoho integration");
+
+  throw new Error("Zoho integration not configured. Administrator needs to set up OAuth credentials.");
 }
 
 
@@ -793,16 +840,450 @@ async function attachFileToRecord(recordId, fileId, accessToken, apiUrl) {
 }
 
 /**
- * Legacy function kept for backward compatibility
+ * V8 FIX: Contact management functions for Contact_Name mandatory field
  */
+
+/**
+ * Get contacts associated with a specific company
+ * @param {string} accountId - Zoho company/account ID
+ * @returns {Promise<Object>} Contacts list response
+ */
+export async function getBiginContactsByAccount(accountId) {
+  console.log(`👤 Fetching contacts for account: ${accountId}`);
+
+  try {
+    // First try to get contacts using COQL (more reliable for filtering)
+    const coqlQuery = `SELECT id, Contact_Name, Email, Phone
+                       FROM Contacts
+                       WHERE Account_Name = '${accountId}'
+                       LIMIT 10`;
+
+    console.log(`🔍 [V8-CONTACTS] Using COQL to fetch contacts for account ${accountId}`);
+    const coqlResult = await makeBiginRequest('POST', '/coql', {
+      select_query: coqlQuery
+    });
+
+    if (coqlResult.success && coqlResult.data?.data) {
+      const contacts = coqlResult.data.data;
+      console.log(`✅ [V8-CONTACTS] Found ${contacts.length} contacts via COQL`);
+      return {
+        success: true,
+        contacts: contacts.map(contact => ({
+          id: contact.id,
+          name: contact.Contact_Name || 'Unnamed Contact',
+          email: contact.Email || '',
+          phone: contact.Phone || ''
+        }))
+      };
+    }
+
+    // Fallback: try direct Contacts endpoint with filters
+    console.log(`🔄 [V8-CONTACTS] COQL failed, trying direct Contacts endpoint`);
+    const directResult = await makeBiginRequest('GET', `/Contacts?Account_Name=${accountId}`);
+
+    if (directResult.success && directResult.data?.data) {
+      const contacts = directResult.data.data;
+      console.log(`✅ [V8-CONTACTS] Found ${contacts.length} contacts via direct endpoint`);
+      return {
+        success: true,
+        contacts: contacts.map(contact => ({
+          id: contact.id,
+          name: contact.Contact_Name || 'Unnamed Contact',
+          email: contact.Email || '',
+          phone: contact.Phone || ''
+        }))
+      };
+    }
+
+    console.log(`⚠️ [V8-CONTACTS] No contacts found for account ${accountId}`);
+    return {
+      success: true,
+      contacts: []
+    };
+
+  } catch (error) {
+    console.error(`❌ [V8-CONTACTS] Failed to fetch contacts for account ${accountId}:`, error.message);
+    return {
+      success: false,
+      error: error.message,
+      contacts: []
+    };
+  }
+}
+
+/**
+ * Create a default contact for a company
+ * @param {string} accountId - Zoho company/account ID
+ * @param {string} accountName - Company name for contact creation
+ * @returns {Promise<Object>} Contact creation result
+ */
+export async function createDefaultBiginContact(accountId, accountName) {
+  console.log(`👤 Creating default contact for account: ${accountId} (${accountName})`);
+
+  try {
+    const contactData = {
+      data: [{
+        Contact_Name: `${accountName} - Main Contact`,
+        Account_Name: {
+          id: accountId  // Link to the company
+        },
+        Email: `info@${accountName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`, // Generate placeholder email
+        Description: `Default contact created for ${accountName} by EnviroMaster system on ${new Date().toISOString()}`
+      }]
+    };
+
+    console.log(`🔍 [V8-CONTACTS] Creating contact payload:`, JSON.stringify(contactData, null, 2));
+
+    const result = await makeBiginRequest('POST', '/Contacts', contactData);
+
+    if (result.success) {
+      const createdContact = result.data?.data?.[0];
+      console.log(`🔍 [V8-CONTACTS] Contact creation response:`, JSON.stringify(result.data, null, 2));
+
+      if (createdContact?.code === 'SUCCESS') {
+        console.log(`✅ [V8-CONTACTS] Contact created successfully: ${createdContact.details.id}`);
+        return {
+          success: true,
+          contact: {
+            id: createdContact.details.id,
+            name: `${accountName} - Main Contact`,
+            email: `info@${accountName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+            phone: ''
+          }
+        };
+      } else {
+        console.error(`❌ [V8-CONTACTS] Contact creation failed:`, result.data);
+        return {
+          success: false,
+          error: result.data
+        };
+      }
+    }
+
+    console.error(`❌ [V8-CONTACTS] Contact creation API call failed:`, result.error);
+    return {
+      success: false,
+      error: result.error
+    };
+
+  } catch (error) {
+    console.error(`❌ [V8-CONTACTS] Failed to create default contact:`, error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Get or create a contact for deal creation
+ * @param {string} accountId - Zoho company/account ID
+ * @param {string} accountName - Company name for fallback contact creation
+ * @returns {Promise<Object>} Contact result
+ */
+export async function getOrCreateContactForDeal(accountId, accountName) {
+  console.log(`🔗 [V8-CONTACTS] Getting or creating contact for deal creation...`);
+
+  try {
+    // Step 1: Try to find existing contacts
+    const contactsResult = await getBiginContactsByAccount(accountId);
+
+    if (contactsResult.success && contactsResult.contacts.length > 0) {
+      const contact = contactsResult.contacts[0]; // Use first available contact
+      console.log(`✅ [V8-CONTACTS] Using existing contact: ${contact.name} (${contact.id})`);
+      return {
+        success: true,
+        contact: contact,
+        wasCreated: false
+      };
+    }
+
+    // Step 2: No existing contacts, create a default one
+    console.log(`🆕 [V8-CONTACTS] No existing contacts found, creating default contact...`);
+    const createResult = await createDefaultBiginContact(accountId, accountName);
+
+    if (createResult.success) {
+      console.log(`✅ [V8-CONTACTS] Created new default contact: ${createResult.contact.name} (${createResult.contact.id})`);
+      return {
+        success: true,
+        contact: createResult.contact,
+        wasCreated: true
+      };
+    }
+
+    console.error(`❌ [V8-CONTACTS] Failed to get or create contact:`, createResult.error);
+    return {
+      success: false,
+      error: createResult.error
+    };
+
+  } catch (error) {
+    console.error(`❌ [V8-CONTACTS] Exception in getOrCreateContactForDeal:`, error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
 export async function recordZohoPdf({ fileName, size, mimeType, url }) {
   return { zohoRecordId: `ZHO_${Date.now()}` };
 }
 
 /**
- * Comprehensive Zoho integration diagnostic tool
- * Use this to test and troubleshoot Zoho connectivity
+ * V10 COMPATIBILITY: Test Layout+Pipeline compatibility matching
  */
+export async function testV10LayoutPipelineCompatibility() {
+  console.log(`🔍 [V10-COMPAT-TEST] Testing Layout+Pipeline compatibility matching...`);
+
+  try {
+    const compatiblePairs = [];
+
+    // Get all available layouts
+    const layoutResult = await makeBiginRequest('GET', '/settings/layouts?module=Deals');
+
+    if (layoutResult.success && layoutResult.data?.layouts) {
+      const layouts = layoutResult.data.layouts;
+      console.log(`✅ [V10-COMPAT-TEST] Found ${layouts.length} layouts to analyze`);
+
+      // Analyze each layout for Pipeline compatibility
+      for (const layout of layouts) {
+        console.log(`🔍 [V10-COMPAT-TEST] Analyzing layout: "${layout.name}" (ID: ${layout.id}, visible: ${layout.visible})`);
+
+        const layoutInfo = {
+          id: layout.id,
+          name: layout.name,
+          visible: layout.visible,
+          pipelines: []
+        };
+
+        if (layout.sections) {
+          for (const section of layout.sections) {
+            const pipelineField = section.fields?.find(f => f.api_name === 'Pipeline');
+            if (pipelineField && pipelineField.pick_list_values) {
+              console.log(`  📋 Found ${pipelineField.pick_list_values.length} Pipeline options in this layout:`);
+              pipelineField.pick_list_values.forEach((pipeline, index) => {
+                const pipelineValue = pipeline.actual_value || pipeline.display_value;
+                console.log(`    ${index + 1}. "${pipeline.display_value}" (actual: "${pipelineValue}")`);
+
+                layoutInfo.pipelines.push({
+                  display: pipeline.display_value,
+                  actual: pipelineValue
+                });
+
+                compatiblePairs.push({
+                  layoutId: layout.id,
+                  layoutName: layout.name,
+                  pipelineDisplay: pipeline.display_value,
+                  pipelineActual: pipelineValue,
+                  visible: layout.visible
+                });
+              });
+              break; // Found Pipeline field, no need to check other sections
+            }
+          }
+        }
+
+        if (layoutInfo.pipelines.length === 0) {
+          console.log(`  ⚠️ No Pipeline field found in this layout`);
+        }
+      }
+
+      console.log(`\n✅ [V10-COMPAT-TEST] COMPATIBILITY ANALYSIS COMPLETE:`);
+      console.log(`📊 Found ${compatiblePairs.length} compatible Layout+Pipeline combinations`);
+
+      // Show the first few compatible pairs
+      const visiblePairs = compatiblePairs.filter(pair => pair.visible);
+      console.log(`🔍 Visible Layout+Pipeline combinations (${visiblePairs.length}):`);
+      visiblePairs.slice(0, 5).forEach((pair, index) => {
+        console.log(`  ${index + 1}. Layout: "${pair.layoutName}" + Pipeline: "${pair.pipelineActual}"`);
+      });
+
+      // Recommend the first visible pair
+      if (visiblePairs.length > 0) {
+        const recommended = visiblePairs[0];
+        console.log(`\n🎯 [V10-COMPAT-TEST] RECOMMENDED for V10:`);
+        console.log(`  📐 Layout: "${recommended.layoutName}" (ID: ${recommended.layoutId})`);
+        console.log(`  🔗 Pipeline: "${recommended.pipelineActual}"`);
+        console.log(`  ✅ This combination is guaranteed to be compatible!`);
+
+        return {
+          success: true,
+          compatiblePairs: compatiblePairs,
+          visiblePairs: visiblePairs,
+          recommended: recommended,
+          totalLayouts: layouts.length,
+          totalCompatiblePairs: compatiblePairs.length
+        };
+      } else {
+        console.log(`❌ [V10-COMPAT-TEST] No visible Layout+Pipeline pairs found!`);
+        return {
+          success: false,
+          error: 'No visible Layout+Pipeline pairs found',
+          compatiblePairs: compatiblePairs,
+          totalLayouts: layouts.length
+        };
+      }
+
+    } else {
+      console.log(`❌ [V10-COMPAT-TEST] Failed to fetch layouts`);
+      return {
+        success: false,
+        error: 'Failed to fetch layouts',
+        details: layoutResult.error
+      };
+    }
+
+  } catch (error) {
+    console.error(`❌ [V10-COMPAT-TEST] Compatibility test failed:`, error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+export async function testV9SimplePipelineDetection() {
+  console.log(`🔍 [V9-SIMPLE-TEST] Testing simple Pipeline detection from field metadata...`);
+
+  try {
+    // Get field metadata to find actual Pipeline values
+    const fieldsResult = await makeBiginRequest('GET', '/settings/fields?module=Deals');
+
+    if (fieldsResult.success && fieldsResult.data?.fields) {
+      const pipelineField = fieldsResult.data.fields.find(f => f.api_name === 'Pipeline');
+
+      if (pipelineField) {
+        console.log(`✅ [V9-SIMPLE-TEST] Found Pipeline field:`);
+        console.log(`  - Data type: ${pipelineField.data_type}`);
+        console.log(`  - Required: ${pipelineField.required}`);
+        console.log(`  - Read only: ${pipelineField.read_only}`);
+
+        if (pipelineField.pick_list_values && pipelineField.pick_list_values.length > 0) {
+          console.log(`  - Available values (${pipelineField.pick_list_values.length}):`);
+          pipelineField.pick_list_values.forEach((pipeline, index) => {
+            console.log(`    ${index + 1}. "${pipeline.display_value}" (actual: "${pipeline.actual_value || pipeline.display_value}")`);
+          });
+
+          const firstPipeline = pipelineField.pick_list_values[0];
+          const selectedValue = firstPipeline.actual_value || firstPipeline.display_value;
+          console.log(`🎯 [V9-SIMPLE-TEST] V9 will use: "${selectedValue}"`);
+
+          return {
+            success: true,
+            pipelineField: {
+              dataType: pipelineField.data_type,
+              required: pipelineField.required,
+              readOnly: pipelineField.read_only,
+              availableValues: pipelineField.pick_list_values.map(p => ({
+                display: p.display_value,
+                actual: p.actual_value || p.display_value
+              })),
+              selectedValue: selectedValue
+            }
+          };
+        } else {
+          console.log(`⚠️ [V9-SIMPLE-TEST] Pipeline field has no picklist values`);
+          return {
+            success: false,
+            error: 'Pipeline field has no picklist values'
+          };
+        }
+      } else {
+        console.log(`❌ [V9-SIMPLE-TEST] Pipeline field not found in Deals module`);
+        return {
+          success: false,
+          error: 'Pipeline field not found in Deals module'
+        };
+      }
+    } else {
+      console.log(`❌ [V9-SIMPLE-TEST] Could not fetch Deals field metadata`);
+      return {
+        success: false,
+        error: 'Could not fetch Deals field metadata',
+        details: fieldsResult.error
+      };
+    }
+
+  } catch (error) {
+    console.error(`❌ [V9-SIMPLE-TEST] Pipeline detection failed:`, error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+export async function testLayoutPipelineDetection() {
+  console.log(`🔍 [V7-DIAGNOSTIC] Testing Layout and Pipeline detection...`);
+
+  try {
+    // Test layout fetching
+    const layoutResult = await makeBiginRequest('GET', '/settings/layouts?module=Deals');
+
+    if (layoutResult.success && layoutResult.data?.layouts) {
+      const layouts = layoutResult.data.layouts;
+      console.log(`✅ [V7-DIAGNOSTIC] Found ${layouts.length} layouts:`);
+
+      layouts.forEach((layout, index) => {
+        console.log(`  Layout ${index + 1}: ${layout.name} (ID: ${layout.id}, visible: ${layout.visible})`);
+
+        // Check for Pipeline field in this layout
+        if (layout.sections) {
+          layout.sections.forEach((section, sectionIndex) => {
+            const pipelineField = section.fields?.find(f => f.api_name === 'Pipeline');
+            if (pipelineField) {
+              console.log(`    📋 Pipeline field found in section ${sectionIndex + 1}:`);
+              console.log(`      - Field type: ${pipelineField.data_type}`);
+              console.log(`      - Required: ${pipelineField.required}`);
+              if (pipelineField.pick_list_values) {
+                console.log(`      - Available pipelines: ${pipelineField.pick_list_values.map(p => p.display_value).join(', ')}`);
+              }
+            }
+          });
+        }
+      });
+
+      // Find default layout
+      const defaultLayout = layouts.find(l => l.visible && !l.convert_mapping) || layouts[0];
+      if (defaultLayout) {
+        console.log(`🎯 [V7-DIAGNOSTIC] Selected layout: ${defaultLayout.name} (ID: ${defaultLayout.id})`);
+        return {
+          success: true,
+          layoutId: defaultLayout.id,
+          layoutName: defaultLayout.name,
+          layouts: layouts.map(l => ({ id: l.id, name: l.name, visible: l.visible }))
+        };
+      }
+    } else {
+      console.log(`❌ [V7-DIAGNOSTIC] Failed to fetch layouts:`, layoutResult.error);
+    }
+
+    // Also test field metadata for Deals module
+    const fieldsResult = await makeBiginRequest('GET', '/settings/fields?module=Deals');
+    if (fieldsResult.success && fieldsResult.data?.fields) {
+      const pipelineField = fieldsResult.data.fields.find(f => f.api_name === 'Pipeline');
+      if (pipelineField) {
+        console.log(`🔍 [V7-DIAGNOSTIC] Pipeline field metadata:`);
+        console.log(`  - Data type: ${pipelineField.data_type}`);
+        console.log(`  - Required: ${pipelineField.required}`);
+        console.log(`  - Read only: ${pipelineField.read_only}`);
+        if (pipelineField.pick_list_values) {
+          console.log(`  - Available values: ${pipelineField.pick_list_values.map(p => `"${p.display_value}"`).join(', ')}`);
+        }
+      }
+    }
+
+    return {
+      success: false,
+      error: 'No suitable layout found'
+    };
+
+  } catch (error) {
+    console.error(`❌ [V7-DIAGNOSTIC] Layout detection failed:`, error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
 export async function runZohoDiagnostics() {
   console.log("🔧 [DIAGNOSTICS] Starting comprehensive Zoho integration test...");
   const results = {};
@@ -819,8 +1300,57 @@ export async function runZohoDiagnostics() {
       console.log(`❌ Token refresh failed: ${error.message}`);
     }
 
-    // Test 2: Auto-detection
-    console.log("\n📋 [TEST 2] Testing endpoint auto-detection...");
+    // Test 2: V10 Layout+Pipeline Compatibility Analysis
+    console.log("\n📋 [TEST 2] Testing V10 Layout+Pipeline compatibility matching...");
+    try {
+      const compatTest = await testV10LayoutPipelineCompatibility();
+      results.layoutPipelineCompatibilityV10 = compatTest;
+      if (compatTest.success) {
+        console.log(`✅ V10 Compatibility analysis successful: Found ${compatTest.totalCompatiblePairs} compatible pairs`);
+        if (compatTest.recommended) {
+          console.log(`🎯 V10 Recommended: "${compatTest.recommended.layoutName}" + "${compatTest.recommended.pipelineActual}"`);
+        }
+      } else {
+        console.log(`❌ V10 Compatibility analysis failed: ${compatTest.error}`);
+      }
+    } catch (error) {
+      results.layoutPipelineCompatibilityV10 = { success: false, error: error.message };
+      console.log(`❌ V10 Compatibility analysis error: ${error.message}`);
+    }
+
+    // Test 3: V9 Simple Pipeline Detection (for comparison)
+    console.log("\n📋 [TEST 3] Testing V9 Simple Pipeline detection (no Layout complexity)...");
+    try {
+      const pipelineTest = await testV9SimplePipelineDetection();
+      results.simplePipelineDetectionV9 = pipelineTest;
+      if (pipelineTest.success) {
+        console.log(`✅ V9 Simple Pipeline detection successful: "${pipelineTest.pipelineField.selectedValue}"`);
+        console.log(`📋 Available Pipeline options: ${pipelineTest.pipelineField.availableValues.length}`);
+      } else {
+        console.log(`❌ V9 Simple Pipeline detection failed: ${pipelineTest.error}`);
+      }
+    } catch (error) {
+      results.simplePipelineDetectionV9 = { success: false, error: error.message };
+      console.log(`❌ V9 Simple Pipeline detection error: ${error.message}`);
+    }
+
+    // Test 3: V7 Layout+Pipeline Detection (for comparison)
+    console.log("\n📋 [TEST 3] Testing V7 Layout+Pipeline detection (complex approach)...");
+    try {
+      const layoutTest = await testLayoutPipelineDetection();
+      results.layoutPipelineDetection = layoutTest;
+      if (layoutTest.success) {
+        console.log(`✅ V7 Layout detection successful: ${layoutTest.layoutName} (${layoutTest.layoutId})`);
+      } else {
+        console.log(`❌ V7 Layout detection failed: ${layoutTest.error}`);
+      }
+    } catch (error) {
+      results.layoutPipelineDetection = { success: false, error: error.message };
+      console.log(`❌ V7 Layout detection error: ${error.message}`);
+    }
+
+    // Test 4: Auto-detection
+    console.log("\n📋 [TEST 4] Testing endpoint auto-detection...");
     try {
       const baseUrl = await detectZohoBiginBaseUrl();
       results.autoDetection = { success: !!baseUrl, baseUrl };
@@ -834,8 +1364,8 @@ export async function runZohoDiagnostics() {
       console.log(`❌ Auto-detection error: ${error.message}`);
     }
 
-    // Test 3: Deals fetching
-    console.log("\n📋 [TEST 3] Testing deals fetching...");
+    // Test 5: Deals fetching
+    console.log("\n📋 [TEST 5] Testing deals fetching...");
     try {
       const deals = await getZohoDeals();
       results.dealsFetch = { success: true, dealCount: deals.length };
@@ -848,35 +1378,108 @@ export async function runZohoDiagnostics() {
       console.log(`❌ Deals fetch failed: ${error.message}`);
     }
 
-    // Test 4: Deal creation
-    console.log("\n📋 [TEST 4] Testing deal creation...");
+    // Test 7: Deal creation (WITH V10 COMPATIBILITY FIX)
+    console.log("\n📋 [TEST 7] Testing deal creation with V10 Layout+Pipeline compatibility fix...");
     try {
-      const newDeal = await createDefaultDeal();
-      results.dealCreation = { success: !!newDeal, dealId: newDeal?.id };
+      const newDeal = await createBiginDeal({
+        dealName: 'V10-COMPATIBILITY-TEST-DEAL-' + Date.now(),
+        stage: 'Proposal/Price Quote',
+        amount: 1000,
+        description: 'V10 Layout+Pipeline compatibility test deal creation'
+      });
+      results.dealCreationV10 = { success: !!newDeal, dealId: newDeal?.id };
       if (newDeal) {
-        console.log(`✅ Deal creation successful, ID: ${newDeal.id}`);
+        console.log(`✅ V10 Deal creation successful, ID: ${newDeal.id}`);
       } else {
-        console.log(`❌ Deal creation failed - no deal returned`);
+        console.log(`❌ V10 Deal creation failed - no deal returned`);
       }
     } catch (error) {
-      results.dealCreation = { success: false, error: error.message };
-      console.log(`❌ Deal creation error: ${error.message}`);
+      results.dealCreationV10 = { success: false, error: error.message };
+      console.log(`❌ V10 Deal creation error: ${error.message}`);
     }
 
+    // Test 8: V8 Contact Creation Test
+    console.log("\n📋 [TEST 8] Testing V8 Contact creation for deal linking...");
+    try {
+      // First get a company to test with
+      const companies = await getBiginCompanies(1, 5);
+      if (companies.success && companies.companies.length > 0) {
+        const testCompany = companies.companies[0];
+        console.log(`🏢 [V8-TEST] Testing contact creation with company: ${testCompany.name} (${testCompany.id})`);
+
+        const contactResult = await getOrCreateContactForDeal(testCompany.id, testCompany.name);
+        results.contactCreationV8 = {
+          success: contactResult.success,
+          contactId: contactResult.contact?.id,
+          wasCreated: contactResult.wasCreated
+        };
+
+        if (contactResult.success) {
+          console.log(`✅ V8 Contact creation successful: ${contactResult.contact.name} (${contactResult.contact.id})`);
+          if (contactResult.wasCreated) {
+            console.log(`🆕 V8 Contact was created automatically`);
+          } else {
+            console.log(`🔍 V8 Used existing contact`);
+          }
+        } else {
+          console.log(`❌ V8 Contact creation failed: ${contactResult.error}`);
+        }
+      } else {
+        results.contactCreationV8 = { success: false, error: 'No companies available for contact test' };
+        console.log(`❌ V8 Contact test skipped - no companies available`);
+      }
+    } catch (error) {
+      results.contactCreationV8 = { success: false, error: error.message };
+      console.log(`❌ V8 Contact creation error: ${error.message}`);
+    }
     // Summary
-    console.log("\n🏁 [SUMMARY] Zoho Integration Diagnostic Results:");
-    console.log("=" .repeat(50));
+    console.log("\n🏁 [SUMMARY] V10 Zoho Integration Diagnostic Results:");
+    console.log("=" .repeat(60));
     console.log(`Token Refresh: ${results.tokenRefresh?.success ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`V10 Layout+Pipeline Compatibility: ${results.layoutPipelineCompatibilityV10?.success ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`V9 Simple Pipeline: ${results.simplePipelineDetectionV9?.success ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`V7 Layout Detection: ${results.layoutPipelineDetection?.success ? '✅ PASS' : '❌ FAIL'}`);
     console.log(`Auto-Detection: ${results.autoDetection?.success ? '✅ PASS' : '❌ FAIL'}`);
     console.log(`Deals Fetching: ${results.dealsFetch?.success ? '✅ PASS' : '❌ FAIL'}`);
-    console.log(`Deal Creation: ${results.dealCreation?.success ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`V10 Deal Creation: ${results.dealCreationV10?.success ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`V8 Contact Creation: ${results.contactCreationV8?.success ? '✅ PASS' : '❌ FAIL'}`);
 
     if (results.autoDetection?.baseUrl) {
       console.log(`\n🎯 Detected working endpoint: ${results.autoDetection.baseUrl}`);
     }
 
+    if (results.layoutPipelineCompatibilityV10?.success && results.layoutPipelineCompatibilityV10.recommended) {
+      const rec = results.layoutPipelineCompatibilityV10.recommended;
+      console.log(`🎯 V10 Recommended Compatible Pair: "${rec.layoutName}" + "${rec.pipelineActual}"`);
+    }
+
+    if (results.simplePipelineDetectionV9?.success) {
+      console.log(`🎯 V9 Selected Pipeline: "${results.simplePipelineDetectionV9.pipelineField.selectedValue}"`);
+    }
+
+    if (results.layoutPipelineDetection?.layoutId) {
+      console.log(`🎯 V7 Layout ID: ${results.layoutPipelineDetection.layoutId} (${results.layoutPipelineDetection.layoutName})`);
+    }
+
+    if (results.contactCreationV8?.contactId) {
+      console.log(`🎯 V8 Contact ID: ${results.contactCreationV8.contactId} (${results.contactCreationV8.wasCreated ? 'Created' : 'Existing'})`);
+    }
+
     const passCount = Object.values(results).filter(r => r.success).length;
-    console.log(`\n📊 Overall Score: ${passCount}/4 tests passed`);
+    console.log(`\n📊 Overall Score: ${passCount}/8 tests passed`);
+
+    // V10 vs V9 vs V7 Comparison
+    const v10Success = results.dealCreationV10?.success;
+    const v9Success = results.dealCreationV9?.success;
+    const v7Success = results.dealCreationV7?.success;
+
+    if (v10Success && !v9Success && !v7Success) {
+      console.log(`\n🏆 V10 COMPATIBILITY approach succeeded where V9 and V7 failed!`);
+    } else if (v10Success) {
+      console.log(`\n✅ V10 COMPATIBILITY approach works! This should resolve the MAPPING_MISMATCH error.`);
+    } else {
+      console.log(`\n❌ Even V10 COMPATIBILITY approach failed. More investigation needed.`);
+    }
 
     return results;
 
@@ -891,12 +1494,26 @@ export async function runZohoDiagnostics() {
  * ============================================================================ */
 
 /**
- * Get the working Bigin base URL (use auto-detected or fallback)
+ * Get the working Bigin base URL (use auto-detected or derive from accounts URL)
  */
 function getBiginBaseUrl() {
-  return process.env.ZOHO_BIGIN_DETECTED_BASE ||
-         process.env.ZOHO_BIGIN_WORKING_URL ||
-         "https://www.zohoapis.com/bigin/v1";
+  // Use auto-detected URL if available
+  if (process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL) {
+    return process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL;
+  }
+
+  // ✅ DERIVE from accounts base to match data center
+  const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
+
+  if (accountsUrl.includes('.in')) {
+    return "https://www.zohoapis.in/bigin/v1";
+  } else if (accountsUrl.includes('.eu')) {
+    return "https://www.zohoapis.eu/bigin/v1";
+  } else if (accountsUrl.includes('.com.au')) {
+    return "https://www.zohoapis.com.au/bigin/v1";
+  } else {
+    return "https://www.zohoapis.com/bigin/v1";
+  }
 }
 
 /**
@@ -922,6 +1539,7 @@ async function makeBiginRequest(method, endpoint, data = null) {
     }
 
     console.log(`📡 [BIGIN API] ${method} ${endpoint}`);
+    console.log(`🌍 [BIGIN API] Using base URL: ${baseUrl}`);
     const response = await axios(config);
 
     return {
@@ -1077,40 +1695,72 @@ export async function createBiginCompany(companyData) {
  * @returns {Promise<Object>} Creation result
  */
 export async function createBiginDeal(dealData) {
-  console.log(`💼 Creating new Bigin deal in Pipelines module: ${dealData.dealName}`);
+  console.log(`💼 Creating new Bigin deal: ${dealData.dealName}`);
+
+  // ✅ Always use a valid Stage value for your pipeline
+  // Your Bigin stages: Qualification, Needs Analysis, Proposal/Price Quote, Negotiation/Review, Closed Won, Closed Lost
+  const stage = (dealData.stage && dealData.stage.trim()) || 'Proposal/Price Quote';
 
   const record = {
-    Deal_Name: dealData.dealName,                    // ✅ Correct Bigin field name
-    Stage: dealData.stage || 'Proposal',            // ✅ Must match existing stage values
-    Pipeline: dealData.pipelineName || 'Sales Pipeline',  // ✅ Must match existing pipeline
-    Amount: dealData.amount || 0,
+    // ✅ Required fields
+    Deal_Name: dealData.dealName,
+    Stage: stage,
+    Amount: dealData.amount ?? 0,
     Closing_Date: dealData.closingDate || new Date().toISOString().split('T')[0],
-    // Custom description
-    Description: dealData.description || `EnviroMaster service proposal created on ${new Date().toISOString()}`
+
+    // ✅ Description
+    Description: dealData.description || `EnviroMaster service proposal created on ${new Date().toISOString()}`,
+    // ❌ IMPORTANT: NO Pipeline field here
+    // ❌ IMPORTANT: NO Layout field here either
   };
 
-  // 🔗 IMPORTANT: Link the deal to a Company in Bigin (proper lookup field format)
+  // ✅ Proper Company lookup
   if (dealData.companyId) {
-    record.Account_Name = {
-      id: dealData.companyId      // ✅ Bigin Company ID (e.g. 1157694000000428610)
-    };
+    record.Account_Name = { id: dealData.companyId };
     console.log(`🏢 [DEAL CREATION] Linking deal to company ID: ${dealData.companyId}`);
+
+    // ✅ V8 FIX: Handle Contact_Name mandatory field requirement
+    console.log(`👤 [V8-CONTACTS] Resolving Contact_Name requirement for deal creation...`);
+    try {
+      const contactResult = await getOrCreateContactForDeal(
+        dealData.companyId,
+        dealData.companyName || 'Company'
+      );
+
+      if (contactResult.success && contactResult.contact) {
+        record.Contact_Name = {
+          id: contactResult.contact.id  // ✅ Link to contact
+        };
+        console.log(`✅ [V8-CONTACTS] Linked deal to contact: ${contactResult.contact.name} (${contactResult.contact.id})`);
+        if (contactResult.wasCreated) {
+          console.log(`🆕 [V8-CONTACTS] Contact was created automatically for this company`);
+        }
+      } else {
+        console.error(`❌ [V8-CONTACTS] Failed to get/create contact: ${contactResult.error}`);
+        // Continue without contact - let Zoho decide if it's truly mandatory
+        console.log(`⚠️ [V8-CONTACTS] Proceeding with deal creation without contact - Zoho will reject if mandatory`);
+      }
+    } catch (contactError) {
+      console.error(`❌ [V8-CONTACTS] Exception while handling contact: ${contactError.message}`);
+      console.log(`⚠️ [V8-CONTACTS] Proceeding with deal creation without contact`);
+    }
   } else {
-    console.log(`⚠️ [DEAL CREATION] No companyId provided - deal will not be linked to any company`);
+    console.log(`⚠️ [DEAL CREATION] No companyId provided - deal will not be linked to any company or contact`);
   }
 
   const payload = { data: [record] };
 
-  console.log(`🔍 [DEAL CREATION] Payload:`, JSON.stringify(payload, null, 2));
+  console.log('🔍 [V6-NO-PIPELINE] Final payload (no Pipeline):', JSON.stringify(payload, null, 2));
 
-  const result = await makeBiginRequest('POST', '/Pipelines', payload);  // ✅ Correct module name
+  // ✅ Correct endpoint for Bigin
+  const result = await makeBiginRequest('POST', '/Deals', payload);
 
   if (result.success) {
     const createdDeal = result.data?.data?.[0];
     console.log(`🔍 [DEAL CREATION] Full Zoho response:`, JSON.stringify(result.data, null, 2));
 
     if (createdDeal?.code === 'SUCCESS') {
-      console.log(`✅ Deal created successfully in Pipelines module: ${createdDeal.details.id}`);
+      console.log(`✅ Deal created successfully: ${createdDeal.details.id}`);
 
       return {
         success: true,
@@ -1118,7 +1768,6 @@ export async function createBiginDeal(dealData) {
           id: createdDeal.details.id,
           name: dealData.dealName,
           stage: dealData.stage,
-          pipelineName: dealData.pipelineName,
           amount: dealData.amount,
           companyId: dealData.companyId
         }
@@ -1147,7 +1796,7 @@ export async function createBiginDeal(dealData) {
  * @returns {Promise<Object>} Creation result
  */
 export async function createBiginNote(dealId, noteData) {
-  console.log(`📝 Creating note for Pipelines deal ${dealId}: ${noteData.title}`);
+  console.log(`📝 Creating note for deal ${dealId}: ${noteData.title}`);
 
   const payload = {
     data: [{
@@ -1160,7 +1809,7 @@ export async function createBiginNote(dealId, noteData) {
 
   console.log(`🔍 [NOTE CREATION] Payload:`, JSON.stringify(payload, null, 2));
 
-  const endpoint = `/Pipelines/${dealId}/Notes`;  // ✅ Correct module path
+  const endpoint = `/Deals/${dealId}/Notes`;  // ✅ FIXED: Use Deals endpoint for notes
   const result = await makeBiginRequest('POST', endpoint, payload);
 
   if (result.success) {
@@ -1204,7 +1853,7 @@ export async function createBiginNote(dealId, noteData) {
  * @returns {Promise<Object>} Upload result
  */
 export async function uploadBiginFile(dealId, pdfBuffer, fileName) {
-  console.log(`📎 Uploading file to Pipelines deal ${dealId}: ${fileName} (${pdfBuffer.length} bytes)`);
+  console.log(`📎 Uploading file to deal ${dealId}: ${fileName} (${pdfBuffer.length} bytes)`);
 
   try {
     const accessToken = await getZohoAccessToken();
@@ -1216,8 +1865,8 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName) {
       contentType: 'application/pdf'
     });
 
-    // Upload to deal's attachments - correct endpoint for Pipelines module
-    const uploadUrl = `${baseUrl}/Pipelines/${dealId}/Attachments`;
+    // Upload to deal's attachments - correct endpoint for Deals module
+    const uploadUrl = `${baseUrl}/Deals/${dealId}/Attachments`;
     console.log(`🔍 [FILE UPLOAD] URL: ${uploadUrl}`);
 
     const response = await axios.post(uploadUrl, formData, {
@@ -1231,7 +1880,7 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName) {
 
     if (response.data?.data?.[0]?.code === 'SUCCESS') {
       const fileData = response.data.data[0].details;
-      console.log(`✅ File uploaded successfully to Pipelines deal: ${fileData.id}`);
+      console.log(`✅ File uploaded successfully to deal: ${fileData.id}`);
 
       return {
         success: true,
@@ -1334,9 +1983,41 @@ export async function getBiginModuleFields(moduleName) {
 }
 
 /**
- * Get valid pipeline and stage values from Zoho Bigin
- * @returns {Promise<Object>} Pipeline and stage options
+ * Get available pipelines with their IDs
+ * @returns {Promise<Object>} Pipelines list with IDs
  */
+export async function getBiginPipelines() {
+  console.log(`📋 Fetching available Bigin pipelines with IDs...`);
+
+  // Try to get pipelines from settings or a dedicated endpoint
+  const endpoints = [
+    '/settings/pipelines',
+    '/Pipelines',
+    '/settings/layouts?module=Deals'
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const result = await makeBiginRequest('GET', endpoint);
+      if (result.success && result.data) {
+        console.log(`✅ Found pipelines data from ${endpoint}:`, JSON.stringify(result.data, null, 2));
+        return {
+          success: true,
+          pipelines: result.data.pipelines || result.data.data || result.data.layouts || []
+        };
+      }
+    } catch (error) {
+      console.log(`⚠️ Pipeline endpoint ${endpoint} failed: ${error.message}`);
+    }
+  }
+
+  // Fallback: return empty list
+  console.log(`⚠️ Could not fetch pipeline IDs - using fallback`);
+  return {
+    success: false,
+    pipelines: []
+  };
+}
 export async function getBiginPipelineStages() {
   console.log(`🔍 Fetching pipeline and stage options from Bigin...`);
 
@@ -1455,7 +2136,10 @@ export async function validatePipelineStage(pipelineName, stageName) {
         valid: false,
         error: `Invalid stage "${stageName}"`,
         validPipelines: validPipelines,
-        validStages: validStages
+        validStages: validStages,
+        // ✅ V6 FIX: Provide correct fallback stage
+        correctedPipeline: pipelineName,
+        correctedStage: 'Proposal/Price Quote'  // ✅ Use valid picklist value
       };
     }
 

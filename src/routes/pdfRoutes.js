@@ -4,6 +4,10 @@ import multer from "multer";
 import {
   pdfHealth,
   testZohoAccessEndpoint,
+  runZohoDiagnosticsEndpoint,
+  testV10CompatibilityEndpoint,
+  testV9SimplePipelineEndpoint,
+  testV7LayoutPipelineEndpoint,
   compileFromRaw,
   compileFromProposalFile,
   compileCustomerHeaderPdf,
@@ -32,6 +36,10 @@ const upload = multer({ storage: multer.memoryStorage() });
 /* ---- health ---- */
 router.get("/health", pdfHealth);
 router.get("/test-zoho-access", testZohoAccessEndpoint);
+router.get("/zoho-diagnostics", runZohoDiagnosticsEndpoint);
+router.get("/test-v10-compatibility", testV10CompatibilityEndpoint);
+router.get("/test-v9-simple-pipeline", testV9SimplePipelineEndpoint);
+router.get("/test-v7-layout-pipeline", testV7LayoutPipelineEndpoint);
 
 /* ---- basic compile ---- */
 router.post("/compile", compileFromRaw);

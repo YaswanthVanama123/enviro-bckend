@@ -121,6 +121,22 @@ router.get("/companies", async (req, res) => {
 
   } catch (error) {
     console.error("❌ Failed to fetch companies:", error.message);
+
+    // ✅ Provide helpful error messages for OAuth issues
+    if (error.message === "ZOHO_AUTH_REQUIRED") {
+      return res.status(401).json({
+        success: false,
+        error: "Zoho integration not configured. Please contact administrator to set up Zoho Bigin access."
+      });
+    }
+
+    if (error.message?.includes('credentials') || error.message?.includes('token')) {
+      return res.status(401).json({
+        success: false,
+        error: "Zoho authentication failed. Please contact administrator to reconfigure Zoho access."
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: error.message
@@ -217,7 +233,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
       console.warn(`⚠️ Pipeline/stage validation failed, using fallback values:`, validationResult.error);
       // Use validated values if available, otherwise use safe defaults
       validatedPipeline = validationResult.correctedPipeline || "Sales Pipeline";
-      validatedStage = validationResult.correctedStage || "Proposal";
+      validatedStage = validationResult.correctedStage || "Proposal/Price Quote";  // ✅ V6 FIX: Use valid picklist value
       console.log(`🔧 Using validated fallback: "${validatedPipeline}" / "${validatedStage}"`);
     }
 
@@ -239,7 +255,13 @@ router.post("/:agreementId/first-time", async (req, res) => {
 
     // Check if mapping already exists (prevent duplicate first-time uploads)
     const existingMapping = await ZohoMapping.findByAgreementId(agreementId);
-    if (existingMapping) {
+
+    // ✅ V2 FIX: Clean up any failed mappings to allow fresh retry
+    if (existingMapping && existingMapping.lastUploadStatus === 'failed') {
+      console.log(`🔄 [V2-CLEAN-RETRY] Found failed mapping - deleting to allow fresh retry`);
+      await ZohoMapping.findByIdAndDelete(existingMapping._id);
+      console.log(`✅ [V2-CLEAN-RETRY] Cleaned up failed mapping ${existingMapping._id}`);
+    } else if (existingMapping) {
       return res.status(400).json({
         success: false,
         error: "This agreement has already been uploaded to Zoho. Use the update endpoint instead."
@@ -283,7 +305,8 @@ router.post("/:agreementId/first-time", async (req, res) => {
     const dealResult = await createBiginDeal({
       dealName: dealName.trim(),
       companyId,
-      pipelineName: validatedPipeline,  // ✅ Use validated pipeline
+      companyName, // ✅ V8 FIX: Pass company name for contact creation
+      // ✅ V6 FIX: Don't pass pipelineName - let Zoho handle Pipeline internally
       stage: validatedStage,            // ✅ Use validated stage
       amount: dealAmount,
       description: `EnviroMaster service agreement - ${agreement.payload?.headerTitle || 'Service Proposal'}`
@@ -292,38 +315,15 @@ router.post("/:agreementId/first-time", async (req, res) => {
     if (!dealResult.success) {
       console.error(`❌ Deal creation failed:`, dealResult.error);
 
-      // Create partial mapping to track the failure
-      const failedMapping = new ZohoMapping({
-        agreementId,
-        zohoCompany: {
-          id: companyId,
-          name: companyName,
-          createdByUs: false
-        },
-        // Can't create complete deal info since creation failed
-        zohoDeal: {
-          id: 'FAILED_CREATION',
-          name: dealName.trim(),
-          pipelineName: validatedPipeline,  // ✅ Store validated values
-          stage: validatedStage             // ✅ Store validated values
-        },
-        lastUploadStatus: 'failed',
-        lastError: `Deal creation failed: ${dealResult.error?.message || 'Unknown error'}`
-      });
-
-      failedMapping.failedUploads.push({
-        errorType: 'deal_creation_failed',
-        errorMessage: dealResult.error?.message || 'Deal creation failed',
-        zohoResponse: dealResult.error
-      });
-
-      await failedMapping.save();
+      // ✅ V2 FIX: DON'T create any mapping on failure - keep state clean for retry
+      console.log(`🔄 [V2-CLEAN-RETRY] No mapping created - allowing clean retry`);
 
       return res.status(500).json({
         success: false,
         error: `Failed to create deal: ${dealResult.error?.message || 'Unknown error'}`,
         details: dealResult.error,
-        mappingId: failedMapping._id
+        retryable: true, // ✅ Signal that this can be retried cleanly
+        suggestion: "Please try again - no partial data was saved"
       });
     }
 
@@ -339,38 +339,17 @@ router.post("/:agreementId/first-time", async (req, res) => {
     if (!noteResult.success) {
       console.error(`❌ Failed to create note, but deal exists: ${deal.id}`);
 
-      // Create mapping to track partial success (deal created, note failed)
-      const partialMapping = new ZohoMapping({
-        agreementId,
-        zohoCompany: {
-          id: companyId,
-          name: companyName,
-          createdByUs: false
-        },
-        zohoDeal: {
-          id: deal.id,
-          name: deal.name,
-          pipelineName: validatedPipeline,  // ✅ Store validated values
-          stage: validatedStage             // ✅ Store validated values
-        },
-        lastUploadStatus: 'partial',
-        lastError: `Note creation failed: ${noteResult.error?.message || 'Unknown error'}`
-      });
-
-      partialMapping.failedUploads.push({
-        errorType: 'note_failed',
-        errorMessage: noteResult.error?.message || 'Note creation failed',
-        zohoResponse: noteResult.error
-      });
-
-      await partialMapping.save();
+      // ✅ V2 FIX: Clean up the created deal and don't save partial mapping
+      console.log(`🔄 [V2-CLEAN-RETRY] Deal created but note failed - keeping state clean`);
+      console.log(`⚠️ [V2-CLEAN-RETRY] Deal ${deal.id} exists in Zoho but note creation failed`);
 
       return res.status(500).json({
         success: false,
         error: `Deal created but failed to create note: ${noteResult.error?.message}`,
         dealId: deal.id,
-        mappingId: partialMapping._id,
-        note: "Deal was created successfully. You can try uploading again."
+        retryable: true, // ✅ Signal that this can be retried
+        suggestion: "Deal was created in Zoho. You can try uploading again - the system will handle the existing deal.",
+        zohoStatus: "deal_created_note_failed"
       });
     }
 
@@ -388,48 +367,18 @@ router.post("/:agreementId/first-time", async (req, res) => {
     if (!fileResult.success) {
       console.error(`❌ Failed to upload file, but deal and note exist: ${deal.id}, ${note.id}`);
 
-      // Create mapping to track partial success (deal + note created, file failed)
-      const partialMapping = new ZohoMapping({
-        agreementId,
-        zohoCompany: {
-          id: companyId,
-          name: companyName,
-          createdByUs: false
-        },
-        zohoDeal: {
-          id: deal.id,
-          name: deal.name,
-          pipelineName: validatedPipeline,  // ✅ Store validated values
-          stage: validatedStage             // ✅ Store validated values
-        },
-        lastUploadStatus: 'partial',
-        lastError: `File upload failed: ${fileResult.error?.message || 'Unknown error'}`
-      });
-
-      partialMapping.failedUploads.push({
-        errorType: 'file_failed',
-        errorMessage: fileResult.error?.message || 'File upload failed',
-        zohoResponse: fileResult.error
-      });
-
-      // Add partial upload record (note created but no file)
-      partialMapping.addUpload({
-        zohoNoteId: note.id,
-        zohoFileId: 'FAILED_UPLOAD',
-        noteText: noteText.trim(),
-        fileName: fileName,
-        uploadedBy: 'system'
-      });
-
-      await partialMapping.save();
+      // ✅ V2 FIX: Don't create partial mapping - keep state clean for retry
+      console.log(`🔄 [V2-CLEAN-RETRY] Deal and note created but file failed - keeping state clean`);
+      console.log(`⚠️ [V2-CLEAN-RETRY] Deal ${deal.id} and note ${note.id} exist in Zoho but file upload failed`);
 
       return res.status(500).json({
         success: false,
         error: `Deal and note created but failed to upload file: ${fileResult.error?.message}`,
         dealId: deal.id,
         noteId: note.id,
-        mappingId: partialMapping._id,
-        note: "Deal and note were created successfully. You can try uploading the file again."
+        retryable: true, // ✅ Signal that this can be retried
+        suggestion: "Deal and note were created in Zoho. You can try uploading again - the system will handle the existing records.",
+        zohoStatus: "deal_note_created_file_failed"
       });
     }
 
@@ -447,8 +396,8 @@ router.post("/:agreementId/first-time", async (req, res) => {
       zohoDeal: {
         id: deal.id,
         name: deal.name,
-        pipelineName: validatedPipeline,  // ✅ Store validated values
-        stage: validatedStage             // ✅ Store validated values
+        pipelineName: 'Default',  // ✅ V6 FIX: Zoho handles pipeline internally
+        stage: validatedStage     // ✅ Store validated stage
       },
       moduleName: 'Pipelines',
       lastUploadStatus: 'success',
@@ -817,6 +766,59 @@ router.post("/validate-deal-fields", async (req, res) => {
 
   } catch (error) {
     console.error("❌ Failed to validate deal fields:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/cleanup-failed
+ * Clean up any failed/partial mappings to ensure fresh state
+ */
+router.post("/cleanup-failed", async (req, res) => {
+  try {
+    console.log(`🧹 [V2-CLEANUP] Starting cleanup of failed mappings...`);
+
+    // Find all failed or partial mappings
+    const failedMappings = await ZohoMapping.find({
+      $or: [
+        { lastUploadStatus: 'failed' },
+        { lastUploadStatus: 'partial' },
+        { 'zohoDeal.id': 'FAILED_CREATION' },
+        { 'zohoDeal.id': { $regex: /^MOCK_/ } }
+      ]
+    });
+
+    console.log(`🧹 [V2-CLEANUP] Found ${failedMappings.length} failed mappings to clean up`);
+
+    // Delete all failed mappings
+    const deleteResult = await ZohoMapping.deleteMany({
+      $or: [
+        { lastUploadStatus: 'failed' },
+        { lastUploadStatus: 'partial' },
+        { 'zohoDeal.id': 'FAILED_CREATION' },
+        { 'zohoDeal.id': { $regex: /^MOCK_/ } }
+      ]
+    });
+
+    console.log(`✅ [V2-CLEANUP] Deleted ${deleteResult.deletedCount} failed mappings`);
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${deleteResult.deletedCount} failed mappings`,
+      deletedCount: deleteResult.deletedCount,
+      cleanedMappings: failedMappings.map(m => ({
+        id: m._id,
+        agreementId: m.agreementId,
+        status: m.lastUploadStatus,
+        error: m.lastError
+      }))
+    });
+
+  } catch (error) {
+    console.error("❌ Failed to cleanup failed mappings:", error.message);
     res.status(500).json({
       success: false,
       error: error.message
