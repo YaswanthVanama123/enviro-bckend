@@ -25,6 +25,11 @@ const priceSchema = Joi.object({
   suggestedCustomerRollPrice: Joi.number().optional(),
   quantityPerCase: Joi.number().optional(),
   quantityPerCaseLabel: Joi.string().optional(),
+
+  // Added new fields for product catalog enhancements
+  frequency: Joi.string().allow('').optional(),
+  description: Joi.string().allow('').optional(),
+
   displayByAdmin: Joi.boolean().optional(),
 
   _delete: Joi.boolean().optional(), // allow delete flag

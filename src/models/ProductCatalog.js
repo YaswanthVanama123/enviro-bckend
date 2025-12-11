@@ -30,6 +30,9 @@ const PriceSchema = new mongoose.Schema(
     // Frequency field (added to match CustomerHeaderDoc requirements)
     frequency: { type: String, default: "" },
 
+    // Description field for product descriptions
+    description: { type: String },
+
     displayByAdmin: { type: Boolean, default: false },
   },
   { _id: false }
