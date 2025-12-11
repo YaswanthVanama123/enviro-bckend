@@ -6,12 +6,14 @@ import {
   getBiginCompanies,
   searchBiginCompanies,
   createBiginCompany,
+  getBiginDealsByCompany,
   createBiginDeal,
   createBiginNote,
   uploadBiginFile,
   getBiginModules,
   getBiginPipelineStages,
-  validatePipelineStage
+  validatePipelineStage,
+  getOrCreateContactForDeal
 } from "../services/zohoService.js";
 
 const router = Router();
@@ -301,14 +303,36 @@ router.post("/:agreementId/first-time", async (req, res) => {
     console.log(`💼 Creating deal with amount: $${dealAmount}`);
     console.log(`🔧 Using validated pipeline: "${validatedPipeline}", stage: "${validatedStage}"`);
 
+    // Step 0.5: Get/Create contact for deal linking (V8 requirement)
+    let contactId = null;
+    try {
+      console.log(`👤 [CONTACT-LOOKUP] Resolving contact for company: ${companyId}`);
+      const contactResult = await getOrCreateContactForDeal(companyId, companyName || 'Company');
+
+      if (contactResult.success && contactResult.contact) {
+        contactId = contactResult.contact.id;
+        console.log(`✅ [CONTACT-LOOKUP] Found/created contact: ${contactResult.contact.name} (${contactId})`);
+        if (contactResult.wasCreated) {
+          console.log(`🆕 [CONTACT-LOOKUP] Contact was created automatically`);
+        }
+      } else {
+        console.warn(`⚠️ [CONTACT-LOOKUP] Could not get/create contact: ${contactResult.error}`);
+        // Continue without contact - deal creation will proceed with just company
+      }
+    } catch (contactError) {
+      console.error(`❌ [CONTACT-LOOKUP] Exception: ${contactError.message}`);
+      // Continue without contact
+    }
+
     // Step 1: Create the deal in Zoho Bigin
     const dealResult = await createBiginDeal({
       dealName: dealName.trim(),
       companyId,
-      companyName, // ✅ V8 FIX: Pass company name for contact creation
-      // ✅ V6 FIX: Don't pass pipelineName - let Zoho handle Pipeline internally
-      stage: validatedStage,            // ✅ Use validated stage
+      contactId,                               // ✅ V2 FIX: Pass contactId for Contact_Name lookup
+      subPipelineName: validatedPipeline,      // ✅ V2 FIX: Use subPipelineName for Sub_Pipeline field
+      stage: validatedStage,                   // ✅ Use validated stage
       amount: dealAmount,
+      closingDate: new Date().toISOString().split('T')[0],
       description: `EnviroMaster service agreement - ${agreement.payload?.headerTitle || 'Service Proposal'}`
     });
 
@@ -676,8 +700,77 @@ router.get("/modules", async (req, res) => {
 });
 
 /**
+ * GET /zoho-upload/companies/:companyId/pipeline-options
+ * Get pipeline and stage options for a specific company
+ */
+router.get("/companies/:companyId/pipeline-options", async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    console.log(`📋 Fetching pipeline options for company: ${companyId}`);
+
+    // Validate companyId
+    if (!companyId || !companyId.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    const result = await getBiginPipelineStages();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        companyId: companyId,
+        pipelines: result.pipelines,
+        stages: result.stages,
+        message: `Pipeline options retrieved for company ${companyId}`
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        companyId: companyId,
+        error: result.error,
+        // Provide fallback values even if API fails
+        pipelines: result.pipelines || [
+          { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
+        ],
+        stages: result.stages || [
+          { label: 'Qualification', value: 'Qualification' },
+          { label: 'Needs Analysis', value: 'Needs Analysis' },
+          { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+          { label: 'Negotiation/Review', value: 'Negotiation/Review' },
+          { label: 'Closed Won', value: 'Closed Won' },
+          { label: 'Closed Lost', value: 'Closed Lost' }
+        ]
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch company pipeline options:", error.message);
+    res.status(500).json({
+      success: false,
+      companyId: req.params.companyId,
+      error: error.message,
+      // Provide fallback values
+      pipelines: [
+        { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
+      ],
+      stages: [
+        { label: 'Qualification', value: 'Qualification' },
+        { label: 'Needs Analysis', value: 'Needs Analysis' },
+        { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+        { label: 'Negotiation/Review', value: 'Negotiation/Review' },
+        { label: 'Closed Won', value: 'Closed Won' },
+        { label: 'Closed Lost', value: 'Closed Lost' }
+      ]
+    });
+  }
+});
+
+/**
  * GET /zoho-upload/pipeline-options
- * Get available pipeline and stage options from Zoho Bigin
+ * Get available pipeline and stage options from Zoho Bigin (general)
  */
 router.get("/pipeline-options", async (req, res) => {
   try {
@@ -697,11 +790,13 @@ router.get("/pipeline-options", async (req, res) => {
         error: result.error,
         // Provide fallback values even if API fails
         pipelines: result.pipelines || [
-          { label: 'Sales Pipeline', value: 'Sales Pipeline' }
+          { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
         ],
         stages: result.stages || [
-          { label: 'Proposal', value: 'Proposal' },
-          { label: 'Negotiation', value: 'Negotiation' },
+          { label: 'Qualification', value: 'Qualification' },
+          { label: 'Needs Analysis', value: 'Needs Analysis' },
+          { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+          { label: 'Negotiation/Review', value: 'Negotiation/Review' },
           { label: 'Closed Won', value: 'Closed Won' },
           { label: 'Closed Lost', value: 'Closed Lost' }
         ]
@@ -715,11 +810,13 @@ router.get("/pipeline-options", async (req, res) => {
       error: error.message,
       // Provide fallback values
       pipelines: [
-        { label: 'Sales Pipeline', value: 'Sales Pipeline' }
+        { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
       ],
       stages: [
-        { label: 'Proposal', value: 'Proposal' },
-        { label: 'Negotiation', value: 'Negotiation' },
+        { label: 'Qualification', value: 'Qualification' },
+        { label: 'Needs Analysis', value: 'Needs Analysis' },
+        { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+        { label: 'Negotiation/Review', value: 'Negotiation/Review' },
         { label: 'Closed Won', value: 'Closed Won' },
         { label: 'Closed Lost', value: 'Closed Lost' }
       ]
@@ -822,6 +919,92 @@ router.post("/cleanup-failed", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+/**
+ * GET /zoho-upload/companies/:companyId/deals
+ * Fetch deals associated with a specific company
+ */
+router.get("/companies/:companyId/deals", async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const { page = 1, per_page = 20 } = req.query;
+
+    console.log(`💼 Fetching deals for company: ${companyId} (page ${page}, ${per_page} per page)`);
+
+    // Validate companyId
+    if (!companyId || !companyId.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    // Validate pagination parameters
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const perPage = Math.min(200, Math.max(1, parseInt(per_page) || 20));
+
+    const result = await getBiginDealsByCompany(companyId.trim(), pageNum, perPage);
+
+    if (result.success) {
+      console.log(`✅ Successfully fetched ${result.deals.length} deals for company ${companyId}`);
+
+      res.json({
+        success: true,
+        companyId: companyId,
+        deals: result.deals,
+        pagination: result.pagination,
+        message: `Found ${result.deals.length} deals for this company`
+      });
+    } else {
+      console.error(`❌ Failed to fetch deals for company ${companyId}:`, result.error);
+
+      // ✅ Provide helpful error messages for OAuth issues
+      if (result.error === "ZOHO_AUTH_REQUIRED") {
+        return res.status(401).json({
+          success: false,
+          error: "Zoho integration not configured. Please contact administrator to set up Zoho Bigin access."
+        });
+      }
+
+      if (result.error?.includes('credentials') || result.error?.includes('token')) {
+        return res.status(401).json({
+          success: false,
+          error: "Zoho authentication failed. Please contact administrator to reconfigure Zoho access."
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: result.error,
+        companyId: companyId
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch company deals:", error.message);
+
+    // ✅ Handle specific OAuth errors
+    if (error.message === "ZOHO_AUTH_REQUIRED") {
+      return res.status(401).json({
+        success: false,
+        error: "Zoho integration not configured. Please contact administrator to set up Zoho Bigin access."
+      });
+    }
+
+    if (error.message?.includes('credentials') || error.message?.includes('token')) {
+      return res.status(401).json({
+        success: false,
+        error: "Zoho authentication failed. Please contact administrator to reconfigure Zoho access."
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      companyId: req.params.companyId
     });
   }
 });

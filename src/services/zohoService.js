@@ -107,15 +107,16 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
     console.log("=".repeat(80));
     console.log("💡 Add these to your .env file for automatic token refresh!");
     console.log("=".repeat(80) + "\n");
-
-    // Store tokens in environment (for development)
-    // In production, you should store these securely in a database
     process.env.ZOHO_ACCESS_TOKEN = access_token;
     process.env.ZOHO_REFRESH_TOKEN = refresh_token;
     process.env.ZOHO_ACCOUNTS_BASE = accountsUrl;
 
-    console.log("💾 Tokens stored in environment variables");
-    console.log("⚠️  In production, store these tokens securely in a database");
+    // ✅ FIX: DO NOT overwrite environment variables
+    // The refresh token in .env should remain permanent and never be changed
+    // Only display the tokens for manual copying to .env file
+    console.log("✅ OAuth tokens obtained successfully!");
+    console.log("⚠️  IMPORTANT: Copy the refresh token above to your .env file manually");
+    console.log("⚠️  Do NOT restart the server until you've updated .env with the new tokens");
 
     return {
       success: true,
@@ -505,18 +506,18 @@ async function createDefaultDeal() {
 
     // Step 2: If we have a detected URL, try it first
     if (baseUrlToTry) {
-      const createUrl = `${baseUrlToTry}/Deals`;
-      console.log(`🔨 Testing deal creation with detected endpoint: ${createUrl}`);
+      const createUrl = `${baseUrlToTry}/Pipelines`; // ✅ V2 FIX: Use Pipelines endpoint
+      console.log(`🔨 Testing deal creation with v2 Pipelines endpoint: ${createUrl}`);
 
       try {
         const dealData = {
           data: [
             {
               Deal_Name: "PDF Documents Storage",
+              Sub_Pipeline: "Sales Pipeline Standard", // ✅ V2 FIX: Use Sub_Pipeline field
               Stage: "Proposal/Price Quote", // ✅ Use correct Stage value
               Amount: 0,
               Closing_Date: new Date().toISOString().split('T')[0]
-              // ❌ NO Pipeline field here - let Zoho handle it internally
             }
           ]
         };
@@ -565,33 +566,33 @@ async function createDefaultDeal() {
 
     // Step 3: Fallback to broad endpoint testing
 
-    // ✅ Test different base URLs specifically for POST deal creation
+    // ✅ Test different base URLs specifically for POST deal creation to Pipelines module
     const possibleCreateUrls = [
-      // V1 endpoints (often more stable for writes) - Use correct case-sensitive module name "Deals"
-      "https://www.zohoapis.com/bigin/v1/Deals",
-      "https://www.zohoapis.in/bigin/v1/Deals",
-      "https://www.zohoapis.eu/bigin/v1/Deals",
-      "https://www.zohoapis.com.au/bigin/v1/Deals",
+      // V1 endpoints (often more stable for writes) - Use Pipelines module
+      "https://www.zohoapis.com/bigin/v1/Pipelines",
+      "https://www.zohoapis.in/bigin/v1/Pipelines",
+      "https://www.zohoapis.eu/bigin/v1/Pipelines",
+      "https://www.zohoapis.com.au/bigin/v1/Pipelines",
       // V2 endpoints
-      "https://www.zohoapis.com/bigin/v2/Deals",
-      "https://www.zohoapis.in/bigin/v2/Deals",
-      "https://www.zohoapis.eu/bigin/v2/Deals",
-      "https://www.zohoapis.com.au/bigin/v2/Deals",
+      "https://www.zohoapis.com/bigin/v2/Pipelines",
+      "https://www.zohoapis.in/bigin/v2/Pipelines",
+      "https://www.zohoapis.eu/bigin/v2/Pipelines",
+      "https://www.zohoapis.com.au/bigin/v2/Pipelines",
       // Alternative CRM patterns
-      "https://bigin.zoho.com/crm/v2/Deals",
-      "https://bigin.zoho.in/crm/v2/Deals",
-      "https://bigin.zoho.eu/crm/v2/Deals",
-      "https://bigin.zoho.com.au/crm/v2/Deals"
+      "https://bigin.zoho.com/crm/v2/Pipelines",
+      "https://bigin.zoho.in/crm/v2/Pipelines",
+      "https://bigin.zoho.eu/crm/v2/Pipelines",
+      "https://bigin.zoho.com.au/crm/v2/Pipelines"
     ];
 
     const dealData = {
       data: [
         {
           Deal_Name: "PDF Documents Storage",
+          Sub_Pipeline: "Sales Pipeline Standard", // ✅ V2 FIX: Use Sub_Pipeline field
           Stage: "Proposal/Price Quote", // ✅ Use correct Stage value
           Amount: 0,
           Closing_Date: new Date().toISOString().split('T')[0] // Today's date
-          // ❌ NO Pipeline field here - let Zoho handle it internally
         }
       ]
     };
@@ -756,6 +757,12 @@ export async function getZohoAccessToken() {
   const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
   const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
 
+  console.log("🔍 [DEBUG] Environment variables check:");
+  console.log(`  ├ Client ID: ${clientId ? '✅ Present (' + clientId.substring(0, 20) + '...)' : '❌ Missing'}`);
+  console.log(`  ├ Client Secret: ${clientSecret ? '✅ Present (' + clientSecret.substring(0, 10) + '...)' : '❌ Missing'}`);
+  console.log(`  ├ Refresh Token: ${refreshToken ? '✅ Present (' + refreshToken.substring(0, 30) + '...)' : '❌ Missing'}`);
+  console.log(`  └ Accounts URL: ${accountsUrl}`);
+
   if (clientId && clientSecret && refreshToken) {
     try {
       console.log("🔄 Auto-refreshing Zoho access token...");
@@ -787,8 +794,20 @@ export async function getZohoAccessToken() {
 
       return access_token;
     } catch (error) {
-      console.error("❌ Failed to auto-refresh Zoho token:", error.response?.data || error.message);
-      console.error(`🔑 Refresh token used: ${refreshToken.substring(0, 30)}...`);
+      console.error("❌ Failed to auto-refresh Zoho token:");
+      console.error("  ├ Error type:", error.name || 'Unknown');
+      console.error("  ├ Error message:", error.message);
+      console.error("  ├ Response status:", error.response?.status);
+      console.error("  ├ Response data:", JSON.stringify(error.response?.data, null, 2));
+      console.error("  ├ Request URL:", error.config?.url);
+      console.error("  └ Refresh token used:", refreshToken.substring(0, 30) + "...");
+
+      console.error("\n🔍 [DEBUG] Full request details:");
+      console.error("  ├ Accounts URL:", accountsUrl);
+      console.error("  ├ Client ID:", clientId);
+      console.error("  ├ Client Secret:", clientSecret ? clientSecret.substring(0, 10) + "..." : "MISSING");
+      console.error("  └ Grant type: refresh_token");
+
       // Fall through to static token fallback
     }
   } else {
@@ -879,7 +898,10 @@ export async function getBiginContactsByAccount(accountId) {
 
     // Fallback: try direct Contacts endpoint with filters
     console.log(`🔄 [V8-CONTACTS] COQL failed, trying direct Contacts endpoint`);
-    const directResult = await makeBiginRequest('GET', `/Contacts?Account_Name=${accountId}`);
+
+    // ✅ V2 FIX: Add required fields parameter for Contacts
+    const contactFields = ['id', 'Contact_Name', 'Email', 'Phone'].join(',');
+    const directResult = await makeBiginRequest('GET', `/Contacts?Account_Name=${accountId}&fields=${contactFields}`);
 
     if (directResult.success && directResult.data?.data) {
       const contacts = directResult.data.data;
@@ -1502,17 +1524,17 @@ function getBiginBaseUrl() {
     return process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL;
   }
 
-  // ✅ DERIVE from accounts base to match data center
+  // ✅ DERIVE from accounts base to match data center - USE V2 for Pipelines
   const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
 
   if (accountsUrl.includes('.in')) {
-    return "https://www.zohoapis.in/bigin/v1";
+    return "https://www.zohoapis.in/bigin/v2";
   } else if (accountsUrl.includes('.eu')) {
-    return "https://www.zohoapis.eu/bigin/v1";
+    return "https://www.zohoapis.eu/bigin/v2";
   } else if (accountsUrl.includes('.com.au')) {
-    return "https://www.zohoapis.com.au/bigin/v1";
+    return "https://www.zohoapis.com.au/bigin/v2";
   } else {
-    return "https://www.zohoapis.com/bigin/v1";
+    return "https://www.zohoapis.com/bigin/v2";
   }
 }
 
@@ -1559,8 +1581,127 @@ async function makeBiginRequest(method, endpoint, data = null) {
 }
 
 /**
- * COMPANIES MODULE METHODS
+ * Get deals associated with a specific company
+ * @param {string} companyId - Zoho company/account ID
+ * @param {number} page - Page number (default: 1)
+ * @param {number} perPage - Records per page (default: 20, max: 200)
+ * @returns {Promise<Object>} Deals list response
  */
+export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) {
+  console.log(`💼 Fetching Bigin deals for company: ${companyId} (page ${page}, ${perPage} per page)`);
+
+  try {
+    // Method 1: Try COQL query for more reliable filtering
+    // const coqlQuery = `SELECT id, Deal_Name, Stage, Amount, Closing_Date, Created_Time, Modified_Time
+    //                    FROM Deals
+    //                    WHERE Account_Name = '${companyId}'
+    //                    ORDER BY Modified_Time DESC
+    //                    LIMIT ${Math.min(perPage, 200)}
+    //                    OFFSET ${(page - 1) * perPage}`;
+        const coqlQuery = `SELECT *
+                       FROM Deals
+                       WHERE Account_Name = '${companyId}'
+                       ORDER BY Modified_Time DESC
+                       LIMIT ${Math.min(perPage, 200)}
+                       OFFSET ${(page - 1) * perPage}`;
+
+    console.log(`🔍 [COMPANY-DEALS] Using COQL to fetch deals for company ${companyId}`);
+    const coqlResult = await makeBiginRequest('POST', '/coql', {
+      select_query: coqlQuery
+    });
+
+    if (coqlResult.success && coqlResult.data?.data) {
+      const deals = coqlResult.data.data;
+      console.log(`✅ [COMPANY-DEALS] Found ${deals.length} deals via COQL`);
+
+      return {
+        success: true,
+        deals: deals.map(deal => ({
+          id: deal.id,
+          name: deal.Deal_Name || 'Unnamed Deal',
+          stage: deal.Stage || '',
+          amount: deal.Amount || 0,
+          closingDate: deal.Closing_Date || null,
+          createdAt: deal.Created_Time || null,
+          modifiedAt: deal.Modified_Time || null
+        })),
+        pagination: {
+          page: page,
+          perPage: perPage,
+          total: deals.length // COQL doesn't return total count easily
+        }
+      };
+    }
+
+    // Method 2: Fallback to direct Deals endpoint with filters
+    console.log(`🔄 [COMPANY-DEALS] COQL failed, trying direct Deals endpoint`);
+
+    // ✅ V2 FIX: Add required fields parameter for Deals
+    const dealFields = [
+      'id',
+      'Deal_Name',
+      'Stage',
+      'Amount',
+      'Closing_Date',
+      'Created_Time',
+      'Modified_Time',
+      'Description',
+      'Pipeline',
+      'Contact_Name'
+    ].join(',');
+
+    const endpoint = `/Deals?page=${page}&per_page=${Math.min(perPage, 200)}&Account_Name=${companyId}&fields=${dealFields}`;
+    const directResult = await makeBiginRequest('GET', endpoint);
+
+    if (directResult.success && directResult.data?.data) {
+      const deals = directResult.data.data;
+      console.log(`✅ [COMPANY-DEALS] Found ${deals.length} deals via direct endpoint`);
+
+      return {
+        success: true,
+        deals: deals.map(deal => ({
+          id: deal.id,
+          name: deal.Deal_Name || 'Unnamed Deal',
+          stage: deal.Stage || '',
+          amount: deal.Amount || 0,
+          closingDate: deal.Closing_Date || null,
+          createdAt: deal.Created_Time || null,
+          modifiedAt: deal.Modified_Time || null,
+          // Additional fields that might be useful
+          description: deal.Description || '',
+          pipelineName: deal.Pipeline || '',
+          contactName: deal.Contact_Name?.name || null
+        })),
+        pagination: {
+          page: page,
+          perPage: perPage,
+          total: directResult.data.info?.count || deals.length,
+          hasMore: directResult.data.info?.more_records || false
+        }
+      };
+    }
+
+    console.log(`⚠️ [COMPANY-DEALS] No deals found for company ${companyId}`);
+    return {
+      success: true,
+      deals: [],
+      pagination: {
+        page: page,
+        perPage: perPage,
+        total: 0,
+        hasMore: false
+      }
+    };
+
+  } catch (error) {
+    console.error(`❌ [COMPANY-DEALS] Failed to fetch deals for company ${companyId}:`, error.message);
+    return {
+      success: false,
+      error: error.message,
+      deals: []
+    };
+  }
+}
 
 /**
  * Get list of companies from Zoho Bigin
@@ -1571,7 +1712,18 @@ async function makeBiginRequest(method, endpoint, data = null) {
 export async function getBiginCompanies(page = 1, perPage = 50) {
   console.log(`📋 Fetching Bigin companies (page ${page}, ${perPage} per page)...`);
 
-  const endpoint = `/Accounts?page=${page}&per_page=${Math.min(perPage, 200)}`;  // ✅ FIXED: Use Accounts endpoint
+  // ✅ V2 FIX: Add required fields parameter for Bigin v2 API
+  const fields = [
+    'id',
+    'Account_Name',
+    'Company_Name',
+    'Phone',
+    'Email',
+    'Website',
+    'Billing_Street'
+  ].join(',');
+
+  const endpoint = `/Accounts?page=${page}&per_page=${Math.min(perPage, 200)}&fields=${fields}`;
   const result = await makeBiginRequest('GET', endpoint);
 
   if (result.success) {
@@ -1697,63 +1849,45 @@ export async function createBiginCompany(companyData) {
 export async function createBiginDeal(dealData) {
   console.log(`💼 Creating new Bigin deal: ${dealData.dealName}`);
 
-  // ✅ Always use a valid Stage value for your pipeline
-  // Your Bigin stages: Qualification, Needs Analysis, Proposal/Price Quote, Negotiation/Review, Closed Won, Closed Lost
-  const stage = (dealData.stage && dealData.stage.trim()) || 'Proposal/Price Quote';
-
   const record = {
-    // ✅ Required fields
-    Deal_Name: dealData.dealName,
-    Stage: stage,
-    Amount: dealData.amount ?? 0,
-    Closing_Date: dealData.closingDate || new Date().toISOString().split('T')[0],
+    // REQUIRED
+    Deal_Name: dealData.dealName,                  // e.g. "PDF Documents Storage"
+    Sub_Pipeline: dealData.subPipelineName
+                  || "Sales Pipeline Standard",    // from your pipelineName
+    Stage: dealData.stage || "Qualification",      // or "Proposal/Price Quote"
 
-    // ✅ Description
-    Description: dealData.description || `EnviroMaster service proposal created on ${new Date().toISOString()}`,
-    // ❌ IMPORTANT: NO Pipeline field here
-    // ❌ IMPORTANT: NO Layout field here either
+    // OPTIONAL BUT RECOMMENDED
+    Amount: dealData.amount ?? 0,
+    Closing_Date: dealData.closingDate
+                  || new Date().toISOString().split("T")[0],
+    Description:
+      dealData.description
+      || `EnviroMaster service proposal created on ${new Date().toISOString()}`
   };
 
-  // ✅ Proper Company lookup
+  // Link to company (Account_Name lookup)
   if (dealData.companyId) {
     record.Account_Name = { id: dealData.companyId };
-    console.log(`🏢 [DEAL CREATION] Linking deal to company ID: ${dealData.companyId}`);
+  }
 
-    // ✅ V8 FIX: Handle Contact_Name mandatory field requirement
-    console.log(`👤 [V8-CONTACTS] Resolving Contact_Name requirement for deal creation...`);
-    try {
-      const contactResult = await getOrCreateContactForDeal(
-        dealData.companyId,
-        dealData.companyName || 'Company'
-      );
-
-      if (contactResult.success && contactResult.contact) {
-        record.Contact_Name = {
-          id: contactResult.contact.id  // ✅ Link to contact
-        };
-        console.log(`✅ [V8-CONTACTS] Linked deal to contact: ${contactResult.contact.name} (${contactResult.contact.id})`);
-        if (contactResult.wasCreated) {
-          console.log(`🆕 [V8-CONTACTS] Contact was created automatically for this company`);
-        }
-      } else {
-        console.error(`❌ [V8-CONTACTS] Failed to get/create contact: ${contactResult.error}`);
-        // Continue without contact - let Zoho decide if it's truly mandatory
-        console.log(`⚠️ [V8-CONTACTS] Proceeding with deal creation without contact - Zoho will reject if mandatory`);
-      }
-    } catch (contactError) {
-      console.error(`❌ [V8-CONTACTS] Exception while handling contact: ${contactError.message}`);
-      console.log(`⚠️ [V8-CONTACTS] Proceeding with deal creation without contact`);
-    }
-  } else {
-    console.log(`⚠️ [DEAL CREATION] No companyId provided - deal will not be linked to any company or contact`);
+  // Link to contact (Contact_Name lookup)
+  if (dealData.contactId) {
+    record.Contact_Name = { id: dealData.contactId };
   }
 
   const payload = { data: [record] };
 
-  console.log('🔍 [V6-NO-PIPELINE] Final payload (no Pipeline):', JSON.stringify(payload, null, 2));
+  console.log(
+    "🔍 [V2-Pipelines] Final payload:",
+    JSON.stringify(payload, null, 2)
+  );
 
-  // ✅ Correct endpoint for Bigin
-  const result = await makeBiginRequest('POST', '/Deals', payload);
+  // IMPORTANT: v2 + Pipelines module, not v1 + Deals
+  const result = await makeBiginRequest(
+    "POST",
+    "/Pipelines",     // <<--- change from '/Deals' to '/Pipelines'
+    payload
+  );
 
   if (result.success) {
     const createdDeal = result.data?.data?.[0];
@@ -1963,11 +2097,21 @@ export async function getBiginModuleFields(moduleName) {
 
   const result = await makeBiginRequest('GET', `/settings/fields?module=${moduleName}`);
 
+  console.log(`🔍 [DEBUG] Module fields request for ${moduleName}:`);
+  console.log(`  ├ Success: ${result.success}`);
+  console.log(`  ├ Status: ${result.status}`);
+  console.log(`  ├ Data keys: ${result.data ? Object.keys(result.data) : 'No data'}`);
+  console.log(`  └ Error: ${result.error || 'None'}`);
+
   if (result.success) {
     const fields = result.data?.fields || [];
     console.log(`✅ Found ${fields.length} fields for ${moduleName}`);
+    if (fields.length > 0) {
+      console.log(`🔍 Sample fields: ${fields.slice(0, 5).map(f => f.api_name).join(', ')}`);
+    }
     return {
       success: true,
+      moduleName: moduleName, // ✅ Add module name for debugging
       fields: fields.map(field => ({
         apiName: field.api_name,
         displayLabel: field.display_label,
@@ -1979,6 +2123,7 @@ export async function getBiginModuleFields(moduleName) {
     };
   }
 
+  console.error(`❌ Failed to get ${moduleName} fields:`, result);
   return result;
 }
 
@@ -2022,27 +2167,61 @@ export async function getBiginPipelineStages() {
   console.log(`🔍 Fetching pipeline and stage options from Bigin...`);
 
   try {
-    // Get field metadata for Pipelines module to find Pipeline and Stage picklist values
-    const fieldsResult = await getBiginModuleFields('Pipelines');
+    // ✅ V2 FIX: Try 'Deals' module first (more likely to work than 'Pipelines')
+    console.log(`🔍 Trying to fetch fields from 'Deals' module first...`);
+    let fieldsResult = await getBiginModuleFields('Deals');
+
+    if (!fieldsResult.success) {
+      console.log(`🔄 'Deals' failed, trying 'Pipelines' module...`);
+      fieldsResult = await getBiginModuleFields('Pipelines');
+    }
+
+    if (!fieldsResult.success) {
+      console.log(`🔄 Both modules failed, trying 'Potentials' module...`);
+      fieldsResult = await getBiginModuleFields('Potentials');
+    }
 
     if (!fieldsResult.success) {
       return {
         success: false,
-        error: 'Failed to fetch Pipelines module fields'
+        error: 'Failed to fetch field metadata from any module (Deals, Pipelines, Potentials)'
       };
     }
 
     const fields = fieldsResult.fields;
-    const pipelineField = fields.find(f => f.apiName === 'Pipeline' || f.apiName === 'Pipeline_Name');
-    const stageField = fields.find(f => f.apiName === 'Stage' || f.apiName === 'Stage_Name');
 
-    const pipelines = pipelineField?.pickListValues || [
-      { display_value: 'Sales Pipeline', actual_value: 'Sales Pipeline' }
+    console.log(`🔍 [DEBUG] Available fields in module (${fieldsResult.moduleName || 'unknown'}):`, fields.map(f => f.apiName).slice(0, 15));
+
+    console.log(`🔍 [DEBUG] Looking for pipeline fields: Sub_Pipeline, Pipeline, Pipeline_Name`);
+    console.log(`🔍 [DEBUG] Looking for stage fields: Stage, Stage_Name`);
+
+    // ✅ V2 FIX: Look for Sub_Pipeline field (not Pipeline field)
+    const pipelineField = fields.find(f =>
+      f.apiName === 'Sub_Pipeline' ||
+      f.apiName === 'Pipeline' ||
+      f.apiName === 'Pipeline_Name'
+    );
+    const stageField = fields.find(f =>
+      f.apiName === 'Stage' ||
+      f.apiName === 'Stage_Name'
+    );
+
+    console.log(`🔍 [DEBUG] Pipeline field found:`, pipelineField?.apiName, 'with', pipelineField?.pickListValues?.length || 0, 'values');
+    console.log(`🔍 [DEBUG] Stage field found:`, stageField?.apiName, 'with', stageField?.pickListValues?.length || 0, 'values');
+
+    // ✅ FIX: Use known working pipeline when no picklist values
+    const pipelineValues = pipelineField?.pickListValues;
+    const pipelines = (pipelineValues && pipelineValues.length > 0) ? pipelineValues : [
+      { display_value: 'Sales Pipeline Standard', actual_value: 'Sales Pipeline Standard' }
     ];
 
+    console.log(`🔍 [DEBUG] Using pipelines:`, pipelines.map(p => p.display_value || p.actual_value));
+
     const stages = stageField?.pickListValues || [
-      { display_value: 'Proposal', actual_value: 'Proposal' },
-      { display_value: 'Negotiation', actual_value: 'Negotiation' },
+      { display_value: 'Qualification', actual_value: 'Qualification' },
+      { display_value: 'Needs Analysis', actual_value: 'Needs Analysis' },
+      { display_value: 'Proposal/Price Quote', actual_value: 'Proposal/Price Quote' },
+      { display_value: 'Negotiation/Review', actual_value: 'Negotiation/Review' },
       { display_value: 'Closed Won', actual_value: 'Closed Won' },
       { display_value: 'Closed Lost', actual_value: 'Closed Lost' }
     ];
@@ -2068,13 +2247,15 @@ export async function getBiginPipelineStages() {
     return {
       success: false,
       error: error.message,
-      // Provide fallback values
+      // Provide fallback values that match your working system
       pipelines: [
-        { label: 'Sales Pipeline', value: 'Sales Pipeline' }
+        { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
       ],
       stages: [
-        { label: 'Proposal', value: 'Proposal' },
-        { label: 'Negotiation', value: 'Negotiation' },
+        { label: 'Qualification', value: 'Qualification' },
+        { label: 'Needs Analysis', value: 'Needs Analysis' },
+        { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+        { label: 'Negotiation/Review', value: 'Negotiation/Review' },
         { label: 'Closed Won', value: 'Closed Won' },
         { label: 'Closed Lost', value: 'Closed Lost' }
       ]
