@@ -2,6 +2,7 @@
 import { Router } from "express";
 import ZohoMapping from "../models/ZohoMapping.js";
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
+import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW: For attached files
 import {
   getBiginCompanies,
   searchBiginCompanies,
@@ -485,9 +486,10 @@ router.post("/:agreementId/first-time", async (req, res) => {
 router.post("/:agreementId/update", async (req, res) => {
   try {
     const { agreementId } = req.params;
-    const { noteText } = req.body;
+    const { noteText, dealId: providedDealId } = req.body; // ✅ NEW: Accept optional dealId
 
-    console.log(`🔄 Starting update upload for agreement: ${agreementId}`);
+    console.log(`🔄 Starting update upload for agreement: ${agreementId}`,
+                providedDealId ? `(target dealId: ${providedDealId})` : '(using existing mapping)');
 
     // Validate required fields
     if (!noteText || !noteText.trim()) {
@@ -513,20 +515,40 @@ router.post("/:agreementId/update", async (req, res) => {
       });
     }
 
-    // Get existing mapping
-    const mapping = await ZohoMapping.findByAgreementId(agreementId);
-    if (!mapping) {
-      return res.status(400).json({
-        success: false,
-        error: "No existing Zoho mapping found. Use first-time upload instead."
-      });
+    let dealId, dealName, nextVersion, mapping;
+
+    // ✅ NEW: Use provided dealId or lookup existing mapping
+    if (providedDealId) {
+      // BULK UPLOAD MODE: Use provided dealId from first file's deal
+      dealId = providedDealId;
+
+      // Try to find existing mapping for version tracking
+      mapping = await ZohoMapping.findByAgreementId(agreementId);
+      if (mapping) {
+        nextVersion = mapping.getNextVersion();
+        dealName = mapping.zohoDeal.name;
+        console.log(`📤 [BULK] Adding to existing deal ${dealId}, version ${nextVersion}`);
+      } else {
+        // Create new mapping for this file using the shared deal
+        nextVersion = 1;
+        dealName = `Bulk Upload Deal ${dealId}`;
+        console.log(`📤 [BULK] Creating new mapping for file in shared deal ${dealId}`);
+      }
+    } else {
+      // SINGLE UPLOAD MODE: Original logic - lookup existing mapping
+      mapping = await ZohoMapping.findByAgreementId(agreementId);
+      if (!mapping) {
+        return res.status(400).json({
+          success: false,
+          error: "No existing Zoho mapping found. Use first-time upload instead."
+        });
+      }
+
+      nextVersion = mapping.getNextVersion();
+      dealId = mapping.zohoDeal.id;
+      dealName = mapping.zohoDeal.name;
+      console.log(`📝 [SINGLE] Adding version ${nextVersion} to existing deal: ${dealId}`);
     }
-
-    const nextVersion = mapping.getNextVersion();
-    const dealId = mapping.zohoDeal.id;
-    const dealName = mapping.zohoDeal.name;
-
-    console.log(`📝 Adding version ${nextVersion} to existing deal: ${dealId}`);
 
     // Step 1: Create the note
     const noteResult = await createBiginNote(dealId, {
@@ -565,16 +587,48 @@ router.post("/:agreementId/update", async (req, res) => {
     const file = fileResult.file;
     console.log(`✅ File uploaded: ${file.id}`);
 
-    // Step 3: Update mapping in MongoDB
-    mapping.addUpload({
-      zohoNoteId: note.id,
-      zohoFileId: file.id,
-      noteText: noteText.trim(),
-      fileName: fileName,
-      uploadedBy: 'system' // TODO: Add user context
-    });
+    // Step 3: Update or create mapping in MongoDB
+    if (mapping) {
+      // Update existing mapping
+      mapping.addUpload({
+        zohoNoteId: note.id,
+        zohoFileId: file.id,
+        noteText: noteText.trim(),
+        fileName: fileName,
+        uploadedBy: 'system' // TODO: Add user context
+      });
+      await mapping.save();
+    } else {
+      // ✅ NEW: Create new mapping for bulk upload files
+      console.log(`📤 [BULK] Creating new ZohoMapping for agreement ${agreementId} in shared deal ${dealId}`);
 
-    await mapping.save();
+      // Get deal details from Zoho to create proper mapping
+      const dealDetails = await getBiginDealById(dealId);
+
+      mapping = new ZohoMapping({
+        agreementId: agreement._id,
+        companyId: dealDetails.Account_Name?.id || 'unknown',
+        companyName: dealDetails.Account_Name?.name || 'Unknown Company',
+        zohoDeal: {
+          id: dealId,
+          name: dealDetails.Deal_Name || dealName
+        },
+        pipelineName: dealDetails.Pipeline || 'Sales Pipeline',
+        stage: dealDetails.Stage || 'Proposal',
+        uploads: [{
+          version: 1,
+          zohoNoteId: note.id,
+          zohoFileId: file.id,
+          noteText: noteText.trim(),
+          fileName: fileName,
+          uploadedAt: new Date(),
+          uploadedBy: 'system'
+        }]
+      });
+
+      await mapping.save();
+      console.log(`✅ [BULK] Created new mapping: ${mapping._id}`);
+    }
 
     console.log(`✅ Update upload completed successfully!`);
     console.log(`  ├ Deal: ${dealName} (${dealId})`);
@@ -1005,6 +1059,136 @@ router.get("/companies/:companyId/deals", async (req, res) => {
       success: false,
       error: error.message,
       companyId: req.params.companyId
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/attached-file/:fileId/add-to-deal
+ * Add attached file to existing Zoho deal
+ */
+router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { dealId, noteText, dealName } = req.body;
+
+    console.log(`📎 [ATTACHED-FILE] Adding attached file ${fileId} to deal ${dealId}`);
+
+    // Validate required fields
+    if (!noteText || !noteText.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Note text is required"
+      });
+    }
+
+    if (!dealId) {
+      return res.status(400).json({
+        success: false,
+        error: "Deal ID is required"
+      });
+    }
+
+    // Find the attached file in ManualUploadDocument collection
+    const manualDoc = await ManualUploadDocument.findById(fileId).select('fileName originalFileName mimeType pdfBuffer');
+
+    if (!manualDoc) {
+      return res.status(404).json({
+        success: false,
+        error: "Attached file not found"
+      });
+    }
+
+    if (!manualDoc.pdfBuffer) {
+      return res.status(400).json({
+        success: false,
+        error: "Attached file has no PDF content"
+      });
+    }
+
+    // Prepare file info
+    const fileName = manualDoc.originalFileName || manualDoc.fileName || 'AttachedFile.pdf';
+    const cleanFileName = fileName.replace(/[^a-zA-Z0-9\-_.]/g, '_');
+    const zohoFileName = `${cleanFileName.replace('.pdf', '')}_attached.pdf`;
+
+    console.log(`📎 [ATTACHED-FILE] Processing: ${fileName} → ${zohoFileName}`);
+
+    // Step 1: Create note
+    const noteResult = await createBiginNote(dealId, {
+      title: `Attached File - ${fileName}`,
+      content: noteText.trim()
+    });
+
+    if (!noteResult.success) {
+      console.error(`❌ Failed to create note for attached file: ${noteResult.error?.message}`);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to create note: ${noteResult.error?.message}`
+      });
+    }
+
+    const note = noteResult.note;
+    console.log(`✅ Note created for attached file: ${note.id}`);
+
+    // Step 2: Upload file to deal
+    let pdfBuffer;
+    if (Buffer.isBuffer(manualDoc.pdfBuffer)) {
+      pdfBuffer = manualDoc.pdfBuffer;
+    } else if (typeof manualDoc.pdfBuffer === 'string') {
+      pdfBuffer = Buffer.from(manualDoc.pdfBuffer, 'base64');
+    } else {
+      throw new Error('Invalid PDF buffer format');
+    }
+
+    console.log(`📎 Retrieved attached file PDF: ${pdfBuffer.length} bytes`);
+
+    const fileResult = await uploadBiginFile(dealId, pdfBuffer, zohoFileName);
+
+    if (!fileResult.success) {
+      console.error(`❌ Failed to upload attached file: ${fileResult.error?.message}`);
+      return res.status(500).json({
+        success: false,
+        error: `Note created but failed to upload file: ${fileResult.error?.message}`,
+        noteId: note.id
+      });
+    }
+
+    const file = fileResult.file;
+    console.log(`✅ Attached file uploaded: ${file.id}`);
+
+    console.log(`✅ Attached file upload completed successfully!`);
+    console.log(`  ├ Deal: ${dealName} (${dealId})`);
+    console.log(`  ├ Note: ${note.id}`);
+    console.log(`  └ File: ${zohoFileName} (${file.id})`);
+
+    res.json({
+      success: true,
+      message: `Successfully uploaded attached file to existing Zoho deal`,
+      data: {
+        deal: {
+          id: dealId,
+          name: dealName || 'Unknown Deal'
+        },
+        note: {
+          id: note.id,
+          title: note.title
+        },
+        file: {
+          id: file.id,
+          fileName: zohoFileName
+        },
+        attachedFile: {
+          id: fileId,
+          originalName: fileName
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Attached file Zoho upload error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to upload attached file to Zoho",
+      detail: err.message
     });
   }
 });
