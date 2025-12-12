@@ -142,6 +142,41 @@ const HeaderRowSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ✅ NEW: Attached file schema for additional uploads within same agreement
+const AttachedFileSchema = new mongoose.Schema(
+  {
+    // Reference to ManualUploadDocument (where the actual PDF is stored)
+    manualDocumentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ManualUploadDocument',
+      required: [true, 'Manual document ID is required for attached files'],
+      validate: {
+        validator: function(value) {
+          // Ensure the value is a valid ObjectId
+          return value && mongoose.isValidObjectId(value);
+        },
+        message: 'Manual document ID must be a valid ObjectId'
+      }
+    },
+
+    // Quick reference data (duplicated from ManualUploadDocument for performance)
+    fileName: {
+      type: String,
+      required: [true, 'File name is required for attached files'],
+      trim: true,
+      minlength: [1, 'File name cannot be empty']
+    },
+    fileSize: { type: Number, default: 0, min: [0, 'File size cannot be negative'] },
+    description: { type: String, default: "", trim: true },
+    attachedAt: { type: Date, default: Date.now },
+    attachedBy: { type: String, default: null, trim: true },
+
+    // Display order within this agreement
+    displayOrder: { type: Number, default: 0, min: [0, 'Display order cannot be negative'] },
+  },
+  { _id: true, timestamps: true }  // Each attachment reference gets its own _id
+);
+
 // Main payload schema matching current frontend structure
 const PayloadSchema = new mongoose.Schema(
   {
@@ -166,6 +201,24 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
       storedAt: { type: Date, default: null },        // when PDF was compiled
       pdfBuffer: { type: Buffer, default: null },     // Store compiled PDF binary
       externalUrl: { type: String, default: null },   // external URL if hosted elsewhere
+    },
+
+    // ✅ NEW: Additional files attached to this agreement
+    attachedFiles: {
+      type: [AttachedFileSchema],
+      default: [],
+      validate: {
+        validator: function(attachments) {
+          // Validate that all attachments have valid manualDocumentId
+          return attachments.every(attachment =>
+            attachment.manualDocumentId &&
+            mongoose.isValidObjectId(attachment.manualDocumentId) &&
+            attachment.fileName &&
+            attachment.fileName.trim().length > 0
+          );
+        },
+        message: 'All attached files must have valid manualDocumentId and fileName'
+      }
     },
 
     // optional internal tracking - updated status values to match frontend

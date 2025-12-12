@@ -15,6 +15,8 @@ import { uploadToZohoBigin, getZohoAccessToken, testZohoAccess, runZohoDiagnosti
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
 import ServiceConfig from "../models/ServiceConfig.js";
+import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW: For optimized file storage
+// import mongoose from "mongoose"; // ✅ Add mongoose import for ObjectId handling
 
 /* ------------ health + low-level compile endpoints ------------ */
 
@@ -1731,6 +1733,184 @@ export async function getSavedFilesList(req, res) {
   }
 }
 
+// GET /api/pdf/saved-files/grouped (CORRECTED: One document per agreement with attachedFiles)
+export async function getSavedFilesGrouped(req, res) {
+  try {
+    const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit || "20", 10), 1),
+      100
+    );
+
+    // Check if we're in development mode without database
+    if (mongoose.connection.readyState === 0) {
+      console.log('⚠️ Database not connected, returning empty list for grouped files');
+      return res.json({
+        total: 0,
+        totalGroups: 0,
+        page,
+        limit,
+        agreements: []
+      });
+    }
+
+    const filter = {};
+
+    // Optional filters
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.search) {
+      filter['payload.headerTitle'] = {
+        $regex: req.query.search,
+        $options: 'i'
+      };
+    }
+
+    // ✅ CORRECTED: Fetch agreements (no grouping - each is already one document)
+    const totalAgreements = await CustomerHeaderDoc.countDocuments(filter);
+
+    console.log(`📁 [FETCH] Found ${totalAgreements} total agreements matching filter`);
+
+    const agreements = await CustomerHeaderDoc.find(filter)
+      .select({
+        _id: 1,
+        status: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: 1,
+        updatedBy: 1,
+        'payload.headerTitle': 1,
+        'pdf_meta.sizeBytes': 1,
+        'pdf_meta.storedAt': 1,
+        'pdf_meta.pdfBuffer': 1,
+        'zoho.bigin.dealId': 1,
+        'zoho.bigin.fileId': 1,
+        'zoho.crm.dealId': 1,
+        'zoho.crm.fileId': 1,
+        'attachedFiles': 1,  // ✅ Include attached file references
+      })
+      .populate({
+        path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
+        model: 'ManualUploadDocument',
+        select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho createdAt updatedAt'
+      })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    console.log(`📁 [FETCH] Retrieved ${agreements.length} agreements for page ${page}`);
+    console.log(`📁 [DEBUG] First agreement structure:`, agreements[0] ? {
+      id: agreements[0]._id,
+      title: agreements[0].payload?.headerTitle,
+      attachedFilesCount: agreements[0].attachedFiles?.length || 0,
+      attachedFilesStructure: agreements[0].attachedFiles?.slice(0, 1)
+    } : 'No agreements found');
+
+    // ✅ Transform to show main PDF + attached files for each agreement
+    const transformedAgreements = agreements.map(agreement => {
+      const mainFile = {
+        id: agreement._id,
+        fileName: `${agreement.payload?.headerTitle || 'Untitled'} - Main Agreement.pdf`,
+        fileType: 'main_pdf',
+        title: agreement.payload?.headerTitle || 'Untitled Agreement',
+        status: agreement.status,
+        createdAt: agreement.createdAt,
+        updatedAt: agreement.updatedAt,
+        createdBy: agreement.createdBy,
+        updatedBy: agreement.updatedBy,
+        fileSize: agreement.pdf_meta?.sizeBytes || 0,
+        pdfStoredAt: agreement.pdf_meta?.storedAt || null,
+        hasPdf: !!(
+          // Check for Zoho fileId (valid, non-mock) OR PDF stored in MongoDB
+          (agreement.zoho?.bigin?.fileId && !agreement.zoho.bigin.fileId.includes('MOCK_')) ||
+          (agreement.zoho?.crm?.fileId && !agreement.zoho.crm.fileId.includes('MOCK_')) ||
+          agreement.pdf_meta?.pdfBuffer
+        ),
+        zohoInfo: {
+          biginDealId: agreement.zoho?.bigin?.dealId || null,
+          biginFileId: agreement.zoho?.bigin?.fileId || null,
+          crmDealId: agreement.zoho?.crm?.dealId || null,
+          crmFileId: agreement.zoho?.crm?.fileId || null,
+        }
+      };
+
+      // ✅ Add attached files to the same agreement (now using populated references)
+      const attachedFiles = (agreement.attachedFiles || []).map(attachmentRef => {
+        const manualDoc = attachmentRef.manualDocumentId; // Populated ManualUploadDocument
+
+        // ✅ FIX: Handle case where populate failed or reference is invalid
+        if (!manualDoc || !manualDoc._id) {
+          console.warn(`⚠️ Invalid attachment reference in agreement ${agreement._id}:`, attachmentRef);
+          return null; // Skip this attachment
+        }
+
+        return {
+          id: manualDoc._id,
+          fileName: manualDoc.originalFileName,
+          fileType: 'attached_pdf',
+          title: manualDoc.originalFileName,
+          status: 'attached',
+          createdAt: manualDoc.createdAt,
+          updatedAt: manualDoc.updatedAt,
+          createdBy: manualDoc.uploadedBy,
+          updatedBy: null,
+          fileSize: manualDoc.fileSize || 0,
+          pdfStoredAt: manualDoc.createdAt,
+          // ✅ FIX: Files stored in ManualUploadDocument are always accessible
+          hasPdf: manualDoc.status === 'uploaded' || manualDoc.status === 'completed',
+          description: attachmentRef.description || manualDoc.description || '',
+          zohoInfo: {
+            biginDealId: manualDoc.zoho?.bigin?.dealId || null,
+            biginFileId: manualDoc.zoho?.bigin?.fileId || null,
+            crmDealId: manualDoc.zoho?.crm?.dealId || null,
+            crmFileId: manualDoc.zoho?.crm?.fileId || null,
+          }
+        };
+      }).filter(file => file !== null); // Filter out any invalid references
+
+      // ✅ Combine main file + attached files
+      const allFiles = [mainFile, ...attachedFiles];
+
+      return {
+        id: agreement._id,
+        agreementTitle: agreement.payload?.headerTitle || 'Untitled Agreement',
+        fileCount: allFiles.length,
+        latestUpdate: agreement.updatedAt,
+        statuses: [agreement.status], // Main agreement status
+        hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId),
+        files: allFiles
+      };
+    });
+
+    const totalFiles = transformedAgreements.reduce((sum, agreement) => sum + agreement.fileCount, 0);
+
+    console.log(`📁 [SAVED-FILES-GROUPED] Fetched ${transformedAgreements.length} agreements with ${totalFiles} total files for page ${page}`);
+
+    res.json({
+      success: true,
+      total: totalFiles,
+      totalGroups: totalAgreements,
+      page,
+      limit,
+      groups: transformedAgreements,  // Keep same response format for compatibility
+      _metadata: {
+        queryType: 'agreements_with_attached_files',
+        structure: 'single_document_per_agreement',
+        fieldsIncluded: ['basic_info', 'file_meta', 'attached_files', 'zoho_refs'],
+        fieldsExcluded: ['full_payload', 'pdf_buffer']
+      }
+    });
+  } catch (error) {
+    console.error("❌ Error fetching agreements with attached files:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+}
+
 // GET /api/pdf/saved-files/:id/details (full payload data on-demand)
 export async function getSavedFileDetails(req, res) {
   try {
@@ -1852,6 +2032,221 @@ export async function getSavedFileDetails(req, res) {
       });
     }
 
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+
+// ✅ NEW: Add file(s) to existing agreement's attachedFiles array
+export async function addFileToAgreement(req, res) {
+  try {
+    const { agreementId } = req.params;
+    const { files } = req.body; // Array of file data
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid agreement ID format"
+      });
+    }
+
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Files array is required and must contain at least one file"
+      });
+    }
+
+    // Find the agreement
+    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    if (!agreement) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "Agreement not found"
+      });
+    }
+
+    // ✅ NEW APPROACH: Store PDFs in ManualUploadDocument collection
+    const userId = req.user?.id || req.admin?.id || 'system';
+    const addedFiles = [];
+    const attachmentRefs = [];
+
+    for (const file of files) {
+      // ✅ Convert number array back to Buffer if provided
+      let pdfBuffer = null;
+      if (file.pdfBuffer && Array.isArray(file.pdfBuffer)) {
+        pdfBuffer = Buffer.from(file.pdfBuffer);
+      } else if (file.pdfBuffer instanceof Buffer) {
+        pdfBuffer = file.pdfBuffer;
+      }
+
+      if (!pdfBuffer) {
+        throw new Error(`File ${file.fileName}: No PDF data provided. Please select a valid file.`);
+      }
+
+      // 1. Create ManualUploadDocument with actual PDF data
+      const manualDoc = new ManualUploadDocument({
+        fileName: `${agreement.payload.headerTitle}_${file.fileName}`,
+        originalFileName: file.fileName || 'Untitled.pdf',
+        fileSize: file.fileSize || pdfBuffer.length,
+        mimeType: file.contentType || 'application/pdf',
+        description: file.description || `Attached to agreement: ${agreement.payload.headerTitle}`,
+        uploadedBy: userId,
+        status: 'uploaded',
+        pdfBuffer: pdfBuffer, // Store actual PDF Buffer here
+        zoho: {
+          bigin: file.zoho?.bigin || {},
+          crm: file.zoho?.crm || {},
+        },
+        metadata: {
+          attachedToAgreement: agreementId,
+          agreementTitle: agreement.payload.headerTitle,
+          attachedAt: new Date()
+        }
+      });
+
+      await manualDoc.save();
+
+      console.log(`📁 [SAVED-FILE] ManualUploadDocument saved with ID: ${manualDoc._id}`);
+
+      // Verify the document was saved correctly
+      if (!manualDoc._id) {
+        throw new Error(`Failed to save ManualUploadDocument for file: ${file.fileName}`);
+      }
+
+      // 2. Create lightweight reference in CustomerHeaderDoc.attachedFiles
+      // ✅ Ensure ObjectId is properly converted
+      const documentId = manualDoc._id;
+      if (!documentId) {
+        throw new Error(`ManualUploadDocument ID is null for file: ${file.fileName}`);
+      }
+
+      const attachmentRef = {
+        manualDocumentId: new mongoose.Types.ObjectId(documentId), // ✅ Explicit ObjectId conversion
+        fileName: file.fileName || 'Untitled.pdf',
+        fileSize: file.fileSize || 0,
+        description: file.description || '',
+        attachedAt: new Date(),
+        attachedBy: userId,
+        displayOrder: agreement.attachedFiles.length + attachmentRefs.length
+      };
+
+      console.log(`📁 [ATTACHMENT-REF] Creating reference:`, {
+        manualDocumentId: attachmentRef.manualDocumentId,
+        fileName: attachmentRef.fileName,
+        hasId: !!attachmentRef.manualDocumentId
+      });
+
+      attachmentRefs.push(attachmentRef);
+      addedFiles.push({
+        id: manualDoc._id,
+        fileName: file.fileName,
+        fileSize: file.fileSize
+      });
+    }
+
+    console.log(`📁 [REFS-READY] About to add ${attachmentRefs.length} attachment refs to agreement`);
+    console.log(`📁 [REFS-PREVIEW]`, attachmentRefs.map(ref => ({
+      manualDocumentId: ref.manualDocumentId,
+      fileName: ref.fileName
+    })));
+
+    // 🛡️ VALIDATION FIX: Clean existing corrupt attachments before adding new ones
+    const originalAttachmentCount = agreement.attachedFiles.length;
+    agreement.attachedFiles = agreement.attachedFiles.filter(attachment => {
+      const isValid = attachment.manualDocumentId &&
+                     mongoose.isValidObjectId(attachment.manualDocumentId);
+
+      if (!isValid) {
+        console.log(`🗑️  [CLEANUP] Removing corrupt attachment: fileName="${attachment.fileName || 'N/A'}", manualDocumentId="${attachment.manualDocumentId || 'undefined'}"`);
+      }
+      return isValid;
+    });
+
+    const cleanedCount = originalAttachmentCount - agreement.attachedFiles.length;
+    if (cleanedCount > 0) {
+      console.log(`🧹 [VALIDATION-FIX] Removed ${cleanedCount} corrupt attachments from agreement ${agreement._id}`);
+    }
+
+    // 3. Add attachment references to agreement
+    agreement.attachedFiles.push(...attachmentRefs);
+    agreement.updatedBy = userId;
+
+    await agreement.save();
+
+    console.log(`📎 [ADD-FILE-OPTIMIZED] Added ${attachmentRefs.length} file refs to agreement: ${agreement.payload.headerTitle}`);
+
+    res.json({
+      success: true,
+      message: `Successfully added ${attachmentRefs.length} file(s) to agreement`,
+      agreement: {
+        id: agreement._id,
+        title: agreement.payload.headerTitle,
+        attachedFilesCount: agreement.attachedFiles.length
+      },
+      addedFiles: addedFiles
+    });
+
+  } catch (err) {
+    console.error("addFileToAgreement error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ✅ NEW: Download attached file from ManualUploadDocument collection
+export async function downloadAttachedFile(req, res) {
+  try {
+    const { fileId } = req.params;
+
+    if (!mongoose.isValidObjectId(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid file ID format"
+      });
+    }
+
+    // Find the file in ManualUploadDocument collection
+    const manualDoc = await ManualUploadDocument.findById(fileId).select('fileName originalFileName mimeType pdfBuffer');
+
+    if (!manualDoc) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "File not found"
+      });
+    }
+
+    if (!manualDoc.pdfBuffer) {
+      return res.status(404).json({
+        success: false,
+        error: "no_file_data",
+        detail: "File data not available"
+      });
+    }
+
+    // Set headers for file download
+    res.set({
+      'Content-Type': manualDoc.mimeType || 'application/pdf',
+      'Content-Disposition': `attachment; filename="${manualDoc.originalFileName || 'document.pdf'}"`,
+      'Content-Length': manualDoc.pdfBuffer.length.toString()
+    });
+
+    res.send(manualDoc.pdfBuffer);
+
+  } catch (err) {
+    console.error("downloadAttachedFile error:", err);
     res.status(500).json({
       success: false,
       error: "server_error",

@@ -27,7 +27,10 @@ import {
   getCustomerHeaderViewerById,
   downloadCustomerHeaderPdf,
   getSavedFilesList,
-  getSavedFileDetails
+  getSavedFilesGrouped,
+  getSavedFileDetails,
+  addFileToAgreement,
+  downloadAttachedFile
 } from "../controllers/pdfController.js";
 
 const router = Router();
@@ -67,7 +70,10 @@ router.get("/viewer/download/:id", downloadCustomerHeaderPdf)
 
 /* ---- NEW: saved-files API (lazy loading) ---- */
 router.get("/saved-files", getSavedFilesList); // Lightweight list with pagination
+router.get("/saved-files/grouped", getSavedFilesGrouped); // Grouped by agreement (folder-like)
 router.get("/saved-files/:id/details", getSavedFileDetails); // Full payload on-demand
+router.post("/saved-files/:agreementId/add-files", addFileToAgreement); // ✅ NEW: Add files to agreement
+router.get("/attached-files/:fileId/download", downloadAttachedFile); // ✅ NEW: Download attached files
 
 /* ---- pass-through (files uploaded to your backend) ---- */
 router.post("/compile-file", upload.single("file"), proxyCompileFile);
