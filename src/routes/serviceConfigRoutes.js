@@ -22,6 +22,12 @@ router.get(
   serviceConfigController.getActiveServiceConfigsController
 );
 
+// Get all service pricing (both active and inactive) - for frontend pricing lookup
+router.get(
+  "/pricing",
+  serviceConfigController.getAllServicePricingController
+);
+
 // Get latest config (regardless of active) for a particular service
 router.get(
   "/service/:serviceId/latest",

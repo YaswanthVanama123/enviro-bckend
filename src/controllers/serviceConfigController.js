@@ -63,6 +63,31 @@ export async function getActiveServiceConfigsController(req, res, next) {
   }
 }
 
+export async function getAllServicePricingController(req, res, next) {
+  try {
+    // Get ALL service configs (both active and inactive) for pricing purposes
+    const allConfigs = await getAllServiceConfigs({});
+
+    // Transform to focus on pricing data - include isActive flag for frontend reference
+    const pricingData = allConfigs.map(config => ({
+      serviceId: config.serviceId,
+      label: config.label,
+      description: config.description,
+      isActive: config.isActive,
+      adminByDisplay: config.adminByDisplay,
+      config: config.config,           // Contains pricing information
+      defaultFormState: config.defaultFormState,
+      tags: config.tags || [],
+      version: config.version,
+      updatedAt: config.updatedAt
+    }));
+
+    res.json(pricingData);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getServiceConfigByIdController(req, res, next) {
   try {
     const { id } = req.params;

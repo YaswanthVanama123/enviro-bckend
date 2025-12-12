@@ -955,7 +955,6 @@ export async function updateCustomerHeader(req, res) {
 
     let buffer = null;
     let filename = "customer-header.pdf";
-    let zohoUploadSuccess = false; // Initialize at function scope to avoid ReferenceError
 
     if (shouldCompilePdf) {
       console.log(`Compiling PDF for document ${id}...`);
@@ -982,37 +981,8 @@ export async function updateCustomerHeader(req, res) {
       buffer = pdfResult.buffer;
       filename = pdfResult.filename || filename;
 
-      // ✅ FIXED: Upload to Zoho whenever PDF is compiled (not just on status change)
-      // zohoUploadSuccess variable already declared at function scope
-
-      // Upload to Zoho whenever we have a PDF buffer
-      try {
-        console.log("Uploading to Zoho Bigin...");
-        const biginResult = await uploadToZohoBigin(
-          buffer,
-          filename,
-          body.zoho?.bigin?.dealId || doc.zoho?.bigin?.dealId || null
-        );
-        doc.zoho.bigin = {
-          dealId: biginResult.dealId,
-          fileId: biginResult.fileId,
-          url: biginResult.url,
-        };
-
-        // ✅ FIXED: Check for valid file ID instead of URL (Zoho Bigin doesn't return direct URLs)
-        if (biginResult.fileId && biginResult.fileId.length > 10 && !biginResult.fileId.includes('MOCK_')) {
-          zohoUploadSuccess = true;
-          console.log("✅ Zoho Bigin upload successful - File ID:", biginResult.fileId);
-        } else {
-          console.log("⚠️ Zoho Bigin upload failed - No valid file ID received");
-        }
-      } catch (zohoErr) {
-        console.error("Zoho Bigin upload failed:", zohoErr.message);
-      }
-
-      // 🚫 CRM upload temporarily disabled (scope mismatch)
-      console.log("⏭️ Skipping Zoho CRM upload — waiting for correct scopes");
-      doc.zoho.crm = { dealId: null, fileId: null, url: null };
+      // ✅ SIMPLIFIED: Only store PDF in MongoDB during updates (no Zoho upload)
+      // Zoho upload only happens during initial "Save & Generate PDF" action
 
       // Update PDF metadata
       doc.pdf_meta = {
@@ -1038,36 +1008,15 @@ export async function updateCustomerHeader(req, res) {
       // console.log("🐛 [UPDATE DEBUG] UPDATED REFRESH POWER SCRUB:", JSON.stringify(updatedDoc.payload.services.refreshPowerScrub, null, 2));
     }
 
-    // ✅ NEW: Return response based on Zoho upload success (for updates too)
+    // ✅ SIMPLIFIED: Return response based on whether PDF was compiled (no Zoho dependency)
     if (buffer) {
-      // If buffer exists but Zoho failed, force status to draft and return error
-      if (shouldCompilePdf && statusChanged && wasDraft && isNowFinal && !zohoUploadSuccess) {
-        console.log("❌ [UPDATE ZOHO-FAILURE] Forcing status back to draft and returning error");
-        // doc.status = "draft"; // Force back to draft
-        await doc.save();
-
-        return res.status(422).json({
-          success: false,
-          error: "zoho_upload_failed",
-          message: "Document compilation succeeded but file upload failed. Keeping as draft for your safety.",
-          detail: "Zoho CRM upload failed during update. Document has been reverted to draft status.",
-          doc: {
-            _id: doc._id,
-            status: doc.status, // Will be "draft"
-            updatedAt: doc.updatedAt,
-            pdf_meta: doc.pdf_meta,
-            zoho: doc.zoho,
-          }
-        });
-      }
-
-      // Return PDF if compiled and Zoho succeeded (or no Zoho upload was needed)
+      // Return PDF if compiled successfully
       console.log("✅ [UPDATE SUCCESS] Returning PDF response");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
       return res.send(buffer);
     } else {
-      // Return JSON for draft updates
+      // Return JSON for non-PDF updates
       return res.json({
         success: true,
         doc: {
@@ -1706,6 +1655,7 @@ export async function getSavedFilesList(req, res) {
         'payload.headerTitle': 1,
         'pdf_meta.sizeBytes': 1,
         'pdf_meta.storedAt': 1,
+        'pdf_meta.pdfBuffer': 1,
         'zoho.bigin.dealId': 1,
         'zoho.bigin.fileId': 1,
         'zoho.crm.dealId': 1,
@@ -1727,7 +1677,14 @@ export async function getSavedFilesList(req, res) {
       updatedBy: file.updatedBy,
       fileSize: file.pdf_meta?.sizeBytes || 0,
       pdfStoredAt: file.pdf_meta?.storedAt || null,
-      hasPdf: !!(file.zoho?.bigin?.fileId || file.zoho?.crm?.fileId),
+      hasPdf: !!(
+        // Check for Zoho fileId (valid, non-mock)
+        (file.zoho?.bigin?.fileId && !file.zoho.bigin.fileId.includes('MOCK_')) ||
+        (file.zoho?.crm?.fileId && !file.zoho.crm.fileId.includes('MOCK_')) ||
+        // OR check for PDF stored in MongoDB
+        file.pdf_meta?.pdfBuffer
+      ),
+      isEditable: file.status === 'draft' || file.status === 'saved',
       zohoInfo: {
         biginDealId: file.zoho?.bigin?.dealId || null,
         biginFileId: file.zoho?.bigin?.fileId || null,
