@@ -1,5 +1,6 @@
 import express from "express";
 import * as serviceConfigController from "../controllers/serviceConfigController.js";
+import PricingChangeDetector from "../middleware/pricingChangeDetector.js";
 
 const router = express.Router();
 
@@ -40,15 +41,19 @@ router.get(
   serviceConfigController.getServiceConfigByIdController
 );
 
-// Full replace by id
+// Full replace by id (with backup middleware)
 router.put(
   "/:id",
+  PricingChangeDetector.beforeServiceConfigUpdate,
+  PricingChangeDetector.addBackupInfoToResponse,
   serviceConfigController.replaceServiceConfigController
 );
 
-// Partial update by id
+// Partial update by id (with backup middleware)
 router.put(
   "/:id/partial",
+  PricingChangeDetector.beforeServiceConfigUpdate,
+  PricingChangeDetector.addBackupInfoToResponse,
   serviceConfigController.partialUpdateServiceConfigController
 );
 

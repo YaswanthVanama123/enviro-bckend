@@ -1,6 +1,7 @@
 import express from "express";
 import * as productCatalogController from "../controllers/productCatalogController.js";
 import * as productDescriptionController from "../controllers/productDescriptionController.js";
+import PricingChangeDetector from "../middleware/pricingChangeDetector.js";
 
 const router = express.Router();
 
@@ -135,20 +136,24 @@ router.get(
 );
 
 /**
- * PUT /api/product-catalog/:id - Replace entire catalog
+ * PUT /api/product-catalog/:id - Replace entire catalog (with backup middleware)
  * Path parameter: MongoDB ObjectId
  */
 router.put(
   "/:id",
+  PricingChangeDetector.beforeProductCatalogUpdate,
+  PricingChangeDetector.addBackupInfoToResponse,
   productCatalogController.replaceCatalogController
 );
 
 /**
- * PUT /api/product-catalog/:id/partial - Partial update catalog
+ * PUT /api/product-catalog/:id/partial - Partial update catalog (with backup middleware)
  * Path parameter: MongoDB ObjectId
  */
 router.put(
   "/:id/partial",
+  PricingChangeDetector.beforeProductCatalogUpdate,
+  PricingChangeDetector.addBackupInfoToResponse,
   productCatalogController.partialUpdateCatalogController
 );
 

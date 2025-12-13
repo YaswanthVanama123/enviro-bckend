@@ -7,6 +7,7 @@ import {
 } from "../controllers/priceFixController.js";
 
 // import adminAuth from "../middleware/adminAuth.js";
+import PricingChangeDetector from "../middleware/pricingChangeDetector.js";
 
 import {
   createPriceFix,
@@ -32,7 +33,11 @@ router.get("/", getAllPriceFixes);
 // Get one pricing config by id
 router.get("/:id", getPriceFixById);
 
-// Update pricing config by id
-router.put("/:id", updatePriceFix);
+// Update pricing config by id (with backup middleware)
+router.put("/:id",
+  PricingChangeDetector.beforePriceFixUpdate,
+  PricingChangeDetector.addBackupInfoToResponse,
+  updatePriceFix
+);
 
 export default router;
