@@ -486,10 +486,11 @@ router.post("/:agreementId/first-time", async (req, res) => {
 router.post("/:agreementId/update", async (req, res) => {
   try {
     const { agreementId } = req.params;
-    const { noteText, dealId: providedDealId } = req.body; // ✅ NEW: Accept optional dealId
+    const { noteText, dealId: providedDealId, skipNoteCreation } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
 
     console.log(`🔄 Starting update upload for agreement: ${agreementId}`,
-                providedDealId ? `(target dealId: ${providedDealId})` : '(using existing mapping)');
+                providedDealId ? `(target dealId: ${providedDealId})` : '(using existing mapping)',
+                skipNoteCreation ? '(skipping note creation)' : '(will create note)');
 
     // Validate required fields
     if (!noteText || !noteText.trim()) {
@@ -550,22 +551,27 @@ router.post("/:agreementId/update", async (req, res) => {
       console.log(`📝 [SINGLE] Adding version ${nextVersion} to existing deal: ${dealId}`);
     }
 
-    // Step 1: Create the note
-    const noteResult = await createBiginNote(dealId, {
-      title: `Agreement v${nextVersion} - ${new Date().toLocaleDateString()}`,
-      content: noteText.trim()
-    });
-
-    if (!noteResult.success) {
-      return res.status(500).json({
-        success: false,
-        error: `Failed to create note: ${noteResult.error?.message || 'Unknown error'}`,
-        details: noteResult.error
+    // Step 1: Create note (skip if this is a subsequent file in bulk upload)
+    let note = null;
+    if (!skipNoteCreation) {
+      const noteResult = await createBiginNote(dealId, {
+        title: `Agreement v${nextVersion} - ${new Date().toLocaleDateString()}`,
+        content: noteText.trim()
       });
-    }
 
-    const note = noteResult.note;
-    console.log(`✅ Note created: ${note.id}`);
+      if (!noteResult.success) {
+        return res.status(500).json({
+          success: false,
+          error: `Failed to create note: ${noteResult.error?.message || 'Unknown error'}`,
+          details: noteResult.error
+        });
+      }
+
+      note = noteResult.note;
+      console.log(`✅ Note created: ${note.id}`);
+    } else {
+      console.log(`⏭️ Skipping note creation for bulk upload file`);
+    }
 
     // Step 2: Upload the updated PDF
     const pdfBuffer = Buffer.from(agreement.pdf_meta.pdfBuffer, 'base64');
@@ -591,7 +597,7 @@ router.post("/:agreementId/update", async (req, res) => {
     if (mapping) {
       // Update existing mapping
       mapping.addUpload({
-        zohoNoteId: note.id,
+        zohoNoteId: note?.id || null, // ✅ Handle case where note creation was skipped
         zohoFileId: file.id,
         noteText: noteText.trim(),
         fileName: fileName,
@@ -632,7 +638,11 @@ router.post("/:agreementId/update", async (req, res) => {
 
     console.log(`✅ Update upload completed successfully!`);
     console.log(`  ├ Deal: ${dealName} (${dealId})`);
-    console.log(`  ├ Note: ${note.id}`);
+    if (note) {
+      console.log(`  ├ Note: ${note.id}`);
+    } else {
+      console.log(`  ├ Note: Skipped (bulk upload)`);
+    }
     console.log(`  ├ File: ${fileName} (${file.id})`);
     console.log(`  └ Version: ${nextVersion}`);
 
@@ -644,10 +654,10 @@ router.post("/:agreementId/update", async (req, res) => {
           id: dealId,
           name: dealName
         },
-        note: {
+        note: note ? {
           id: note.id,
           title: note.title
-        },
+        } : null, // ✅ Handle case where note creation was skipped
         file: {
           id: file.id,
           fileName: fileName
@@ -1070,9 +1080,10 @@ router.get("/companies/:companyId/deals", async (req, res) => {
 router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { dealId, noteText, dealName } = req.body;
+    const { dealId, noteText, dealName, skipNoteCreation } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
 
-    console.log(`📎 [ATTACHED-FILE] Adding attached file ${fileId} to deal ${dealId}`);
+    console.log(`📎 [ATTACHED-FILE] Adding attached file ${fileId} to deal ${dealId}`,
+                skipNoteCreation ? '(skipping note creation)' : '(will create note)');
 
     // Validate required fields
     if (!noteText || !noteText.trim()) {
@@ -1113,22 +1124,27 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
 
     console.log(`📎 [ATTACHED-FILE] Processing: ${fileName} → ${zohoFileName}`);
 
-    // Step 1: Create note
-    const noteResult = await createBiginNote(dealId, {
-      title: `Attached File - ${fileName}`,
-      content: noteText.trim()
-    });
-
-    if (!noteResult.success) {
-      console.error(`❌ Failed to create note for attached file: ${noteResult.error?.message}`);
-      return res.status(500).json({
-        success: false,
-        error: `Failed to create note: ${noteResult.error?.message}`
+    // Step 1: Create note (skip if this is a subsequent file in bulk upload)
+    let note = null;
+    if (!skipNoteCreation) {
+      const noteResult = await createBiginNote(dealId, {
+        title: `Attached File - ${fileName}`,
+        content: noteText.trim()
       });
-    }
 
-    const note = noteResult.note;
-    console.log(`✅ Note created for attached file: ${note.id}`);
+      if (!noteResult.success) {
+        console.error(`❌ Failed to create note for attached file: ${noteResult.error?.message}`);
+        return res.status(500).json({
+          success: false,
+          error: `Failed to create note: ${noteResult.error?.message}`
+        });
+      }
+
+      note = noteResult.note;
+      console.log(`✅ Note created for attached file: ${note.id}`);
+    } else {
+      console.log(`⏭️ Skipping note creation for bulk upload attached file`);
+    }
 
     // Step 2: Upload file to deal
     let pdfBuffer;
@@ -1158,7 +1174,11 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
 
     console.log(`✅ Attached file upload completed successfully!`);
     console.log(`  ├ Deal: ${dealName} (${dealId})`);
-    console.log(`  ├ Note: ${note.id}`);
+    if (note) {
+      console.log(`  ├ Note: ${note.id}`);
+    } else {
+      console.log(`  ├ Note: Skipped (bulk upload)`);
+    }
     console.log(`  └ File: ${zohoFileName} (${file.id})`);
 
     res.json({
@@ -1169,10 +1189,10 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
           id: dealId,
           name: dealName || 'Unknown Deal'
         },
-        note: {
+        note: note ? {
           id: note.id,
           title: note.title
-        },
+        } : null, // ✅ Handle case where note creation was skipped
         file: {
           id: file.id,
           fileName: zohoFileName
@@ -1189,7 +1209,7 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
       success: false,
       error: "Failed to upload attached file to Zoho",
       detail: err.message
-    });
+    }); 
   }
 });
 
