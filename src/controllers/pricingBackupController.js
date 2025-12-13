@@ -10,26 +10,40 @@ class PricingBackupController {
   /**
    * Manually create a backup (for admin use)
    * POST /api/pricing-backup/create
+   * Body: { changeDescription?: string, forceReplace?: boolean }
    */
   static async createManualBackup(req, res) {
     try {
-      const { changeDescription = 'Manual backup created by admin' } = req.body;
+      const { changeDescription = 'Manual backup created by admin', forceReplace = false } = req.body;
       const changedBy = req.user ? req.user._id : null;
       const adminUsername = req.user ? req.user.username : 'Unknown Admin';
 
-      const backupResult = await PricingBackupService.createBackupIfNeeded({
-        trigger: 'manual',
+      console.log(`[Backup Controller] Creating manual backup by ${adminUsername}, forceReplace: ${forceReplace}`);
+
+      // Use the manual backup method
+      const backupResult = await PricingBackupService.createManualBackup({
         changedBy,
-        changedAreas: ['other'], // Use 'other' instead of 'manual' - it's a valid enum value
+        changedAreas: ['other'],
         changeDescription,
-        changeCount: 1
+        changeCount: 1,
+        forceReplace
       });
 
       if (backupResult.success) {
-        return res.status(backupResult.created ? 201 : 200).json({
+        console.log(`[Backup Controller] Manual backup created: ${backupResult.backup.changeDayId}`);
+        return res.status(201).json({
           success: true,
           message: backupResult.message,
           data: backupResult,
+          timestamp: new Date().toISOString()
+        });
+      } else if (backupResult.requiresConfirmation) {
+        console.log(`[Backup Controller] Manual backup requires confirmation`);
+        return res.status(409).json({
+          success: false,
+          requiresConfirmation: true,
+          existingBackup: backupResult.existingBackup,
+          message: backupResult.message,
           timestamp: new Date().toISOString()
         });
       } else {

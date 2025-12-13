@@ -95,6 +95,101 @@ class PricingBackupService {
   }
 
   /**
+   * Create a manual backup (one per day, separate from auto backups)
+   * @param {Object} options - Backup options
+   * @param {boolean} options.forceReplace - Force replace existing manual backup
+   * @returns {Object} Backup result
+   */
+  static async createManualBackup(options = {}) {
+    try {
+      const {
+        changedBy = null,
+        changedAreas = ['other'],
+        changeDescription = 'Manual backup created by admin',
+        changeCount = 1,
+        forceReplace = false
+      } = options;
+
+      const changeDay = BackupPricing.getCurrentDateString();
+      const manualChangeDayId = `backup_${changeDay}_manual`;
+
+      // Check if manual backup already exists for today
+      const existingManualBackup = await BackupPricing.findOne({
+        changeDayId: manualChangeDayId
+      });
+
+      if (existingManualBackup && !forceReplace) {
+        return {
+          success: false,
+          requiresConfirmation: true,
+          existingBackup: {
+            changeDayId: existingManualBackup.changeDayId,
+            createdAt: existingManualBackup.createdAt,
+            changeDescription: existingManualBackup.changeContext?.changeDescription
+          },
+          message: 'A manual backup already exists for today. Do you want to replace it?'
+        };
+      }
+
+      // Delete existing manual backup if replacing
+      if (existingManualBackup && forceReplace) {
+        await BackupPricing.deleteOne({ changeDayId: manualChangeDayId });
+      }
+
+      // Collect all current pricing data
+      const pricingSnapshot = await this.collectAllPricingData();
+
+      // Compress the snapshot
+      const compressionResult = BackupPricing.compressPricingData(pricingSnapshot);
+
+      // Calculate metadata
+      const metadata = this.calculateSnapshotMetadata(pricingSnapshot, compressionResult);
+
+      const backupRecord = new BackupPricing({
+        changeDayId: manualChangeDayId,
+        changeDay,
+        firstChangeTimestamp: new Date(),
+        compressedSnapshot: compressionResult.compressedData,
+        snapshotMetadata: metadata,
+        backupTrigger: 'manual',
+        changedBy,
+        changeContext: {
+          changedAreas,
+          changeDescription: forceReplace ? `${changeDescription} (Replaced previous manual backup)` : changeDescription,
+          changeCount
+        }
+      });
+
+      await backupRecord.save();
+
+      return {
+        success: true,
+        created: true,
+        replaced: forceReplace,
+        backup: {
+          id: backupRecord._id,
+          changeDayId: backupRecord.changeDayId,
+          changeDay: backupRecord.changeDay,
+          originalSize: compressionResult.originalSize,
+          compressedSize: compressionResult.compressedSize,
+          compressionRatio: compressionResult.compressionRatio
+        },
+        message: forceReplace
+          ? `Manual backup replaced successfully for ${changeDay}`
+          : `Manual backup created successfully for ${changeDay}`
+      };
+
+    } catch (error) {
+      console.error('Manual backup creation failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        message: 'Failed to create manual backup'
+      };
+    }
+  }
+
+  /**
    * Collect all current pricing data from all sources
    * @returns {Object} Complete pricing snapshot
    */

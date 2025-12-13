@@ -243,32 +243,29 @@ BackupPricingSchema.statics.hasBackupForToday = async function() {
   return !!existingBackup;
 };
 
-// Static method to get last N change days
+// Static method to get last N change days (now returns ALL backups, not grouped)
 BackupPricingSchema.statics.getLastNChangeDays = async function(n = 10) {
-  const pipeline = [
-    {
-      $group: {
-        _id: '$changeDay',
-        latestBackup: { $last: '$$ROOT' },
-        backupCount: { $sum: 1 }
-      }
-    },
-    {
-      $sort: { _id: -1 }
-    },
-    {
-      $limit: n
-    },
-    {
-      $project: {
-        changeDay: '$_id',
-        backup: '$latestBackup',
-        backupCount: 1
-      }
-    }
-  ];
+  // Get the last N unique change days first
+  const uniqueChangeDays = await this.distinct('changeDay', {}, { sort: { changeDay: -1 } });
+  const lastNChangeDays = uniqueChangeDays.sort().reverse().slice(0, n);
 
-  return await this.aggregate(pipeline);
+  if (lastNChangeDays.length === 0) {
+    return [];
+  }
+
+  // Now get ALL backups from those change days (both auto and manual)
+  const backups = await this.find({
+    changeDay: { $in: lastNChangeDays }
+  })
+    .sort({ changeDay: -1, createdAt: -1 })
+    .lean();
+
+  // Transform to match the expected structure with individual backups
+  return backups.map(backup => ({
+    changeDay: backup.changeDay,
+    backup: backup,
+    backupCount: 1  // Each backup is counted individually now
+  }));
 };
 
 // Pre-save middleware to validate change day format
