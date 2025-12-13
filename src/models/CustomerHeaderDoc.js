@@ -142,6 +142,36 @@ const HeaderRowSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ✅ NEW: Version tracking for PDF history
+const VersionRefSchema = new mongoose.Schema(
+  {
+    versionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'VersionPdf',
+      required: true
+    },
+    versionNumber: { type: Number, required: true },
+    versionLabel: { type: String, default: "" },
+    createdAt: { type: Date, default: Date.now },
+    createdBy: { type: String, default: null },
+    changeNotes: { type: String, default: "" },
+    status: {
+      type: String,
+      enum: ['active', 'superseded', 'archived'],
+      default: 'active'
+    },
+    // Zoho upload status for this version
+    zohoUploadStatus: {
+      uploaded: { type: Boolean, default: false },
+      dealId: { type: String, default: null },
+      fileId: { type: String, default: null },
+      noteId: { type: String, default: null },
+      uploadedAt: { type: Date, default: null }
+    }
+  },
+  { _id: false }
+);
+
 // ✅ NEW: Attached file schema for additional uploads within same agreement
 const AttachedFileSchema = new mongoose.Schema(
   {
@@ -220,6 +250,25 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
         message: 'All attached files must have valid manualDocumentId and fileName'
       }
     },
+
+    // ✅ NEW: Version history tracking for this agreement
+    versions: {
+      type: [VersionRefSchema],
+      default: [],
+      validate: {
+        validator: function(versions) {
+          // Ensure version numbers are unique
+          const versionNumbers = versions.map(v => v.versionNumber);
+          const uniqueVersions = new Set(versionNumbers);
+          return versionNumbers.length === uniqueVersions.size;
+        },
+        message: 'Version numbers must be unique within an agreement'
+      }
+    },
+
+    // Current/active version information
+    currentVersionNumber: { type: Number, default: 0 }, // 0 means main/current PDF
+    totalVersions: { type: Number, default: 0 },
 
     // optional internal tracking - updated status values to match frontend
     status: {

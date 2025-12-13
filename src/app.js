@@ -13,12 +13,16 @@ import serviceConfigRoutes from './routes/serviceConfigRoutes.js';
 import manualUploadRoutes from './routes/manualUploadRoutes.js';
 import oauthRoutes from './routes/oauthRoutes.js';
 import zohoUploadRoutes from './routes/zohoUploadRoutes.js';
+import versionRoutes from './routes/versionRoutes.js';
 
 
 // import { ensureDefaultAdmin } from "./models/AdminUser.js";
 
 const app = express();
-app.use(cors());
+// ✅ FIXED: Configure CORS to expose custom headers to frontend
+app.use(cors({
+  exposedHeaders: ['X-CustomerHeaderDoc-Id', 'X-AdminHeaderDoc-Id', 'Content-Disposition']
+}));
 app.use(compression({ threshold: 0 }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: `${PDF_MAX_BODY_MB}mb` }));
@@ -35,5 +39,7 @@ app.use("/api/service-configs", serviceConfigRoutes);
 app.use("/api/manual-upload", manualUploadRoutes);
 app.use("/oauth", oauthRoutes);
 app.use("/api/zoho-upload", zohoUploadRoutes);
+app.use("/api/versions", versionRoutes);
 
 export default app;
+ 

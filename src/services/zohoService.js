@@ -443,9 +443,9 @@ export async function uploadToZohoBigin(
       contentType: "application/pdf",
     });
 
-    // ✅ CORRECT: Upload to deals/{dealId}/attachments with correct base URL
+    // ✅ FIXED: Upload to Deals/{dealId}/Attachments with correct capitalization
     const uploadResponse = await axios.post(
-      `${baseUrl}/deals/${dealId}/attachments`,
+      `${baseUrl}/Deals/${dealId}/Attachments`,
       formData,
       {
         headers: {
@@ -464,7 +464,7 @@ export async function uploadToZohoBigin(
 
     return {
       fileId: fileId || `ATTACH_${Date.now()}`,
-      url: `${baseUrl}/deals/${dealId}/attachments/${fileId}`,
+      url: `${baseUrl}/Deals/${dealId}/Attachments/${fileId}`,
       dealId: dealId,
     };
   } catch (error) {
