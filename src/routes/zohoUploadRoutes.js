@@ -367,7 +367,8 @@ router.post("/:agreementId/first-time", async (req, res) => {
       pipelineName = "Sales Pipeline",
       stage = "Proposal",
       noteText,
-      dealName
+      dealName,
+      skipFileUpload = false  // ✅ NEW: Allow skipping PDF upload for bulk uploads
     } = req.body;
 
     console.log(`🚀 Starting first-time upload for agreement: ${agreementId}`);
@@ -582,43 +583,50 @@ router.post("/:agreementId/first-time", async (req, res) => {
     const note = noteResult.note;
     console.log(`✅ Note created: ${note.id}`);
 
-    // Step 3: Upload the PDF
-    // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
-    const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
-    const fileName = `${dealName.replace(/[^a-zA-Z0-9-_]/g, '_')}_v1.pdf`;
+    // Step 3: Upload the PDF (optional - can be skipped for bulk uploads)
+    let file = null;
+    let fileName = null;
 
-    console.log(`📎 Retrieved PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`);
+    if (!skipFileUpload) {
+      // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
+      const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
+      fileName = `${dealName.replace(/[^a-zA-Z0-9-_]/g, '_')}_v1.pdf`;
 
-    // ✅ DEBUG: Verify buffer format for Zoho upload
-    console.log(`🔍 [BUFFER-DEBUG] Buffer info:`, {
-      isBuffer: Buffer.isBuffer(pdfBuffer),
-      length: pdfBuffer.length,
-      type: typeof pdfBuffer,
-      constructor: pdfBuffer.constructor.name
-    });
+      console.log(`📎 Retrieved PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`);
 
-    const fileResult = await uploadBiginFile(deal.id, pdfBuffer, fileName);
-
-    if (!fileResult.success) {
-      console.error(`❌ Failed to upload file, but deal and note exist: ${deal.id}, ${note.id}`);
-
-      // ✅ V2 FIX: Don't create partial mapping - keep state clean for retry
-      console.log(`🔄 [V2-CLEAN-RETRY] Deal and note created but file failed - keeping state clean`);
-      console.log(`⚠️ [V2-CLEAN-RETRY] Deal ${deal.id} and note ${note.id} exist in Zoho but file upload failed`);
-
-      return res.status(500).json({
-        success: false,
-        error: `Deal and note created but failed to upload file: ${fileResult.error?.message}`,
-        dealId: deal.id,
-        noteId: note.id,
-        retryable: true, // ✅ Signal that this can be retried
-        suggestion: "Deal and note were created in Zoho. You can try uploading again - the system will handle the existing records.",
-        zohoStatus: "deal_note_created_file_failed"
+      // ✅ DEBUG: Verify buffer format for Zoho upload
+      console.log(`🔍 [BUFFER-DEBUG] Buffer info:`, {
+        isBuffer: Buffer.isBuffer(pdfBuffer),
+        length: pdfBuffer.length,
+        type: typeof pdfBuffer,
+        constructor: pdfBuffer.constructor.name
       });
-    }
 
-    const file = fileResult.file;
-    console.log(`✅ File uploaded: ${file.id}`);
+      const fileResult = await uploadBiginFile(deal.id, pdfBuffer, fileName);
+
+      if (!fileResult.success) {
+        console.error(`❌ Failed to upload file, but deal and note exist: ${deal.id}, ${note.id}`);
+
+        // ✅ V2 FIX: Don't create partial mapping - keep state clean for retry
+        console.log(`🔄 [V2-CLEAN-RETRY] Deal and note created but file failed - keeping state clean`);
+        console.log(`⚠️ [V2-CLEAN-RETRY] Deal ${deal.id} and note ${note.id} exist in Zoho but file upload failed`);
+
+        return res.status(500).json({
+          success: false,
+          error: `Deal and note created but failed to upload file: ${fileResult.error?.message}`,
+          dealId: deal.id,
+          noteId: note.id,
+          retryable: true, // ✅ Signal that this can be retried
+          suggestion: "Deal and note were created in Zoho. You can try uploading again - the system will handle the existing records.",
+          zohoStatus: "deal_note_created_file_failed"
+        });
+      }
+
+      file = fileResult.file;
+      console.log(`✅ File uploaded: ${file.id}`);
+    } else {
+      console.log(`⏭️ Skipping PDF upload as requested (skipFileUpload: true)`);
+    }
 
     // Step 4: Create mapping in MongoDB
     const mapping = new ZohoMapping({
@@ -639,20 +647,27 @@ router.post("/:agreementId/first-time", async (req, res) => {
       lastError: null
     });
 
-    mapping.addUpload({
-      zohoNoteId: note.id,
-      zohoFileId: file.id,
-      noteText: noteText.trim(),
-      fileName: fileName,
-      uploadedBy: 'system' // TODO: Add user context
-    });
+    // ✅ NEW: Only add upload entry if file was actually uploaded
+    if (!skipFileUpload && file) {
+      mapping.addUpload({
+        zohoNoteId: note.id,
+        zohoFileId: file.id,
+        noteText: noteText.trim(),
+        fileName: fileName,
+        uploadedBy: 'system' // TODO: Add user context
+      });
+    }
 
     await mapping.save();
 
     console.log(`✅ First-time upload completed successfully!`);
     console.log(`  ├ Deal: ${deal.name} (${deal.id})`);
     console.log(`  ├ Note: ${note.id}`);
-    console.log(`  ├ File: ${fileName} (${file.id})`);
+    if (!skipFileUpload && file) {
+      console.log(`  ├ File: ${fileName} (${file.id})`);
+    } else {
+      console.log(`  ├ File: Skipped (will be added separately)`);
+    }
     console.log(`  └ Mapping: ${mapping._id}`);
 
     res.json({
@@ -669,10 +684,10 @@ router.post("/:agreementId/first-time", async (req, res) => {
           id: note.id,
           title: note.title
         },
-        file: {
+        file: !skipFileUpload && file ? {
           id: file.id,
           fileName: fileName
-        },
+        } : null, // ✅ Handle case where file upload was skipped
         mapping: {
           id: mapping._id,
           version: 1
