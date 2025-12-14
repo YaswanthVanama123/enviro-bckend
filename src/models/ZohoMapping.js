@@ -108,8 +108,9 @@ const zohoMappingSchema = new mongoose.Schema({
     },
     zohoNoteId: {
       type: String,
-      required: true,
-      description: "Zoho Note record ID for this upload"
+      required: false,  // ✅ FIX: Allow null for bulk uploads that skip note creation
+      default: null,
+      description: "Zoho Note record ID for this upload (null if note creation skipped)"
     },
     zohoFileId: {
       type: String,

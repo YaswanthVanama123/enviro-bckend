@@ -1797,6 +1797,7 @@ export async function getSavedFilesGrouped(req, res) {
 
         return {
           id: manualDoc._id,
+          agreementId: agreement._id,  // ✅ FIX: Add agreement ID for Zoho upload
           fileName: manualDoc.originalFileName,
           fileType: 'attached_pdf',
           title: manualDoc.originalFileName,
@@ -1824,6 +1825,7 @@ export async function getSavedFilesGrouped(req, res) {
 
       const versionFiles = agreementVersions.map(version => ({
         id: version._id,
+        agreementId: agreement._id,  // ✅ FIX: Add agreement ID for Zoho upload
         fileName: `${agreement.payload?.headerTitle || 'Untitled'} - Version ${version.versionNumber}.pdf`,
         fileType: 'version_pdf',
         title: `Version ${version.versionNumber}${version.versionLabel ? ` (${version.versionLabel})` : ''}`,

@@ -1,8 +1,10 @@
 // src/routes/zohoUploadRoutes.js
 import { Router } from "express";
+import mongoose from "mongoose";  // ✅ NEW: Added for ObjectId validation
 import ZohoMapping from "../models/ZohoMapping.js";
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW: For attached files
+import VersionPdf from "../models/VersionPdf.js"; // ✅ FIX: Import VersionPdf for PDF data
 import {
   getBiginCompanies,
   searchBiginCompanies,
@@ -20,6 +22,131 @@ import {
 const router = Router();
 
 /**
+ * ✅ Get PDF data for an agreement from VersionPdf collection
+ * Current architecture: ALL PDFs (including v1) are stored in VersionPdf documents
+ * CustomerHeaderDoc.pdf_meta.pdfBuffer is always null/empty
+ */
+async function getPdfForAgreement(agreementId) {
+  console.log(`🔍 [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}`);
+
+  // Get latest active VersionPdf for this agreement
+  const latestVersion = await VersionPdf.findOne({
+    agreementId: agreementId,
+    status: { $ne: 'archived' }
+  })
+  .sort({ versionNumber: -1 })
+  .select('_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt')
+  .lean();
+
+  if (!latestVersion) {
+    console.error(`❌ [PDF-LOOKUP] No VersionPdf documents found for agreement: ${agreementId}`);
+
+    const versionCount = await VersionPdf.countDocuments({
+      agreementId: agreementId,
+      status: { $ne: 'archived' }
+    });
+
+    return {
+      pdfBuffer: null,
+      source: null,
+      version: null,
+      debugInfo: {
+        error: 'no_versions_found',
+        versionCount: versionCount,
+        agreementId: agreementId,
+        message: 'No VersionPdf documents exist for this agreement'
+      }
+    };
+  }
+
+  console.log(`🔍 [PDF-LOOKUP] Found VersionPdf v${latestVersion.versionNumber} (ID: ${latestVersion._id})`);
+
+  // Check if pdfBuffer exists and has content
+  if (!latestVersion.pdf_meta?.pdfBuffer) {
+    console.error(`❌ [PDF-LOOKUP] VersionPdf v${latestVersion.versionNumber} has no pdfBuffer field`);
+
+    return {
+      pdfBuffer: null,
+      source: 'VersionPdf',
+      version: latestVersion.versionNumber,
+      debugInfo: {
+        error: 'no_pdf_buffer',
+        versionId: latestVersion._id,
+        versionNumber: latestVersion.versionNumber,
+        hasPdfMeta: !!latestVersion.pdf_meta,
+        createdAt: latestVersion.createdAt,
+        message: 'VersionPdf document exists but pdfBuffer field is missing'
+      }
+    };
+  }
+
+  // Check if pdfBuffer is empty (0 bytes) - handle MongoDB Buffer format
+  const mongoBuffer = latestVersion.pdf_meta.pdfBuffer;
+  const actualSize = mongoBuffer.length || mongoBuffer.buffer?.length || 0;
+
+  if (actualSize === 0) {
+    console.error(`❌ [PDF-LOOKUP] VersionPdf v${latestVersion.versionNumber} has empty pdfBuffer (0 bytes)`);
+
+    // Get debugging info about other versions
+    const versionCount = await VersionPdf.countDocuments({
+      agreementId: agreementId,
+      status: { $ne: 'archived' }
+    });
+
+    const versionsWithPdf = await VersionPdf.countDocuments({
+      agreementId: agreementId,
+      status: { $ne: 'archived' },
+      'pdf_meta.pdfBuffer': { $exists: true, $ne: null },
+      'pdf_meta.sizeBytes': { $gt: 0 }
+    });
+
+    return {
+      pdfBuffer: null,
+      source: 'VersionPdf',
+      version: latestVersion.versionNumber,
+      debugInfo: {
+        error: 'empty_pdf_buffer',
+        versionId: latestVersion._id,
+        versionNumber: latestVersion.versionNumber,
+        versionCount: versionCount,
+        versionsWithPdf: versionsWithPdf,
+        sizeBytes: latestVersion.pdf_meta.sizeBytes || 0,
+        actualSize: actualSize,
+        createdAt: latestVersion.createdAt,
+        message: `VersionPdf v${latestVersion.versionNumber} exists but pdfBuffer is empty (0 bytes). This suggests PDF compilation failed.`
+      }
+    };
+  }
+
+  // Success! Found valid PDF buffer
+  const bufferSize = actualSize; // Use the size we already calculated
+  const sizeBytes = latestVersion.pdf_meta.sizeBytes || bufferSize;
+
+  // ✅ FIX: Convert MongoDB Binary/Buffer to proper Node.js Buffer for file upload
+  let properBuffer;
+  if (Buffer.isBuffer(mongoBuffer)) {
+    properBuffer = mongoBuffer;
+  } else if (mongoBuffer.buffer) {
+    // Handle MongoDB Binary object
+    properBuffer = Buffer.from(mongoBuffer.buffer);
+  } else {
+    // Handle other formats (like ArrayBuffer)
+    properBuffer = Buffer.from(mongoBuffer);
+  }
+
+  console.log(`✅ [PDF-LOOKUP] Found valid PDF in VersionPdf v${latestVersion.versionNumber}: ${properBuffer.length} bytes (converted to proper Buffer)`);
+
+  return {
+    pdfBuffer: properBuffer, // Proper Node.js Buffer for file upload
+    source: 'VersionPdf',
+    version: latestVersion.versionNumber,
+    versionId: latestVersion._id,
+    sizeBytes: sizeBytes,
+    bufferSize: properBuffer.length
+  };
+}
+
+/**
  * GET /zoho-upload/:agreementId/status
  * Check if this is first-time upload or update
  */
@@ -29,14 +156,47 @@ router.get("/:agreementId/status", async (req, res) => {
 
     console.log(`🔍 Checking upload status for agreement: ${agreementId}`);
 
-    // Check if agreement exists
-    const agreement = await CustomerHeaderDoc.findById(agreementId);
-    if (!agreement) {
-      return res.status(404).json({
+    // ✅ NEW: Validate ObjectId format first
+    if (!mongoose.Types.ObjectId.isValid(agreementId)) {
+      console.error(`❌ Invalid ObjectId format in status check: ${agreementId}`);
+      return res.status(400).json({
         success: false,
-        error: "Agreement not found"
+        error: "Invalid agreement ID format",
+        details: `Provided ID '${agreementId}' is not a valid MongoDB ObjectId`
       });
     }
+
+    // ✅ IMPROVED: Enhanced logging for agreement lookup
+    console.log(`🔍 Looking up CustomerHeaderDoc with ID: ${agreementId}`);
+    const agreement = await CustomerHeaderDoc.findById(agreementId);
+
+    if (!agreement) {
+      console.error(`❌ CustomerHeaderDoc not found with ID: ${agreementId}`);
+
+      // ✅ NEW: Provide helpful debugging info
+      const recentAgreements = await CustomerHeaderDoc.find({})
+        .sort({ createdAt: -1 })
+        .limit(3)
+        .select('_id payload.headerTitle createdAt');
+
+      console.log(`📋 Recent agreements in database (for debugging):`);
+      recentAgreements.forEach(doc => {
+        console.log(`   - ${doc._id} (${doc.payload?.headerTitle || 'No title'}) created ${doc.createdAt}`);
+      });
+
+      return res.status(404).json({
+        success: false,
+        error: "Agreement not found",
+        details: `CustomerHeaderDoc with ID ${agreementId} does not exist in database`,
+        debugInfo: {
+          providedId: agreementId,
+          isValidObjectId: mongoose.Types.ObjectId.isValid(agreementId),
+          recentAgreementIds: recentAgreements.map(a => a._id.toString())
+        }
+      });
+    }
+
+    console.log(`✅ Found CustomerHeaderDoc: ${agreement._id} (${agreement.payload?.headerTitle || 'No title'})`);
 
     // Check if Zoho mapping exists
     const mapping = await ZohoMapping.findByAgreementId(agreementId);
@@ -212,6 +372,15 @@ router.post("/:agreementId/first-time", async (req, res) => {
 
     console.log(`🚀 Starting first-time upload for agreement: ${agreementId}`);
 
+    // ✅ NEW: Validate ObjectId format first
+    if (!mongoose.Types.ObjectId.isValid(agreementId)) {
+      console.error(`❌ Invalid ObjectId format: ${agreementId}`);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid agreement ID format"
+      });
+    }
+
     // Validate required fields
     if (!companyId || !noteText || !dealName) {
       return res.status(400).json({
@@ -240,21 +409,53 @@ router.post("/:agreementId/first-time", async (req, res) => {
       console.log(`🔧 Using validated fallback: "${validatedPipeline}" / "${validatedStage}"`);
     }
 
-    // Check if agreement exists and has PDF
+    // ✅ IMPROVED: Enhanced logging and error handling for agreement lookup
+    console.log(`🔍 Looking up CustomerHeaderDoc with ID: ${agreementId}`);
     const agreement = await CustomerHeaderDoc.findById(agreementId);
+
     if (!agreement) {
+      console.error(`❌ CustomerHeaderDoc not found with ID: ${agreementId}`);
+
+      // ✅ NEW: Provide helpful debugging info
+      const recentAgreements = await CustomerHeaderDoc.find({})
+        .sort({ createdAt: -1 })
+        .limit(3)
+        .select('_id payload.headerTitle createdAt');
+
+      console.log(`📋 Recent agreements in database (for debugging):`);
+      recentAgreements.forEach(doc => {
+        console.log(`   - ${doc._id} (${doc.payload?.headerTitle || 'No title'}) created ${doc.createdAt}`);
+      });
+
       return res.status(404).json({
         success: false,
-        error: "Agreement not found"
+        error: "Agreement not found",
+        details: `CustomerHeaderDoc with ID ${agreementId} does not exist in database`,
+        debugInfo: {
+          providedId: agreementId,
+          isValidObjectId: mongoose.Types.ObjectId.isValid(agreementId),
+          recentAgreementIds: recentAgreements.map(a => a._id.toString())
+        }
       });
     }
 
-    if (!agreement.pdf_meta?.pdfBuffer) {
+    console.log(`✅ Found CustomerHeaderDoc: ${agreement._id} (${agreement.payload?.headerTitle || 'No title'})`);
+
+    // ✅ FIX: Get PDF from either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
+    const pdfData = await getPdfForAgreement(agreementId);
+
+    if (!pdfData.pdfBuffer) {
+      console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
+
       return res.status(400).json({
         success: false,
-        error: "Agreement has no PDF to upload"
+        error: "Agreement has no PDF to upload",
+        details: pdfData.debugInfo?.message || "No valid PDF found in VersionPdf documents",
+        debugInfo: pdfData.debugInfo || {}
       });
     }
+
+    console.log(`✅ Agreement has PDF from ${pdfData.source} v${pdfData.version}: ${pdfData.bufferSize} bytes`);
 
     // Check if mapping already exists (prevent duplicate first-time uploads)
     const existingMapping = await ZohoMapping.findByAgreementId(agreementId);
@@ -382,10 +583,19 @@ router.post("/:agreementId/first-time", async (req, res) => {
     console.log(`✅ Note created: ${note.id}`);
 
     // Step 3: Upload the PDF
-    const pdfBuffer = Buffer.from(agreement.pdf_meta.pdfBuffer, 'base64');
+    // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
+    const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
     const fileName = `${dealName.replace(/[^a-zA-Z0-9-_]/g, '_')}_v1.pdf`;
 
-    console.log(`📎 Retrieved PDF from MongoDB: ${pdfBuffer.length} bytes (converted from base64: ${agreement.pdf_meta.pdfBuffer.length} chars)`);
+    console.log(`📎 Retrieved PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`);
+
+    // ✅ DEBUG: Verify buffer format for Zoho upload
+    console.log(`🔍 [BUFFER-DEBUG] Buffer info:`, {
+      isBuffer: Buffer.isBuffer(pdfBuffer),
+      length: pdfBuffer.length,
+      type: typeof pdfBuffer,
+      constructor: pdfBuffer.constructor.name
+    });
 
     const fileResult = await uploadBiginFile(deal.id, pdfBuffer, fileName);
 
@@ -509,10 +719,17 @@ router.post("/:agreementId/update", async (req, res) => {
       });
     }
 
-    if (!agreement.pdf_meta?.pdfBuffer) {
+    // ✅ FIX: Check for PDF in either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
+    const pdfData = await getPdfForAgreement(agreementId);
+
+    if (!pdfData.pdfBuffer) {
+      console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
+
       return res.status(400).json({
         success: false,
-        error: "Agreement has no PDF to upload"
+        error: "Agreement has no PDF to upload",
+        details: pdfData.debugInfo?.message || "No valid PDF found in VersionPdf documents",
+        debugInfo: pdfData.debugInfo || {}
       });
     }
 
@@ -574,10 +791,19 @@ router.post("/:agreementId/update", async (req, res) => {
     }
 
     // Step 2: Upload the updated PDF
-    const pdfBuffer = Buffer.from(agreement.pdf_meta.pdfBuffer, 'base64');
+    // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
+    const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
     const fileName = `${dealName.replace(/[^a-zA-Z0-9-_]/g, '_')}_v${nextVersion}.pdf`;
 
-    console.log(`📎 Retrieved updated PDF from MongoDB: ${pdfBuffer.length} bytes (converted from base64: ${agreement.pdf_meta.pdfBuffer.length} chars)`);
+    console.log(`📎 Retrieved updated PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`);
+
+    // ✅ DEBUG: Verify buffer format for Zoho upload
+    console.log(`🔍 [BUFFER-DEBUG] Update buffer info:`, {
+      isBuffer: Buffer.isBuffer(pdfBuffer),
+      length: pdfBuffer.length,
+      type: typeof pdfBuffer,
+      constructor: pdfBuffer.constructor.name
+    });
 
     const fileResult = await uploadBiginFile(dealId, pdfBuffer, fileName);
 
@@ -597,7 +823,7 @@ router.post("/:agreementId/update", async (req, res) => {
     if (mapping) {
       // Update existing mapping
       mapping.addUpload({
-        zohoNoteId: note?.id || null, // ✅ Handle case where note creation was skipped
+        zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
         zohoFileId: file.id,
         noteText: noteText.trim(),
         fileName: fileName,
@@ -623,7 +849,7 @@ router.post("/:agreementId/update", async (req, res) => {
         stage: dealDetails.Stage || 'Proposal',
         uploads: [{
           version: 1,
-          zohoNoteId: note.id,
+          zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
           zohoFileId: file.id,
           noteText: noteText.trim(),
           fileName: fileName,
@@ -1100,13 +1326,44 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
       });
     }
 
+    // ✅ DEBUG: Enhanced logging for attached file lookup
+    console.log(`🔍 [ATTACHED-FILE-DEBUG] Looking up ManualUploadDocument with ID: ${fileId}`);
+
+    // Validate ObjectId format first
+    if (!mongoose.Types.ObjectId.isValid(fileId)) {
+      console.error(`❌ [ATTACHED-FILE-DEBUG] Invalid ObjectId format: ${fileId}`);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file ID format"
+      });
+    }
+
     // Find the attached file in ManualUploadDocument collection
     const manualDoc = await ManualUploadDocument.findById(fileId).select('fileName originalFileName mimeType pdfBuffer');
 
     if (!manualDoc) {
+      console.error(`❌ [ATTACHED-FILE-DEBUG] ManualUploadDocument not found with ID: ${fileId}`);
+
+      // ✅ DEBUG: Provide helpful debugging info
+      const recentAttachedFiles = await ManualUploadDocument.find({})
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('_id fileName originalFileName createdAt');
+
+      console.log(`📋 [ATTACHED-FILE-DEBUG] Recent attached files in database (for debugging):`);
+      recentAttachedFiles.forEach(doc => {
+        console.log(`   - ${doc._id} (${doc.originalFileName || 'No name'}) created ${doc.createdAt}`);
+      });
+
       return res.status(404).json({
         success: false,
-        error: "Attached file not found"
+        error: "Attached file not found",
+        details: `ManualUploadDocument with ID ${fileId} does not exist in database`,
+        debugInfo: {
+          providedId: fileId,
+          isValidObjectId: mongoose.Types.ObjectId.isValid(fileId),
+          recentAttachedFileIds: recentAttachedFiles.map(f => f._id.toString())
+        }
       });
     }
 
