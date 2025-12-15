@@ -30,7 +30,14 @@ import {
   getSavedFilesGrouped,
   getSavedFileDetails,
   addFileToAgreement,
-  downloadAttachedFile
+  downloadAttachedFile,
+  // ✅ NEW: Delete and restore functions
+  restoreAgreement,
+  restoreFile,
+  deleteAgreement,
+  deleteFile,
+  permanentlyDeleteAgreement,
+  permanentlyDeleteFile
 } from "../controllers/pdfController.js";
 
 const router = Router();
@@ -74,6 +81,14 @@ router.get("/saved-files/grouped", getSavedFilesGrouped); // Grouped by agreemen
 router.get("/saved-files/:id/details", getSavedFileDetails); // Full payload on-demand
 router.post("/saved-files/:agreementId/add-files", addFileToAgreement); // ✅ NEW: Add files to agreement
 router.get("/attached-files/:fileId/download", downloadAttachedFile); // ✅ NEW: Download attached files
+
+/* ---- NEW: delete and restore API ---- */
+router.patch("/agreements/:agreementId/restore", restoreAgreement); // Restore agreement from trash
+router.patch("/files/:fileId/restore", restoreFile); // Restore file from trash
+router.patch("/agreements/:agreementId/delete", deleteAgreement); // Soft delete agreement (move to trash)
+router.patch("/files/:fileId/delete", deleteFile); // Soft delete file (move to trash)
+router.delete("/agreements/:agreementId/permanent-delete", permanentlyDeleteAgreement); // Permanent delete agreement with cascade
+router.delete("/files/:fileId/permanent-delete", permanentlyDeleteFile); // Permanent delete file with cleanup
 
 /* ---- pass-through (files uploaded to your backend) ---- */
 router.post("/compile-file", upload.single("file"), proxyCompileFile);

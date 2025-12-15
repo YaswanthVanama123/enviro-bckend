@@ -115,6 +115,10 @@ const CustomerHeaderJobSchema = new mongoose.Schema(
     payload: { type: CustomerHeaderPayloadSchema, required: true },
     pdf: { type: PdfMetaSchema, required: true },
     compiler: { type: RemoteCompilerSchema, default: undefined },
+    // ✅ NEW: Soft delete field for agreements
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: null },
     // If you later want to store the PDF (small files), uncomment:
     // pdfBase64: { type: String, default: "" },
   },

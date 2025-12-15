@@ -87,7 +87,12 @@ const VersionPdfSchema = new mongoose.Schema(
       default: function() {
         return `agreement_v${this.versionNumber}.pdf`;
       }
-    }
+    },
+
+    // ✅ NEW: Soft delete fields for version PDFs
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: null },
   },
   {
     timestamps: true,

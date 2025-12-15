@@ -1577,6 +1577,20 @@ export async function getSavedFilesList(req, res) {
         $options: 'i'
       };
     }
+    // ✅ NEW: Support isDeleted filter for trash functionality
+    if (req.query.isDeleted !== undefined) {
+      const isDeletedParam = req.query.isDeleted === 'true';
+      if (isDeletedParam) {
+        // Trash mode: show only deleted items
+        filter.isDeleted = true;
+      } else {
+        // Normal mode: show only non-deleted items
+        filter.isDeleted = { $ne: true };
+      }
+    } else {
+      // Default: show only non-deleted items if no filter specified
+      filter.isDeleted = { $ne: true };
+    }
 
     const total = await CustomerHeaderDoc.countDocuments(filter);
 
@@ -1702,15 +1716,40 @@ export async function getSavedFilesGrouped(req, res) {
       };
     }
 
+    // ✅ FIXED: Different logic for trash mode vs normal mode
+    const isTrashMode = req.query.isDeleted === 'true';
+
+    if (isTrashMode) {
+      // Trash mode: Fetch ALL agreements (we'll filter files later)
+      // Don't filter agreements by isDeleted - we want to show deleted files from any agreement
+      console.log(`📁 [TRASH MODE] Fetching all agreements to find deleted files`);
+    } else {
+      // Normal mode: show only non-deleted agreements
+      filter.isDeleted = { $ne: true };
+    }
+
     // ✅ CORRECTED: Fetch agreements (no grouping - each is already one document)
     const totalAgreements = await CustomerHeaderDoc.countDocuments(filter);
 
     console.log(`📁 [FETCH] Found ${totalAgreements} total agreements matching filter`);
 
+    // ✅ FIXED: Dynamic populate filter based on trash mode
+    let manualDocumentMatch;
+    if (isTrashMode) {
+      // Trash mode: include only deleted manual documents
+      manualDocumentMatch = { isDeleted: true };
+    } else {
+      // Normal mode: exclude deleted manual documents
+      manualDocumentMatch = { isDeleted: { $ne: true } };
+    }
+
     const agreements = await CustomerHeaderDoc.find(filter)
       .select({
         _id: 1,
         status: 1,
+        isDeleted: 1, // ✅ ADDED: Include isDeleted status for frontend logic
+        deletedAt: 1, // ✅ ADDED: Include deletion timestamp
+        deletedBy: 1, // ✅ ADDED: Include who deleted it
         createdAt: 1,
         updatedAt: 1,
         createdBy: 1,
@@ -1728,6 +1767,7 @@ export async function getSavedFilesGrouped(req, res) {
       .populate({
         path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
         model: 'ManualUploadDocument',
+        match: manualDocumentMatch, // ✅ FIXED: Dynamic filter based on trash mode
         select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho createdAt updatedAt'
       })
       .sort({ createdAt: -1 })
@@ -1743,12 +1783,24 @@ export async function getSavedFilesGrouped(req, res) {
       attachedFilesStructure: agreements[0].attachedFiles?.slice(0, 1)
     } : 'No agreements found');
 
-    // ✅ NEW: Fetch all version PDFs for these agreements in one query
+    // ✅ FIXED: Fetch all version PDFs for these agreements in one query (dynamic filter)
     const agreementIds = agreements.map(agreement => agreement._id);
-    const allVersionPdfs = await VersionPdf.find({
+
+    // ✅ FIXED: Dynamic version PDF filter based on trash mode
+    let versionPdfFilter = {
       agreementId: { $in: agreementIds },
       status: { $ne: 'archived' } // Exclude archived versions
-    })
+    };
+
+    if (isTrashMode) {
+      // Trash mode: include only deleted version PDFs
+      versionPdfFilter.isDeleted = true;
+    } else {
+      // Normal mode: exclude deleted version PDFs
+      versionPdfFilter.isDeleted = { $ne: true };
+    }
+
+    const allVersionPdfs = await VersionPdf.find(versionPdfFilter)
     .select({
       _id: 1,
       agreementId: 1,
@@ -1861,22 +1913,32 @@ export async function getSavedFilesGrouped(req, res) {
         fileCount: allFiles.length,
         latestUpdate: agreement.updatedAt,
         statuses: [agreement.status], // Main agreement status
+        isDeleted: agreement.isDeleted || false, // ✅ ADDED: Include agreement deletion status
+        deletedAt: agreement.deletedAt, // ✅ ADDED: Include deletion timestamp
+        deletedBy: agreement.deletedBy, // ✅ ADDED: Include who deleted it
         hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId),
         files: allFiles
       };
     });
 
-    const totalFiles = transformedAgreements.reduce((sum, agreement) => sum + agreement.fileCount, 0);
+    // ✅ NEW: In trash mode, filter out agreements with no deleted files
+    let finalAgreements = transformedAgreements;
+    if (isTrashMode) {
+      finalAgreements = transformedAgreements.filter(agreement => agreement.fileCount > 0);
+      console.log(`📁 [TRASH FILTER] Filtered from ${transformedAgreements.length} to ${finalAgreements.length} agreements with deleted files`);
+    }
 
-    console.log(`📁 [SAVED-FILES-GROUPED] Fetched ${transformedAgreements.length} agreements with ${totalFiles} total files for page ${page}`);
+    const totalFiles = finalAgreements.reduce((sum, agreement) => sum + agreement.fileCount, 0);
+
+    console.log(`📁 [SAVED-FILES-GROUPED] Fetched ${finalAgreements.length} agreements with ${totalFiles} total files for page ${page}`);
 
     res.json({
       success: true,
       total: totalFiles,
-      totalGroups: totalAgreements,
+      totalGroups: isTrashMode ? finalAgreements.length : totalAgreements, // In trash mode, count filtered agreements
       page,
       limit,
-      groups: transformedAgreements,  // Keep same response format for compatibility
+      groups: finalAgreements,  // ✅ FIXED: Use filtered agreements
       _metadata: {
         queryType: 'agreements_with_attached_files',
         structure: 'single_document_per_agreement',
@@ -2229,6 +2291,438 @@ export async function downloadAttachedFile(req, res) {
 
   } catch (err) {
     console.error("downloadAttachedFile error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+/* ------------ DELETE AND RESTORE API ------------ */
+
+// ✅ NEW: Restore deleted agreement from trash (soft restore)
+export async function restoreAgreement(req, res) {
+  try {
+    const { agreementId } = req.params;
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid agreement ID format"
+      });
+    }
+
+    // Find the deleted agreement
+    const agreement = await CustomerHeaderDoc.findOne({
+      _id: agreementId,
+      isDeleted: true
+    });
+
+    if (!agreement) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "Deleted agreement not found"
+      });
+    }
+
+    // Restore the agreement
+    agreement.isDeleted = false;
+    agreement.deletedAt = null;
+    agreement.deletedBy = null;
+    agreement.updatedBy = req.user?.id || req.admin?.id || 'system';
+
+    await agreement.save();
+
+    console.log(`♻️ [RESTORE] Agreement restored: ${agreement.payload.headerTitle} (ID: ${agreementId})`);
+
+    res.json({
+      success: true,
+      message: "Agreement restored successfully",
+      agreement: {
+        id: agreement._id,
+        title: agreement.payload.headerTitle
+      }
+    });
+
+  } catch (err) {
+    console.error("restoreAgreement error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ✅ NEW: Restore deleted file from trash (soft restore)
+export async function restoreFile(req, res) {
+  try {
+    const { fileId } = req.params;
+
+    if (!mongoose.isValidObjectId(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid file ID format"
+      });
+    }
+
+    // Find the deleted file
+    const file = await ManualUploadDocument.findOne({
+      _id: fileId,
+      isDeleted: true
+    });
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "File not found"
+      });
+    }
+
+    // Restore the file
+    file.isDeleted = false;
+    file.deletedAt = null;
+    file.deletedBy = null;
+
+    await file.save();
+
+    console.log(`♻️ [RESTORE] File restored: ${file.fileName} (ID: ${fileId})`);
+
+    res.json({
+      success: true,
+      message: "File restored successfully",
+      file: {
+        id: file._id,
+        title: file.fileName
+      }
+    });
+
+  } catch (err) {
+    console.error("restoreFile error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ✅ NEW: Soft delete agreement (move to trash)
+export async function deleteAgreement(req, res) {
+  try {
+    const { agreementId } = req.params;
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid agreement ID format"
+      });
+    }
+
+    // Find the agreement
+    const agreement = await CustomerHeaderDoc.findOne({
+      _id: agreementId,
+      isDeleted: { $ne: true }
+    });
+
+    if (!agreement) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "Agreement not found or already deleted"
+      });
+    }
+
+    // Soft delete the agreement
+    const userId = req.user?.id || req.admin?.id || 'system';
+    agreement.isDeleted = true;
+    agreement.deletedAt = new Date();
+    agreement.deletedBy = userId;
+
+    await agreement.save();
+
+    console.log(`🗑️ [SOFT DELETE] Agreement moved to trash: ${agreement.payload.headerTitle} (ID: ${agreementId})`);
+
+    res.json({
+      success: true,
+      message: "Agreement moved to trash successfully"
+    });
+
+  } catch (err) {
+    console.error("deleteAgreement error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ✅ FIXED: Soft delete file (move to trash) - handles all file types
+export async function deleteFile(req, res) {
+  try {
+    const { fileId } = req.params;
+
+    if (!mongoose.isValidObjectId(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid file ID format"
+      });
+    }
+
+    let file = null;
+    let fileType = null;
+    let fileName = "Unknown File";
+
+    // 1. Try to find in ManualUploadDocument (attached files)
+    file = await ManualUploadDocument.findOne({
+      _id: fileId,
+      isDeleted: { $ne: true }
+    });
+
+    if (file) {
+      fileType = "attached_file";
+      fileName = file.fileName;
+    } else {
+      // 2. Try to find in VersionPdf (version PDFs)
+      file = await VersionPdf.findOne({
+        _id: fileId,
+        isDeleted: { $ne: true }
+      });
+
+      if (file) {
+        fileType = "version_pdf";
+        fileName = file.fileName || `Version ${file.versionNumber}`;
+      } else {
+        // 3. Try to find in CustomerHeaderDoc (main agreement PDFs)
+        file = await CustomerHeaderDoc.findOne({
+          _id: fileId,
+          isDeleted: { $ne: true }
+        });
+
+        if (file) {
+          fileType = "main_pdf";
+          fileName = file.payload?.headerTitle || "Agreement Document";
+        }
+      }
+    }
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "File not found or already deleted"
+      });
+    }
+
+    // Soft delete the file
+    const userId = req.user?.id || req.admin?.id || 'system';
+    file.isDeleted = true;
+    file.deletedAt = new Date();
+    file.deletedBy = userId;
+
+    await file.save();
+
+    console.log(`🗑️ [SOFT DELETE] ${fileType} moved to trash: ${fileName} (ID: ${fileId})`);
+
+    res.json({
+      success: true,
+      message: "File moved to trash successfully",
+      fileType: fileType,
+      fileName: fileName
+    });
+
+  } catch (err) {
+    console.error("deleteFile error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ✅ NEW: Permanently delete agreement and all associated files (cascade delete)
+export async function permanentlyDeleteAgreement(req, res) {
+  try {
+    const { agreementId } = req.params;
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid agreement ID format"
+      });
+    }
+
+    // Find the deleted agreement (must be in trash first)
+    const agreement = await CustomerHeaderDoc.findOne({
+      _id: agreementId,
+      isDeleted: true
+    });
+
+    if (!agreement) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "Agreement not found in trash"
+      });
+    }
+
+    const agreementTitle = agreement.payload.headerTitle;
+    let deletedAttachedFiles = 0;
+    let deletedZohoMappings = 0;
+    let deletedVersions = 0;
+
+    console.log(`💥 [PERMANENT DELETE] Starting cascade deletion for agreement: ${agreementTitle} (ID: ${agreementId})`);
+
+    // 1. Delete all attached files from ManualUploadDocument collection
+    if (agreement.attachedFiles && agreement.attachedFiles.length > 0) {
+      const attachedFileIds = agreement.attachedFiles
+        .filter(attachment => attachment.manualDocumentId)
+        .map(attachment => attachment.manualDocumentId);
+
+      if (attachedFileIds.length > 0) {
+        const deleteResult = await ManualUploadDocument.deleteMany({
+          _id: { $in: attachedFileIds }
+        });
+        deletedAttachedFiles = deleteResult.deletedCount;
+        console.log(`💥 [CASCADE] Deleted ${deletedAttachedFiles} attached files from ManualUploadDocument collection`);
+      }
+    }
+
+    // 2. Delete version PDFs if any (assuming VersionPdf model exists)
+    if (agreement.versions && agreement.versions.length > 0) {
+      const versionIds = agreement.versions
+        .filter(version => version.versionId)
+        .map(version => version.versionId);
+
+      if (versionIds.length > 0) {
+        try {
+          const versionDeleteResult = await VersionPdf.deleteMany({
+            _id: { $in: versionIds }
+          });
+          deletedVersions = versionDeleteResult.deletedCount;
+          console.log(`💥 [CASCADE] Deleted ${deletedVersions} version PDFs from VersionPdf collection`);
+        } catch (versionError) {
+          console.warn(`⚠️ [CASCADE] Could not delete versions (VersionPdf model may not exist):`, versionError.message);
+        }
+      }
+    }
+
+    // 3. Count and clean up Zoho mappings
+    let zohoMappings = 0;
+    if (agreement.zoho?.bigin?.dealId || agreement.zoho?.bigin?.fileId) zohoMappings++;
+    if (agreement.zoho?.crm?.dealId || agreement.zoho?.crm?.fileId) zohoMappings++;
+
+    // Count Zoho mappings from attached files and versions
+    agreement.attachedFiles?.forEach(file => {
+      // Note: We already deleted the files, but we count the mappings that were removed
+      zohoMappings += (file.zoho?.bigin?.dealId ? 1 : 0) + (file.zoho?.crm?.dealId ? 1 : 0);
+    });
+    agreement.versions?.forEach(version => {
+      if (version.zohoUploadStatus?.dealId) zohoMappings++;
+    });
+
+    deletedZohoMappings = zohoMappings;
+
+    // 4. Finally, delete the main agreement document
+    await CustomerHeaderDoc.findByIdAndDelete(agreementId);
+
+    console.log(`💥 [PERMANENT DELETE] Agreement permanently deleted: ${agreementTitle}`);
+    console.log(`💥 [CLEANUP SUMMARY] Files: ${deletedAttachedFiles}, Versions: ${deletedVersions}, Zoho mappings: ${deletedZohoMappings}`);
+
+    res.json({
+      success: true,
+      message: "Agreement permanently deleted",
+      deletedData: {
+        agreementId,
+        deletedAttachedFiles,
+        deletedZohoMappings,
+        deletedVersions
+      }
+    });
+
+  } catch (err) {
+    console.error("permanentlyDeleteAgreement error:", err);
+    res.status(500).json({
+      success: false,
+      error: "server_error",
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ✅ NEW: Permanently delete individual file and cleanup references
+export async function permanentlyDeleteFile(req, res) {
+  try {
+    const { fileId } = req.params;
+
+    if (!mongoose.isValidObjectId(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: "Invalid file ID format"
+      });
+    }
+
+    // Find the deleted file (must be in trash first)
+    const file = await ManualUploadDocument.findOne({
+      _id: fileId,
+      isDeleted: true
+    });
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        detail: "File not found in trash"
+      });
+    }
+
+    const fileName = file.fileName;
+    let cleanedReferences = 0;
+
+    console.log(`💥 [PERMANENT DELETE] Starting deletion for file: ${fileName} (ID: ${fileId})`);
+
+    // 1. Remove references from CustomerHeaderDoc.attachedFiles arrays
+    const updateResult = await CustomerHeaderDoc.updateMany(
+      { "attachedFiles.manualDocumentId": fileId },
+      {
+        $pull: {
+          attachedFiles: { manualDocumentId: fileId }
+        }
+      }
+    );
+
+    cleanedReferences = updateResult.modifiedCount;
+    console.log(`💥 [CLEANUP] Removed file references from ${cleanedReferences} agreements`);
+
+    // 2. Delete the file from ManualUploadDocument collection
+    await ManualUploadDocument.findByIdAndDelete(fileId);
+
+    console.log(`💥 [PERMANENT DELETE] File permanently deleted: ${fileName}`);
+    console.log(`💥 [CLEANUP SUMMARY] Cleaned ${cleanedReferences} references from agreements`);
+
+    res.json({
+      success: true,
+      message: "File permanently deleted",
+      deletedData: {
+        fileId,
+        fileName,
+        cleanedReferences
+      }
+    });
+
+  } catch (err) {
+    console.error("permanentlyDeleteFile error:", err);
     res.status(500).json({
       success: false,
       error: "server_error",

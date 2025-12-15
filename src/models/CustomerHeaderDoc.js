@@ -296,6 +296,11 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
       bigin: { type: ZohoRefSchema, default: () => ({}) },
       crm:   { type: ZohoRefSchema, default: () => ({}) },
     },
+
+    // ✅ NEW: Soft delete field for agreements
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: null },
   },
   {
     timestamps: true, // adds createdAt, updatedAt
