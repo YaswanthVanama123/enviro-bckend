@@ -1808,6 +1808,7 @@ export async function getSavedFilesGrouped(req, res) {
       agreementId: 1,
       versionNumber: 1,
       versionLabel: 1,
+      status: 1,  // ✅ ADDED: Include the status field
       createdAt: 1,
       updatedAt: 1,
       createdBy: 1,
@@ -1883,7 +1884,7 @@ export async function getSavedFilesGrouped(req, res) {
         fileName: `${agreement.payload?.headerTitle || 'Untitled'} - Version ${version.versionNumber}.pdf`,
         fileType: 'version_pdf',
         title: `Version ${version.versionNumber}${version.versionLabel ? ` (${version.versionLabel})` : ''}`,
-        status: 'saved',
+        status: version.status || 'saved', // ✅ FIXED: Use actual version status from database
         createdAt: version.createdAt,
         updatedAt: version.updatedAt,
         createdBy: version.createdBy,
