@@ -602,4 +602,68 @@ router.get("/version/:versionId/edit-format", async (req, res) => {
   }
 });
 
+/**
+ * PATCH /api/versions/version/:versionId/status
+ * Update version status (for draft/saved/pending_approval/approved_salesman/approved_admin changes)
+ */
+router.patch("/version/:versionId/status", async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    const { status } = req.body;
+
+    console.log(`🔄 Updating version ${versionId} status to: ${status}`);
+
+    // Validate status
+    const validStatuses = ["draft", "saved", "pending_approval", "approved_salesman", "approved_admin"];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+      });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.isValidObjectId(versionId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid version ID format"
+      });
+    }
+
+    // Find and update version
+    const version = await VersionPdf.findById(versionId);
+    if (!version) {
+      return res.status(404).json({
+        success: false,
+        error: "Version not found"
+      });
+    }
+
+    // Update status
+    version.status = status;
+    await version.save();
+
+    console.log(`✅ Updated version ${version.versionNumber} status to: ${status}`);
+
+    return res.json({
+      success: true,
+      message: `Version ${version.versionNumber} status updated to ${status}`,
+      version: {
+        id: version._id,
+        versionNumber: version.versionNumber,
+        status: version.status,
+        updatedAt: version.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Failed to update version status:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 export default router;

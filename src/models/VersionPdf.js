@@ -74,8 +74,8 @@ const VersionPdfSchema = new mongoose.Schema(
     // Status tracking
     status: {
       type: String,
-      enum: ['active', 'superseded', 'archived'],
-      default: 'active'
+      enum: ['draft', 'saved', 'pending_approval', 'approved_salesman', 'approved_admin'],
+      default: 'saved'
     },
 
     // Notes about this version
