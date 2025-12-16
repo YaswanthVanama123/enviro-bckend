@@ -17,6 +17,8 @@ import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
 import ServiceConfig from "../models/ServiceConfig.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW: For optimized file storage
 import VersionPdf from "../models/VersionPdf.js"; // ✅ NEW: For version PDFs
+import PriceOverrideLog from "../models/PriceOverrideLog.js"; // ✅ NEW: For price override logging
+import VersionChangeLog from "../models/VersionChangeLog.js"; // ✅ NEW: For version-based change logging
 // import mongoose from "mongoose"; // ✅ Add mongoose import for ObjectId handling
 
 /* ------------ health + low-level compile endpoints ------------ */
@@ -2727,6 +2729,579 @@ export async function permanentlyDeleteFile(req, res) {
       success: false,
       error: "server_error",
       detail: err?.message || String(err),
+    });
+  }
+}
+
+
+/* ------------ PRICE OVERRIDE LOGGING API ------------ */
+
+// POST /api/pdf/price-overrides/log - Log a price override
+export async function logPriceOverride(req, res) {
+  try {
+    const {
+      agreementId,
+      versionId,
+      versionNumber,
+      salespersonId,
+      salespersonName,
+      productKey,
+      productName,
+      productType,
+      fieldType,
+      originalValue,
+      overrideValue,
+      quantity,
+      frequency,
+      sessionId,
+      documentTitle,
+      source
+    } = req.body;
+
+    // Validate required fields
+    if (!agreementId || !salespersonId || !salespersonName || !productKey || !productName ||
+        !productType || !fieldType || originalValue === undefined || overrideValue === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+        detail: "agreementId, salespersonId, salespersonName, productKey, productName, productType, fieldType, originalValue, and overrideValue are required"
+      });
+    }
+
+    // Get client information
+    const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
+    const userAgent = req.headers['user-agent'];
+
+    // Create price override log
+    const overrideLog = new PriceOverrideLog({
+      agreementId,
+      versionId: versionId || null,
+      versionNumber: versionNumber || 1,
+      salespersonId,
+      salespersonName,
+      productKey,
+      productName,
+      productType,
+      fieldType,
+      originalValue: Number(originalValue),
+      overrideValue: Number(overrideValue),
+      quantity: quantity || 0,
+      frequency: frequency || '',
+      sessionId: sessionId || `session_${Date.now()}`,
+      documentTitle: documentTitle || 'Untitled Document',
+      source: source || 'form_filling',
+      ipAddress,
+      userAgent
+    });
+
+    await overrideLog.save();
+
+    console.log(`💰 [PRICE-OVERRIDE] Logged override: ${productName} - ${fieldType} changed from $${originalValue} to $${overrideValue} by ${salespersonName}`);
+
+    res.json({
+      success: true,
+      message: "Price override logged successfully",
+      log: {
+        id: overrideLog._id,
+        changeAmount: overrideLog.changeAmount,
+        changePercentage: overrideLog.changePercentage,
+        isSignificantChange: overrideLog.isSignificantChange,
+        requiresApproval: overrideLog.requiresApproval,
+        reviewStatus: overrideLog.reviewStatus
+      }
+    });
+
+  } catch (err) {
+    console.error("logPriceOverride error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to log price override",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// GET /api/pdf/price-overrides/logs/:agreementId - Get logs for an agreement
+export async function getPriceOverrideLogs(req, res) {
+  try {
+    const { agreementId } = req.params;
+    const {
+      versionNumber,
+      salespersonId,
+      reviewStatus,
+      limit = 50,
+      sortOrder = -1
+    } = req.query;
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid agreement ID format"
+      });
+    }
+
+    const options = {
+      versionNumber: versionNumber ? Number(versionNumber) : null,
+      salespersonId,
+      reviewStatus,
+      limit: Number(limit),
+      sortOrder: Number(sortOrder)
+    };
+
+    const logs = await PriceOverrideLog.getLogsForAgreement(agreementId, options);
+    const stats = await PriceOverrideLog.getOverrideStats(agreementId);
+
+    console.log(`📊 [PRICE-OVERRIDE] Retrieved ${logs.length} override logs for agreement ${agreementId}`);
+
+    res.json({
+      success: true,
+      total: logs.length,
+      logs,
+      statistics: stats
+    });
+
+  } catch (err) {
+    console.error("getPriceOverrideLogs error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve price override logs",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// GET /api/pdf/price-overrides/stats/:agreementId - Get override statistics
+export async function getPriceOverrideStats(req, res) {
+  try {
+    const { agreementId } = req.params;
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid agreement ID format"
+      });
+    }
+
+    const stats = await PriceOverrideLog.getOverrideStats(agreementId);
+    const recentLogs = await PriceOverrideLog.getLogsForAgreement(agreementId, { limit: 5 });
+
+    res.json({
+      success: true,
+      statistics: stats,
+      recentOverrides: recentLogs
+    });
+
+  } catch (err) {
+    console.error("getPriceOverrideStats error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve price override statistics",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// PATCH /api/pdf/price-overrides/:logId/review - Review/approve a price override
+export async function reviewPriceOverride(req, res) {
+  try {
+    const { logId } = req.params;
+    const { reviewStatus, reviewNotes } = req.body;
+
+    if (!mongoose.isValidObjectId(logId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid log ID format"
+      });
+    }
+
+    const validStatuses = ['approved', 'rejected'];
+    if (!reviewStatus || !validStatuses.includes(reviewStatus)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid review status. Must be 'approved' or 'rejected'"
+      });
+    }
+
+    const log = await PriceOverrideLog.findById(logId);
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        error: "Price override log not found"
+      });
+    }
+
+    log.reviewStatus = reviewStatus;
+    log.reviewedBy = req.admin?.id || req.user?.id || 'system';
+    log.reviewedAt = new Date();
+    log.reviewNotes = reviewNotes || '';
+
+    await log.save();
+
+    console.log(`✅ [PRICE-OVERRIDE] Override ${reviewStatus} for ${log.productName} by ${log.reviewedBy}`);
+
+    res.json({
+      success: true,
+      message: `Price override ${reviewStatus} successfully`,
+      log: {
+        id: log._id,
+        reviewStatus: log.reviewStatus,
+        reviewedBy: log.reviewedBy,
+        reviewedAt: log.reviewedAt
+      }
+    });
+
+  } catch (err) {
+    console.error("reviewPriceOverride error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to review price override",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// GET /api/pdf/price-overrides/pending - Get all pending overrides (admin view)
+export async function getPendingPriceOverrides(req, res) {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      salespersonId,
+      significantOnly
+    } = req.query;
+
+    const filter = {
+      reviewStatus: 'pending',
+      isDeleted: { $ne: true }
+    };
+
+    if (salespersonId) {
+      filter.salespersonId = salespersonId;
+    }
+
+    if (significantOnly === 'true') {
+      filter.isSignificantChange = true;
+    }
+
+    const total = await PriceOverrideLog.countDocuments(filter);
+    const logs = await PriceOverrideLog.find(filter)
+      .populate('agreementId', 'payload.headerTitle')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit))
+      .lean();
+
+    console.log(`⏳ [PRICE-OVERRIDE] Retrieved ${logs.length} pending overrides`);
+
+    res.json({
+      success: true,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      pendingOverrides: logs
+    });
+
+  } catch (err) {
+    console.error("getPendingPriceOverrides error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve pending price overrides",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+/* ------------ VERSION-BASED CHANGE LOGGING API ------------ */
+
+// POST /api/pdf/version-changes/log - Log all changes for a version (batch)
+export async function logVersionChanges(req, res) {
+  try {
+    const {
+      agreementId,
+      versionId,
+      versionNumber,
+      salespersonId,
+      salespersonName,
+      changes,
+      saveAction,
+      documentTitle,
+      sessionId
+    } = req.body;
+
+    // Validate required fields
+    if (!agreementId || !versionId || !salespersonId || !salespersonName ||
+        !changes || !Array.isArray(changes) || changes.length === 0 ||
+        !saveAction || !documentTitle) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+        detail: "agreementId, versionId, salespersonId, salespersonName, changes (array), saveAction, and documentTitle are required"
+      });
+    }
+
+    // Get client information
+    const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
+    const userAgent = req.headers['user-agent'];
+
+    // Check if log already exists for this version (replace if exists)
+    let versionLog = await VersionChangeLog.findOne({ versionId });
+
+    if (versionLog) {
+      // Update existing log
+      versionLog.salespersonId = salespersonId;
+      versionLog.salespersonName = salespersonName;
+      versionLog.changes = changes;
+      versionLog.saveAction = saveAction;
+      versionLog.documentTitle = documentTitle;
+      versionLog.sessionId = sessionId || `session_${Date.now()}`;
+      versionLog.ipAddress = ipAddress;
+      versionLog.userAgent = userAgent;
+      versionLog.updatedAt = new Date();
+    } else {
+      // Create new log
+      versionLog = new VersionChangeLog({
+        agreementId,
+        versionId,
+        versionNumber: versionNumber || 1,
+        salespersonId,
+        salespersonName,
+        changes,
+        saveAction,
+        documentTitle,
+        sessionId: sessionId || `session_${Date.now()}`,
+        ipAddress,
+        userAgent
+      });
+    }
+
+    await versionLog.save();
+
+    console.log(`📝 [VERSION-CHANGES] Logged ${changes.length} changes for version ${versionNumber} by ${salespersonName} (${saveAction})`);
+
+    res.json({
+      success: true,
+      message: "Version changes logged successfully",
+      log: {
+        id: versionLog._id,
+        versionId: versionLog.versionId,
+        versionNumber: versionLog.versionNumber,
+        totalChanges: versionLog.totalChanges,
+        totalPriceImpact: versionLog.totalPriceImpact,
+        hasSignificantChanges: versionLog.hasSignificantChanges,
+        reviewStatus: versionLog.reviewStatus,
+        saveAction: versionLog.saveAction
+      }
+    });
+
+  } catch (err) {
+    console.error("logVersionChanges error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to log version changes",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// GET /api/pdf/version-changes/logs/:agreementId - Get all version change logs for an agreement
+export async function getVersionChangeLogs(req, res) {
+  try {
+    const { agreementId } = req.params;
+    const {
+      versionNumber,
+      salespersonId,
+      reviewStatus,
+      limit = 50,
+      sortOrder = -1
+    } = req.query;
+
+    if (!mongoose.isValidObjectId(agreementId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid agreement ID format"
+      });
+    }
+
+    const options = {
+      versionNumber: versionNumber ? Number(versionNumber) : null,
+      salespersonId,
+      reviewStatus,
+      limit: Number(limit),
+      sortOrder: Number(sortOrder)
+    };
+
+    const logs = await VersionChangeLog.getLogsForAgreement(agreementId, options);
+    const stats = await VersionChangeLog.getChangeStats(agreementId);
+
+    console.log(`📊 [VERSION-CHANGES] Retrieved ${logs.length} version change logs for agreement ${agreementId}`);
+
+    res.json({
+      success: true,
+      total: logs.length,
+      logs,
+      statistics: stats.length > 0 ? stats[0] : {
+        totalVersions: 0,
+        totalChanges: 0,
+        totalPriceImpact: 0,
+        versionsWithSignificantChanges: 0,
+        pendingApprovals: 0
+      }
+    });
+
+  } catch (err) {
+    console.error("getVersionChangeLogs error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve version change logs",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// GET /api/pdf/version-changes/log/:versionId - Get specific version change log
+export async function getVersionChangeLog(req, res) {
+  try {
+    const { versionId } = req.params;
+
+    if (!mongoose.isValidObjectId(versionId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid version ID format"
+      });
+    }
+
+    const log = await VersionChangeLog.findOne({ versionId, isDeleted: { $ne: true } });
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        error: "Version change log not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      log
+    });
+
+  } catch (err) {
+    console.error("getVersionChangeLog error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve version change log",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// PATCH /api/pdf/version-changes/:logId/review - Review/approve a version's changes
+export async function reviewVersionChanges(req, res) {
+  try {
+    const { logId } = req.params;
+    const { reviewStatus, reviewNotes } = req.body;
+
+    if (!mongoose.isValidObjectId(logId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid log ID format"
+      });
+    }
+
+    const validStatuses = ['approved', 'rejected'];
+    if (!reviewStatus || !validStatuses.includes(reviewStatus)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid review status. Must be 'approved' or 'rejected'"
+      });
+    }
+
+    const log = await VersionChangeLog.findById(logId);
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        error: "Version change log not found"
+      });
+    }
+
+    log.reviewStatus = reviewStatus;
+    log.reviewedBy = req.admin?.id || req.user?.id || 'system';
+    log.reviewedAt = new Date();
+    log.reviewNotes = reviewNotes || '';
+
+    await log.save();
+
+    console.log(`✅ [VERSION-CHANGES] Version changes ${reviewStatus} for version ${log.versionNumber} by ${log.reviewedBy}`);
+
+    res.json({
+      success: true,
+      message: `Version changes ${reviewStatus} successfully`,
+      log: {
+        id: log._id,
+        versionId: log.versionId,
+        versionNumber: log.versionNumber,
+        reviewStatus: log.reviewStatus,
+        reviewedBy: log.reviewedBy,
+        reviewedAt: log.reviewedAt
+      }
+    });
+
+  } catch (err) {
+    console.error("reviewVersionChanges error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to review version changes",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+// GET /api/pdf/version-changes/pending - Get all pending version changes (admin view)
+export async function getPendingVersionChanges(req, res) {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      salespersonId,
+      significantOnly
+    } = req.query;
+
+    const filter = {
+      reviewStatus: 'pending',
+      isDeleted: { $ne: true }
+    };
+
+    if (salespersonId) {
+      filter.salespersonId = salespersonId;
+    }
+
+    if (significantOnly === 'true') {
+      filter.hasSignificantChanges = true;
+    }
+
+    const total = await VersionChangeLog.countDocuments(filter);
+    const logs = await VersionChangeLog.find(filter)
+      .populate('agreementId', 'payload.headerTitle')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit))
+      .lean();
+
+    console.log(`⏳ [VERSION-CHANGES] Retrieved ${logs.length} pending version changes`);
+
+    res.json({
+      success: true,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      pendingVersionChanges: logs
+    });
+
+  } catch (err) {
+    console.error("getPendingVersionChanges error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve pending version changes",
+      detail: err?.message || String(err)
     });
   }
 }

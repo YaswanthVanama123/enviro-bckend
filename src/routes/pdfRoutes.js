@@ -37,7 +37,19 @@ import {
   deleteAgreement,
   deleteFile,
   permanentlyDeleteAgreement,
-  permanentlyDeleteFile
+  permanentlyDeleteFile,
+  // ✅ NEW: Price override logging functions
+  logPriceOverride,
+  getPriceOverrideLogs,
+  getPriceOverrideStats,
+  reviewPriceOverride,
+  getPendingPriceOverrides,
+  // ✅ NEW: Version-based change logging functions
+  logVersionChanges,
+  getVersionChangeLogs,
+  getVersionChangeLog,
+  reviewVersionChanges,
+  getPendingVersionChanges
 } from "../controllers/pdfController.js";
 
 const router = Router();
@@ -89,6 +101,20 @@ router.patch("/agreements/:agreementId/delete", deleteAgreement); // Soft delete
 router.patch("/files/:fileId/delete", deleteFile); // Soft delete file (move to trash)
 router.delete("/agreements/:agreementId/permanent-delete", permanentlyDeleteAgreement); // Permanent delete agreement with cascade
 router.delete("/files/:fileId/permanent-delete", permanentlyDeleteFile); // Permanent delete file with cleanup
+
+/* ---- NEW: price override logging API ---- */
+router.post("/price-overrides/log", logPriceOverride); // Log a price override
+router.get("/price-overrides/logs/:agreementId", getPriceOverrideLogs); // Get logs for an agreement
+router.get("/price-overrides/stats/:agreementId", getPriceOverrideStats); // Get override statistics for an agreement
+router.patch("/price-overrides/:logId/review", reviewPriceOverride); // Review/approve a price override
+router.get("/price-overrides/pending", getPendingPriceOverrides); // Get all pending overrides (admin view)
+
+/* ---- NEW: version-based change logging API ---- */
+router.post("/version-changes/log", logVersionChanges); // Log all changes for a version (batch)
+router.get("/version-changes/logs/:agreementId", getVersionChangeLogs); // Get all version change logs for an agreement
+router.get("/version-changes/log/:versionId", getVersionChangeLog); // Get specific version change log
+router.patch("/version-changes/:logId/review", reviewVersionChanges); // Review/approve a version's changes
+router.get("/version-changes/pending", getPendingVersionChanges); // Get all pending version changes (admin view)
 
 /* ---- pass-through (files uploaded to your backend) ---- */
 router.post("/compile-file", upload.single("file"), proxyCompileFile);

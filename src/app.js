@@ -15,6 +15,7 @@ import oauthRoutes from './routes/oauthRoutes.js';
 import zohoUploadRoutes from './routes/zohoUploadRoutes.js';
 import versionRoutes from './routes/versionRoutes.js';
 import pricingBackupRoutes from './routes/pricingBackupRoutes.js';
+import versionLogRoutes from './routes/pdf/versionLogs.js';
 
 
 // import { ensureDefaultAdmin } from "./models/AdminUser.js";
@@ -42,6 +43,7 @@ app.use("/oauth", oauthRoutes);
 app.use("/api/zoho-upload", zohoUploadRoutes);
 app.use("/api/versions", versionRoutes);
 app.use("/api/pricing-backup", pricingBackupRoutes);
+app.use("/api/pdf/version-logs", versionLogRoutes);
 
 export default app;
  
