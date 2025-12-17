@@ -49,7 +49,9 @@ import {
   getVersionChangeLogs,
   getVersionChangeLog,
   reviewVersionChanges,
-  getPendingVersionChanges
+  getPendingVersionChanges,
+  // ✅ NEW: Approval documents grouped API
+  getApprovalDocumentsGrouped
 } from "../controllers/pdfController.js";
 
 const router = Router();
@@ -93,6 +95,9 @@ router.get("/saved-files/grouped", getSavedFilesGrouped); // Grouped by agreemen
 router.get("/saved-files/:id/details", getSavedFileDetails); // Full payload on-demand
 router.post("/saved-files/:agreementId/add-files", addFileToAgreement); // ✅ NEW: Add files to agreement
 router.get("/attached-files/:fileId/download", downloadAttachedFile); // ✅ NEW: Download attached files
+
+/* ---- NEW: approval documents API ---- */
+router.get("/approval-documents/grouped", getApprovalDocumentsGrouped); // ✅ NEW: Get all approval documents grouped by agreement
 
 /* ---- NEW: delete and restore API ---- */
 router.patch("/agreements/:agreementId/restore", restoreAgreement); // Restore agreement from trash
