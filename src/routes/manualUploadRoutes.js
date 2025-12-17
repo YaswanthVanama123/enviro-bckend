@@ -6,6 +6,7 @@ import {
   getManualUploads,
   getManualUploadById,
   downloadManualUpload,
+  updateManualUploadStatus,
   deleteManualUpload,
 } from "../controllers/manualUploadController.js";
 
@@ -37,6 +38,9 @@ router.get("/:id", getManualUploadById);
 
 // GET /api/manual-upload/:id/download - Download PDF
 router.get("/:id/download", downloadManualUpload);
+
+// PATCH /api/manual-upload/:id/status - Update status
+router.patch("/:id/status", updateManualUploadStatus);
 
 // DELETE /api/manual-upload/:id - Delete upload
 router.delete("/:id", deleteManualUpload);

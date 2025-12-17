@@ -191,6 +191,62 @@ export async function downloadManualUpload(req, res) {
   }
 }
 
+// PATCH /api/manual-upload/:id/status - Update manual upload status
+export async function updateManualUploadStatus(req, res) {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    console.log(`🔄 [MANUAL-UPLOAD-STATUS] Updating manual upload ${id} status to: ${status}`);
+
+    // Validate status
+    const validStatuses = ["uploaded", "processing", "completed", "failed", "pending_approval", "approved_salesman", "approved_admin"];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: "bad_request",
+        detail: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+      });
+    }
+
+    // Find and update manual upload
+    const doc = await ManualUploadDocument.findById(id);
+    if (!doc) {
+      console.log(`❌ [MANUAL-UPLOAD-STATUS] Manual upload not found: ${id}`);
+      return res.status(404).json({
+        success: false,
+        error: "Manual upload not found"
+      });
+    }
+
+    // Update status
+    const oldStatus = doc.status;
+    doc.status = status;
+    await doc.save();
+
+    console.log(`✅ [MANUAL-UPLOAD-STATUS] Updated manual upload ${doc.fileName} status from ${oldStatus} to ${status}`);
+
+    res.json({
+      success: true,
+      message: `Manual upload status updated to ${status}`,
+      data: {
+        id: doc._id,
+        fileName: doc.fileName,
+        status: doc.status,
+        previousStatus: oldStatus,
+        updatedAt: doc.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ [MANUAL-UPLOAD-STATUS] Failed to update manual upload status:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+}
+
 // DELETE /api/manual-upload/:id - Delete upload
 export async function deleteManualUpload(req, res) {
   try {

@@ -5,6 +5,8 @@ import {
   changeAdminPassword,
   getAdminProfile,
   createAdminAccount,
+  getAdminDashboard,
+  getAdminRecentDocuments,
 } from "../controllers/adminAuthController.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 
@@ -17,5 +19,9 @@ router.post("/login", adminLogin);
 router.get("/me", requireAdminAuth, getAdminProfile);
 router.post("/change-password", requireAdminAuth, changeAdminPassword);
 router.post("/create", createAdminAccount);
+
+// New admin dashboard routes
+router.get("/dashboard", requireAdminAuth, getAdminDashboard);
+router.get("/recent-documents", requireAdminAuth, getAdminRecentDocuments);
 
 export default router;

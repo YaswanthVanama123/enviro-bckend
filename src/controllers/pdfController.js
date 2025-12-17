@@ -1770,7 +1770,7 @@ export async function getSavedFilesGrouped(req, res) {
         path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
         model: 'ManualUploadDocument',
         match: manualDocumentMatch, // ✅ FIXED: Dynamic filter based on trash mode
-        select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho createdAt updatedAt'
+        select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho pdfBuffer createdAt updatedAt' // ✅ FIX: Include pdfBuffer for hasPdf calculation
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -1856,15 +1856,15 @@ export async function getSavedFilesGrouped(req, res) {
           fileName: manualDoc.originalFileName,
           fileType: 'attached_pdf',
           title: manualDoc.originalFileName,
-          status: 'attached',
+          status: manualDoc.status || 'uploaded', // ✅ FIX: Use actual status from ManualUploadDocument
           createdAt: manualDoc.createdAt,
           updatedAt: manualDoc.updatedAt,
           createdBy: manualDoc.uploadedBy,
           updatedBy: null,
           fileSize: manualDoc.fileSize || 0,
           pdfStoredAt: manualDoc.createdAt,
-          // ✅ FIX: Files stored in ManualUploadDocument are always accessible
-          hasPdf: manualDoc.status === 'uploaded' || manualDoc.status === 'completed',
+          // ✅ FIX: Attached files stored in ManualUploadDocument are always accessible if they have PDF data
+          hasPdf: !!(manualDoc.pdfBuffer && manualDoc.pdfBuffer.length > 0),
           description: attachmentRef.description || manualDoc.description || '',
           zohoInfo: {
             biginDealId: manualDoc.zoho?.bigin?.dealId || null,

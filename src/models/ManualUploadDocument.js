@@ -38,7 +38,7 @@ const ManualUploadDocumentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["uploaded", "processing", "completed", "failed"],
+      enum: ["uploaded", "processing", "completed", "failed", "pending_approval", "approved_salesman", "approved_admin"],
       default: "uploaded",
     },
     pdfBuffer: {
