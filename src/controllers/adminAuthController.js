@@ -196,13 +196,16 @@ export async function createAdminAccount(req, res) {
 /**
  * GET /api/admin/dashboard
  * Headers: Authorization: Bearer <token>
- * Returns admin dashboard data including recent documents
+ * Returns admin dashboard data including recent documents and real statistics
  */
 export async function getAdminDashboard(req, res) {
   try {
-    // Check if we're in development mode without database
-    if (mongoose.connection.readyState === 0) {
-      console.log('⚠️ Database not connected, returning mock dashboard data');
+    console.log('📊 [ADMIN-DASHBOARD] Starting dashboard data fetch...');
+    console.log('📊 [DB-STATE] Connection state:', mongoose.connection.readyState);
+
+    // Check database connection state
+    if (mongoose.connection.readyState !== 1) {
+      console.log('⚠️ [ADMIN-DASHBOARD] Database not connected, connection state:', mongoose.connection.readyState);
       return res.json({
         stats: {
           manualUploads: 0,
@@ -215,33 +218,136 @@ export async function getAdminDashboard(req, res) {
           pending: 0,
           saved: 0,
           drafts: 0
+        },
+        _debug: {
+          databaseState: 'disconnected',
+          connectionReadyState: mongoose.connection.readyState
         }
       });
     }
 
-    // Get document counts for dashboard stats
+    console.log('📊 [ADMIN-DASHBOARD] Database connected, fetching statistics...');
+
+    // Get document counts with detailed logging
+    console.log('📊 [QUERY] Executing manual uploads count...');
+    const manualUploadsCountQuery = ManualUploadDocument.countDocuments({
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    });
+
+    console.log('📊 [QUERY] Executing saved documents count...');
+    const savedDocumentsCountQuery = CustomerHeaderDoc.countDocuments({
+      $and: [
+        {
+          $or: [
+            { isDeleted: { $exists: false } },
+            { isDeleted: false },
+            { isDeleted: { $ne: true } }
+          ]
+        },
+        {
+          $or: [
+            { 'pdf_meta.pdfBuffer': { $exists: true, $ne: null } },
+            { 'zoho.bigin.fileId': { $exists: true, $ne: null } },
+            { 'zoho.crm.fileId': { $exists: true, $ne: null } }
+          ]
+        }
+      ]
+    });
+
+    console.log('📊 [QUERY] Executing total documents count...');
+    const totalDocumentsCountQuery = CustomerHeaderDoc.countDocuments({
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    });
+
+    console.log('📊 [QUERY] Executing status-based counts...');
+    const draftCountQuery = CustomerHeaderDoc.countDocuments({
+      status: 'draft',
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    });
+
+    const savedCountQuery = CustomerHeaderDoc.countDocuments({
+      status: 'saved',
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    });
+
+    const pendingCountQuery = CustomerHeaderDoc.countDocuments({
+      $and: [
+        {
+          $or: [
+            { status: 'pending_approval' },
+            { status: 'approved_salesman' }
+          ]
+        },
+        {
+          $or: [
+            { isDeleted: { $exists: false } },
+            { isDeleted: false },
+            { isDeleted: { $ne: true } }
+          ]
+        }
+      ]
+    });
+
+    const approvedCountQuery = CustomerHeaderDoc.countDocuments({
+      status: 'approved_admin',
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    });
+
+    // Execute all queries in parallel
     const [
       manualUploadsCount,
       savedDocumentsCount,
       totalDocumentsCount,
       draftCount,
       savedCount,
-      pendingCount
+      pendingCount,
+      approvedCount
     ] = await Promise.all([
-      ManualUploadDocument.countDocuments({ isDeleted: { $ne: true } }),
-      CustomerHeaderDoc.countDocuments({
-        isDeleted: { $ne: true },
-        'pdf_meta.pdfBuffer': { $exists: true }
-      }),
-      CustomerHeaderDoc.countDocuments({ isDeleted: { $ne: true } }),
-      CustomerHeaderDoc.countDocuments({ status: 'draft', isDeleted: { $ne: true } }),
-      CustomerHeaderDoc.countDocuments({ status: 'saved', isDeleted: { $ne: true } }),
-      CustomerHeaderDoc.countDocuments({ status: 'pending', isDeleted: { $ne: true } })
+      manualUploadsCountQuery,
+      savedDocumentsCountQuery,
+      totalDocumentsCountQuery,
+      draftCountQuery,
+      savedCountQuery,
+      pendingCountQuery,
+      approvedCountQuery
     ]);
 
-    // Get recent documents (last 10)
+    console.log('📊 [COUNTS] Manual uploads:', manualUploadsCount);
+    console.log('📊 [COUNTS] Saved documents:', savedDocumentsCount);
+    console.log('📊 [COUNTS] Total documents:', totalDocumentsCount);
+    console.log('📊 [COUNTS] Draft:', draftCount);
+    console.log('📊 [COUNTS] Saved:', savedCount);
+    console.log('📊 [COUNTS] Pending:', pendingCount);
+    console.log('📊 [COUNTS] Approved:', approvedCount);
+
+    // Get recent documents (last 10) with better error handling
+    console.log('📊 [QUERY] Fetching recent documents...');
     const recentDocuments = await CustomerHeaderDoc.find({
-      isDeleted: { $ne: true }
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
     })
       .select({
         _id: 1,
@@ -254,10 +360,14 @@ export async function getAdminDashboard(req, res) {
         'pdf_meta.pdfBuffer': 1,
         'zoho.bigin.dealId': 1,
         'zoho.bigin.fileId': 1,
+        'zoho.crm.dealId': 1,
+        'zoho.crm.fileId': 1,
       })
       .sort({ createdAt: -1 })
       .limit(10)
       .lean();
+
+    console.log('📊 [RECENT] Found recent documents:', recentDocuments.length);
 
     // Transform recent documents to match admin panel format
     const transformedRecentDocuments = recentDocuments.map(doc => ({
@@ -267,8 +377,9 @@ export async function getAdminDashboard(req, res) {
       createdDate: doc.createdAt,
       uploadedOn: doc.pdf_meta?.storedAt || doc.createdAt,
       hasPdf: !!(
+        doc.pdf_meta?.pdfBuffer ||
         (doc.zoho?.bigin?.fileId && !doc.zoho.bigin.fileId.includes('MOCK_')) ||
-        doc.pdf_meta?.pdfBuffer
+        (doc.zoho?.crm?.fileId && !doc.zoho.crm.fileId.includes('MOCK_'))
       ),
       fileSize: doc.pdf_meta?.sizeBytes || 0,
       // Format dates for display
@@ -283,6 +394,7 @@ export async function getAdminDashboard(req, res) {
       })
     }));
 
+    // Build comprehensive dashboard data
     const dashboardData = {
       stats: {
         manualUploads: manualUploadsCount,
@@ -291,21 +403,60 @@ export async function getAdminDashboard(req, res) {
       },
       recentDocuments: transformedRecentDocuments,
       documentStatus: {
-        done: 0, // You can adjust this based on your business logic
+        done: approvedCount,
         pending: pendingCount,
         saved: savedCount,
         drafts: draftCount
+      },
+      _debug: {
+        databaseState: 'connected',
+        connectionReadyState: mongoose.connection.readyState,
+        queryResults: {
+          manualUploadsCount,
+          savedDocumentsCount,
+          totalDocumentsCount,
+          draftCount,
+          savedCount,
+          pendingCount,
+          approvedCount
+        }
       }
     };
 
-    console.log(`📊 [ADMIN-DASHBOARD] Fetched dashboard data: ${transformedRecentDocuments.length} recent docs`);
+    console.log('✅ [ADMIN-DASHBOARD] Successfully fetched dashboard data:', {
+      manualUploads: manualUploadsCount,
+      savedDocuments: savedDocumentsCount,
+      totalDocuments: totalDocumentsCount,
+      recentDocsCount: transformedRecentDocuments.length
+    });
+
     res.json(dashboardData);
 
   } catch (err) {
-    console.error("getAdminDashboard error:", err);
+    console.error('❌ [ADMIN-DASHBOARD] Error fetching dashboard data:', err);
+    console.error('❌ [ADMIN-DASHBOARD] Error stack:', err.stack);
+
+    // Return structured error response with fallback data
     res.status(500).json({
       error: "Failed to fetch dashboard data",
-      detail: String(err)
+      detail: String(err),
+      stats: {
+        manualUploads: 0,
+        savedDocuments: 0,
+        totalDocuments: 0
+      },
+      recentDocuments: [],
+      documentStatus: {
+        done: 0,
+        pending: 0,
+        saved: 0,
+        drafts: 0
+      },
+      _debug: {
+        databaseState: 'error',
+        connectionReadyState: mongoose.connection.readyState,
+        errorMessage: err.message
+      }
     });
   }
 }
@@ -314,7 +465,7 @@ export async function getAdminDashboard(req, res) {
  * GET /api/admin/recent-documents
  * Headers: Authorization: Bearer <token>
  * Query params: limit (default 20), page (default 1)
- * Returns paginated recent documents for admin panel
+ * Returns paginated recent documents for admin panel with better error handling
  */
 export async function getAdminRecentDocuments(req, res) {
   try {
@@ -324,26 +475,44 @@ export async function getAdminRecentDocuments(req, res) {
       100
     );
 
-    // Check if we're in development mode without database
-    if (mongoose.connection.readyState === 0) {
-      console.log('⚠️ Database not connected, returning empty recent documents');
+    console.log('📄 [ADMIN-RECENT] Fetching recent documents - page:', page, 'limit:', limit);
+    console.log('📄 [DB-STATE] Connection state:', mongoose.connection.readyState);
+
+    // Check database connection state
+    if (mongoose.connection.readyState !== 1) {
+      console.log('⚠️ [ADMIN-RECENT] Database not connected, connection state:', mongoose.connection.readyState);
       return res.json({
         total: 0,
         page,
         limit,
-        documents: []
+        documents: [],
+        _debug: {
+          databaseState: 'disconnected',
+          connectionReadyState: mongoose.connection.readyState
+        }
       });
     }
 
-    const filter = { isDeleted: { $ne: true } };
+    // Build filter with better soft delete handling
+    const filter = {
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    };
 
     // Optional status filter for admin panel
     if (req.query.status) {
       filter.status = req.query.status;
+      console.log('📄 [ADMIN-RECENT] Filtering by status:', req.query.status);
     }
 
+    console.log('📄 [QUERY] Counting total documents...');
     const total = await CustomerHeaderDoc.countDocuments(filter);
+    console.log('📄 [COUNT] Total matching documents:', total);
 
+    console.log('📄 [QUERY] Fetching recent documents...');
     const documents = await CustomerHeaderDoc.find(filter)
       .select({
         _id: 1,
@@ -356,50 +525,97 @@ export async function getAdminRecentDocuments(req, res) {
         'pdf_meta.pdfBuffer': 1,
         'zoho.bigin.dealId': 1,
         'zoho.bigin.fileId': 1,
+        'zoho.crm.dealId': 1,
+        'zoho.crm.fileId': 1,
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
 
-    // Transform documents for admin panel
-    const transformedDocuments = documents.map(doc => ({
-      id: doc._id,
-      title: doc.payload?.headerTitle || 'Untitled Document',
-      status: doc.status || 'saved',
-      createdDate: doc.createdAt,
-      uploadedOn: doc.pdf_meta?.storedAt || doc.createdAt,
-      hasPdf: !!(
-        (doc.zoho?.bigin?.fileId && !doc.zoho.bigin.fileId.includes('MOCK_')) ||
-        doc.pdf_meta?.pdfBuffer
-      ),
-      fileSize: doc.pdf_meta?.sizeBytes || 0,
-      // Format dates for display
-      createdDateFormatted: new Date(doc.createdAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      }),
-      uploadedOnFormatted: new Date(doc.pdf_meta?.storedAt || doc.createdAt).toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric'
-      })
-    }));
+    console.log('📄 [RESULT] Found documents for this page:', documents.length);
 
-    console.log(`📄 [ADMIN-RECENT] Fetched ${transformedDocuments.length} recent documents for page ${page}`);
+    // Transform documents for admin panel with better error handling
+    const transformedDocuments = documents.map(doc => {
+      try {
+        return {
+          id: doc._id,
+          title: doc.payload?.headerTitle || 'Untitled Document',
+          status: doc.status || 'saved',
+          createdDate: doc.createdAt,
+          uploadedOn: doc.pdf_meta?.storedAt || doc.createdAt,
+          hasPdf: !!(
+            doc.pdf_meta?.pdfBuffer ||
+            (doc.zoho?.bigin?.fileId && !doc.zoho.bigin.fileId.includes('MOCK_')) ||
+            (doc.zoho?.crm?.fileId && !doc.zoho.crm.fileId.includes('MOCK_'))
+          ),
+          fileSize: doc.pdf_meta?.sizeBytes || 0,
+          // Format dates for display
+          createdDateFormatted: new Date(doc.createdAt).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }),
+          uploadedOnFormatted: new Date(doc.pdf_meta?.storedAt || doc.createdAt).toLocaleDateString('en-US', {
+            month: 'long',
+            year: 'numeric'
+          })
+        };
+      } catch (transformError) {
+        console.warn('⚠️ [ADMIN-RECENT] Error transforming document:', doc._id, transformError);
+        return {
+          id: doc._id,
+          title: 'Error loading document',
+          status: 'error',
+          createdDate: doc.createdAt,
+          uploadedOn: doc.createdAt,
+          hasPdf: false,
+          fileSize: 0,
+          createdDateFormatted: 'Error',
+          uploadedOnFormatted: 'Error'
+        };
+      }
+    });
+
+    console.log('✅ [ADMIN-RECENT] Successfully fetched recent documents:', {
+      total,
+      page,
+      limit,
+      documentsCount: transformedDocuments.length
+    });
 
     res.json({
       total,
       page,
       limit,
-      documents: transformedDocuments
+      documents: transformedDocuments,
+      _debug: {
+        databaseState: 'connected',
+        connectionReadyState: mongoose.connection.readyState,
+        filter: JSON.stringify(filter),
+        queryResults: {
+          total,
+          returnedCount: transformedDocuments.length
+        }
+      }
     });
 
   } catch (err) {
-    console.error("getAdminRecentDocuments error:", err);
+    console.error('❌ [ADMIN-RECENT] Error fetching recent documents:', err);
+    console.error('❌ [ADMIN-RECENT] Error stack:', err.stack);
+
     res.status(500).json({
       error: "Failed to fetch recent documents",
-      detail: String(err)
+      detail: String(err),
+      total: 0,
+      page: parseInt(req.query.page || "1", 10),
+      limit: parseInt(req.query.limit || "20", 10),
+      documents: [],
+      _debug: {
+        databaseState: 'error',
+        connectionReadyState: mongoose.connection.readyState,
+        errorMessage: err.message
+      }
     });
   }
 }
