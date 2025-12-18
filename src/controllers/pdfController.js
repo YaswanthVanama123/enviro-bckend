@@ -2556,11 +2556,11 @@ export async function deleteFile(req, res) {
 // GET /api/pdf/approval-documents/grouped - Get all documents pending approval grouped by agreement
 export async function getApprovalDocumentsGrouped(req, res) {
   try {
-    console.log('📋 [APPROVAL-DOCS] Fetching all documents pending approval...');
+    console.log('📋 [APPROVAL-DOCS] Fetching documents with PENDING APPROVAL status only...');
 
-    // 1. Get main agreements with pending_approval status
+    // 1. Get main agreements with pending approval status only
     const pendingAgreements = await CustomerHeaderDoc.find({
-      status: 'pending_approval',
+      status: 'pending_approval', // ✅ ONLY pending approval documents
       isDeleted: { $ne: true }
     })
     .select({
@@ -2582,9 +2582,9 @@ export async function getApprovalDocumentsGrouped(req, res) {
     .sort({ updatedAt: -1 })
     .lean();
 
-    // 2. Get version PDFs with approval statuses (pending_approval, approved_salesman)
+    // 2. Get version PDFs with pending approval status only
     const pendingVersions = await VersionPdf.find({
-      status: { $in: ['pending_approval', 'approved_salesman'] },
+      status: 'pending_approval', // ✅ ONLY pending approval versions
       isDeleted: { $ne: true }
     })
     .populate({
@@ -2606,9 +2606,9 @@ export async function getApprovalDocumentsGrouped(req, res) {
     .sort({ updatedAt: -1 })
     .lean();
 
-    // 3. Get manually uploaded files with approval statuses
+    // 3. Get manually uploaded files with pending approval status only
     const pendingAttachedFiles = await ManualUploadDocument.find({
-      status: { $in: ['pending_approval', 'approved_salesman'] },
+      status: 'pending_approval', // ✅ ONLY pending approval attached files
       isDeleted: { $ne: true },
       'metadata.attachedToAgreement': { $exists: true }
     })
@@ -2671,11 +2671,11 @@ export async function getApprovalDocumentsGrouped(req, res) {
         });
       }
 
-      // Add attached files with approval statuses from this agreement
+      // Add attached files with pending approval status from this agreement
       if (agreement.attachedFiles) {
         agreement.attachedFiles.forEach(attachmentRef => {
           const manualDoc = attachmentRef.manualDocumentId;
-          if (manualDoc && ['pending_approval', 'approved_salesman'].includes(manualDoc.status)) {
+          if (manualDoc && manualDoc.status === 'pending_approval') {
             group.files.push({
               id: manualDoc._id,
               agreementId: agreementId,
@@ -2803,7 +2803,7 @@ export async function getApprovalDocumentsGrouped(req, res) {
       groups,
       _metadata: {
         queryType: 'approval_documents_grouped',
-        includedStatuses: ['pending_approval', 'approved_salesman'],
+        includedStatuses: ['pending_approval'], // ✅ ONLY pending approval documents
         fileTypes: ['main_pdf', 'version_pdf', 'attached_pdf']
       }
     });
