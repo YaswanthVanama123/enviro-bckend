@@ -1608,7 +1608,7 @@ export async function getSavedFilesList(req, res) {
         'payload.headerTitle': 1,
         'pdf_meta.sizeBytes': 1,
         'pdf_meta.storedAt': 1,
-        'pdf_meta.pdfBuffer': 1,
+        // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
         'zoho.bigin.dealId': 1,
         'zoho.bigin.fileId': 1,
         'zoho.crm.dealId': 1,
@@ -1631,11 +1631,10 @@ export async function getSavedFilesList(req, res) {
       fileSize: file.pdf_meta?.sizeBytes || 0,
       pdfStoredAt: file.pdf_meta?.storedAt || null,
       hasPdf: !!(
-        // Check for Zoho fileId (valid, non-mock)
+        // ✅ OPTIMIZED: Check for Zoho fileId (valid, non-mock) OR PDF metadata (pdfBuffer excluded from initial load)
         (file.zoho?.bigin?.fileId && !file.zoho.bigin.fileId.includes('MOCK_')) ||
         (file.zoho?.crm?.fileId && !file.zoho.crm.fileId.includes('MOCK_')) ||
-        // OR check for PDF stored in MongoDB
-        file.pdf_meta?.pdfBuffer
+        (file.pdf_meta?.sizeBytes && file.pdf_meta.sizeBytes > 0)
       ),
       isEditable: file.status === 'draft' || file.status === 'saved',
       zohoInfo: {
@@ -1759,7 +1758,7 @@ export async function getSavedFilesGrouped(req, res) {
         'payload.headerTitle': 1,
         'pdf_meta.sizeBytes': 1,
         'pdf_meta.storedAt': 1,
-        'pdf_meta.pdfBuffer': 1,
+        // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
         'zoho.bigin.dealId': 1,
         'zoho.bigin.fileId': 1,
         'zoho.crm.dealId': 1,
@@ -1770,7 +1769,7 @@ export async function getSavedFilesGrouped(req, res) {
         path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
         model: 'ManualUploadDocument',
         match: manualDocumentMatch, // ✅ FIXED: Dynamic filter based on trash mode
-        select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho pdfBuffer createdAt updatedAt' // ✅ FIX: Include pdfBuffer for hasPdf calculation
+        select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho createdAt updatedAt' // ✅ OPTIMIZED: Exclude pdfBuffer from initial load
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -1815,7 +1814,7 @@ export async function getSavedFilesGrouped(req, res) {
       changeNotes: 1,
       'pdf_meta.sizeBytes': 1,
       'pdf_meta.storedAt': 1,
-      'pdf_meta.pdfBuffer': 1,
+      // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
       'zoho.bigin.dealId': 1,
       'zoho.bigin.fileId': 1,
       'zoho.crm.dealId': 1,
@@ -1863,8 +1862,8 @@ export async function getSavedFilesGrouped(req, res) {
           updatedBy: null,
           fileSize: manualDoc.fileSize || 0,
           pdfStoredAt: manualDoc.createdAt,
-          // ✅ FIX: Attached files stored in ManualUploadDocument are always accessible if they have PDF data
-          hasPdf: !!(manualDoc.pdfBuffer && manualDoc.pdfBuffer.length > 0),
+          // ✅ OPTIMIZED: Check if file exists using fileSize or Zoho upload (pdfBuffer excluded from initial load)
+          hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) || !!(manualDoc.zoho?.bigin?.fileId || manualDoc.zoho?.crm?.fileId),
           description: attachmentRef.description || manualDoc.description || '',
           zohoInfo: {
             biginDealId: manualDoc.zoho?.bigin?.dealId || null,
@@ -1892,10 +1891,10 @@ export async function getSavedFilesGrouped(req, res) {
         fileSize: version.pdf_meta?.sizeBytes || 0,
         pdfStoredAt: version.pdf_meta?.storedAt || null,
         hasPdf: !!(
-          // Check for Zoho fileId (valid, non-mock) OR PDF stored in MongoDB
+          // ✅ OPTIMIZED: Check for Zoho fileId (valid, non-mock) OR PDF metadata (pdfBuffer excluded from initial load)
           (version.zoho?.bigin?.fileId && !version.zoho.bigin.fileId.includes('MOCK_')) ||
           (version.zoho?.crm?.fileId && !version.zoho.crm.fileId.includes('MOCK_')) ||
-          version.pdf_meta?.pdfBuffer
+          (version.pdf_meta?.sizeBytes && version.pdf_meta.sizeBytes > 0)
         ),
         description: version.changeNotes || `Version ${version.versionNumber} created on ${new Date(version.createdAt).toLocaleDateString()}`,
         versionNumber: version.versionNumber, // ✅ Add version number for sorting/display
