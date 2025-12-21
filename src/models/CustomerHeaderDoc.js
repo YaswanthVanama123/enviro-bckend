@@ -121,6 +121,48 @@ const ServicesSchema = new mongoose.Schema(
   { _id: false, strict: false }
 );
 
+// ✅ NEW: Service Agreement schema
+const ServiceAgreementSchema = new mongoose.Schema(
+  {
+    includeInPdf: { type: Boolean, default: false },
+    retainDispensers: { type: Boolean, default: false },
+    disposeDispensers: { type: Boolean, default: false },
+    customerContactName: { type: String, default: "" },
+    customerSignature: { type: String, default: "" },
+    customerSignatureDate: { type: String, default: "" },
+    emFranchisee: { type: String, default: "" },
+    emSignature: { type: String, default: "" },
+    emSignatureDate: { type: String, default: "" },
+    insideSalesRepresentative: { type: String, default: "" },
+    emSalesRepresentative: { type: String, default: "" },
+    // Terms
+    term1: { type: String, default: "" },
+    term2: { type: String, default: "" },
+    term3: { type: String, default: "" },
+    term4: { type: String, default: "" },
+    term5: { type: String, default: "" },
+    term6: { type: String, default: "" },
+    term7: { type: String, default: "" },
+    noteText: { type: String, default: "" },
+    // Labels
+    titleText: { type: String, default: "SERVICE AGREEMENT" },
+    subtitleText: { type: String, default: "Terms and Conditions" },
+    retainDispensersLabel: { type: String, default: "Customer desires to retain existing dispensers" },
+    disposeDispensersLabel: { type: String, default: "Customer desires to dispose of existing dispensers" },
+    emSalesRepLabel: { type: String, default: "EM Sales Representative" },
+    insideSalesRepLabel: { type: String, default: "Inside Sales Representative" },
+    authorityText: { type: String, default: "I HEREBY REPRESENT THAT I HAVE THE AUTHORITY TO SIGN THIS AGREEMENT:" },
+    customerContactLabel: { type: String, default: "Customer Contact Name:" },
+    customerSignatureLabel: { type: String, default: "Signature:" },
+    customerDateLabel: { type: String, default: "Date:" },
+    emFranchiseeLabel: { type: String, default: "EM Franchisee:" },
+    emSignatureLabel: { type: String, default: "Signature:" },
+    emDateLabel: { type: String, default: "Date:" },
+    pageNumberText: { type: String, default: "Page #2" },
+  },
+  { _id: false }
+);
+
 // Agreement schema
 const AgreementSchema = new mongoose.Schema(
   {
@@ -215,6 +257,8 @@ const PayloadSchema = new mongoose.Schema(
     products: { type: ProductsSchema, default: () => ({ smallProducts: [], dispensers: [], bigProducts: [] }) },
     services: { type: ServicesSchema, default: () => ({}) },
     agreement: { type: AgreementSchema, default: () => ({}) },
+    // ✅ NEW: Service Agreement data
+    serviceAgreement: { type: ServiceAgreementSchema, default: null },
   },
   { _id: false }
 );

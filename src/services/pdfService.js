@@ -76,6 +76,122 @@ async function remotePostMultipart(
   }
 }
 
+/* ---------------- Service Agreement LaTeX Builder ---------------- */
+function buildServiceAgreementLatex(agreementData = {}) {
+  if (!agreementData || !agreementData.includeInPdf) {
+    return '';
+  }
+
+  const escape = latexEscape;
+
+  // Helper for checkbox
+  const checkbox = (checked) => checked ? '\\rlap{$\\checkmark$}\\square' : '\\square';
+
+  // Build the LaTeX content for the service agreement on a new page
+  return `
+\\newpage
+
+% ====== SERVICE AGREEMENT PAGE ======================================
+
+\\begin{center}
+\\begin{minipage}[c]{0.20\\textwidth}
+  \\centering
+  % Enviro-Master logo
+  \\includegraphics[width=0.80\\linewidth]{images/Envimaster.png}
+\\end{minipage}%
+\\hfill
+\\begin{minipage}[c]{0.75\\textwidth}
+  \\centering
+  {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
+\\end{minipage}
+\\end{center}
+
+\\vspace{1em}
+
+\\begin{center}
+{\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
+\\end{center}
+
+\\vspace{1em}
+
+% Terms
+\\begin{enumerate}
+  \\item ${escape(agreementData.term1 || '')}
+
+  \\item ${escape(agreementData.term2 || '')}
+
+  \\item ${escape(agreementData.term3 || '')}
+
+  \\item ${escape(agreementData.term4 || '')}
+
+  \\item ${escape(agreementData.term5 || '')}
+
+  \\item ${escape(agreementData.term6 || '')}
+
+  \\item ${escape(agreementData.term7 || '')}
+\\end{enumerate}
+
+\\vspace{1em}
+
+% Dispenser options
+\\noindent
+${checkbox(agreementData.retainDispensers)} ${escape(agreementData.retainDispensersLabel || 'Customer desires to retain existing dispensers')}
+\\hspace{2em}
+${checkbox(agreementData.disposeDispensers)} ${escape(agreementData.disposeDispensersLabel || 'Customer desires to dispose of existing dispensers')}
+
+\\vspace{1em}
+
+\\noindent
+${escape(agreementData.noteText || '')}
+
+\\vspace{1em}
+
+% Representatives
+\\noindent
+${escape(agreementData.emSalesRepLabel || 'EM Sales Representative')}: \\underline{\\hspace{5cm} ${escape(agreementData.emSalesRepresentative || '')}} \\hspace{2em}
+${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \\underline{\\hspace{5cm} ${escape(agreementData.insideSalesRepresentative || '')}}
+
+\\vspace{1em}
+
+\\noindent
+{\\bfseries ${escape(agreementData.authorityText || 'I HEREBY REPRESENT THAT I HAVE THE AUTHORITY TO SIGN THIS AGREEMENT:')}}
+
+\\vspace{1.5em}
+
+% Signatures
+\\noindent
+\\begin{minipage}[t]{0.48\\textwidth}
+  ${escape(agreementData.customerContactLabel || 'Customer Contact Name:')}: \\underline{\\hspace{6cm} ${escape(agreementData.customerContactName || '')}}
+
+  \\vspace{1em}
+
+  ${escape(agreementData.customerSignatureLabel || 'Signature:')}: \\underline{\\hspace{6cm} ${escape(agreementData.customerSignature || '')}}
+
+  \\vspace{1em}
+
+  ${escape(agreementData.customerDateLabel || 'Date:')}: \\underline{\\hspace{3cm} ${escape(agreementData.customerSignatureDate || '')}}
+\\end{minipage}%
+\\hfill
+\\begin{minipage}[t]{0.48\\textwidth}
+  ${escape(agreementData.emFranchiseeLabel || 'EM Franchisee:')}: \\underline{\\hspace{6cm} ${escape(agreementData.emFranchisee || '')}}
+
+  \\vspace{1em}
+
+  ${escape(agreementData.emSignatureLabel || 'Signature:')}: \\underline{\\hspace{6cm} ${escape(agreementData.emSignature || '')}}
+
+  \\vspace{1em}
+
+  ${escape(agreementData.emDateLabel || 'Date:')}: \\underline{\\hspace{3cm} ${escape(agreementData.emSignatureDate || '')}}
+\\end{minipage}
+
+\\vspace{2em}
+
+\\begin{center}
+${escape(agreementData.pageNumberText || 'Page \\#2')}
+\\end{center}
+`;
+}
+
 /* ---------------- LaTeX helpers ---------------- */
 function latexEscape(value = "") {
   return String(value)
@@ -1888,9 +2004,19 @@ export async function compileCustomerHeader(body = {}) {
   // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesTopRowLatex placeholder:', template.includes('{{{servicesTopRowLatex}}}'));
   // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesBottomRowLatex placeholder:', template.includes('{{{servicesBottomRowLatex}}}'));
 
-  const tex = Mustache.render(template, view);
+  let tex = Mustache.render(template, view);
   // console.log('🔍 [TEMPLATE DEBUG] After Mustache rendering, LaTeX length:', tex.length);
   // console.log('🔍 [TEMPLATE DEBUG] Rendered LaTeX contains service sections:', tex.includes('SERVICES'));
+
+  // ✅ NEW: Add Service Agreement if checkbox is checked
+  if (body.serviceAgreement && body.serviceAgreement.includeInPdf) {
+    console.log('📄 [SERVICE AGREEMENT] Including Service Agreement in PDF');
+    const serviceAgreementLatex = buildServiceAgreementLatex(body.serviceAgreement);
+    // Insert before \end{document}
+    tex = tex.replace(/\\end\{document\}/, serviceAgreementLatex + '\n\\end{document}');
+  } else {
+    console.log('📄 [SERVICE AGREEMENT] Service Agreement not included (checkbox not checked or data missing)');
+  }
 
   const headerDir = path.dirname(PDF_HEADER_TEMPLATE_PATH);
   const logoBuf = await fs.readFile(path.join(headerDir, "images", "Envimaster.png"));
