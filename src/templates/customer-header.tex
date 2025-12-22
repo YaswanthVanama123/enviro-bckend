@@ -5,6 +5,7 @@
 \usepackage{xcolor}
 \usepackage{helvet}
 \usepackage{tabularx}
+\usepackage{longtable} % ✅ NEW: For tables that break across pages
 \usepackage{array}
 \usepackage{amssymb} % ✅ NEW: For checkbox symbols (\square, \checkmark)
 
@@ -12,7 +13,7 @@
 
 % ---- Colors ----
 \definecolor{emred}{RGB}{228,0,43}
-\definecolor{linegray}{RGB}{190,190,190} % light gray for blanks
+\definecolor{linegray}{RGB}{120,120,120} % ✅ DARKER gray for better visibility
 \definecolor{totalcolor}{RGB}{120,120,120} % dark gray for totals
 
 \pagestyle{empty}
@@ -202,7 +203,7 @@
 \hspace{0.8cm}%
 \begin{minipage}[c]{0.72\textwidth}
   \centering
-  {\bfseries\normalsize\textcolor{emred}{ {{{headerTitle}}} }\par}
+  {\bfseries\normalsize\textcolor{emred}{CUSTOMER UPDATE ADDENDUM}\par}
 
   \vspace{0.5em}
 
@@ -227,7 +228,7 @@
 \fcolorbox{emred}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
-    \bfseries\footnotesize\textcolor{white}{PRODUCTS}%
+    \bfseries\normalsize\textcolor{white}{PRODUCTS}% ✅ Changed from \footnotesize to \normalsize
   }%
 }
 
@@ -235,16 +236,22 @@
 
 %==================== PRODUCTS TABLE (dynamic, wrapping) ============
 
-\scriptsize
+\small % ✅ Changed from \scriptsize to \small for better readability
 \setlength{\tabcolsep}{2pt}
-\renewcommand{\arraystretch}{1.15}
+\renewcommand{\arraystretch}{1.5} % ✅ Changed from 1.15 to 1.5 for more top/bottom padding
 
-\noindent
-\begin{tabularx}{\textwidth}{|{{{productsColSpecLatex}}}|}
+% ✅ NEW: Use longtable instead of tabularx for automatic page breaks
+\begin{longtable}{|{{{productsColSpecLatex}}}|}
   \hline
   {{{productsHeaderRowLatex}}}
+  \endfirsthead % ✅ End of header for first page
+
+  \hline
+  {{{productsHeaderRowLatex}}}
+  \endhead % ✅ Repeat header on subsequent pages
+
   {{{productsBodyRowsLatex}}}
-\end{tabularx}
+\end{longtable}
 
 %==================== SERVICES TITLE BAR ============================
 

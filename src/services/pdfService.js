@@ -281,10 +281,20 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     ...dispenserCustomHeaders,
   ];
 
-  const productsColSpecLatex = headers.map(() => "Y").join("|");
+  // ✅ FIX: Generate longtable-compatible column spec
+  // longtable doesn't support 'Y' (tabularx-specific), use 'p{width}' instead
+  const numCols = headers.length;
+  // Calculate width per column: divide textwidth by number of columns
+  // Using p{...} for paragraph columns with automatic text wrapping
+  const colWidth = `\\dimexpr\\textwidth/${numCols}-2\\tabcolsep-1.5\\arrayrulewidth\\relax`;
+  const productsColSpecLatex = headers.map(() => `p{${colWidth}}`).join("|");
+
+  // ✅ FIX: Use \parbox for multi-line headers (supports 3+ lines)
+  // \parbox allows unlimited vertical space for text wrapping
+  // \arraybackslash resets row-ending behavior after \raggedright
   const productsHeaderRowLatex =
     headers
-      .map((h) => `\\textbf{${latexEscape(h)}}`)
+      .map((h) => `\\parbox[c]{${colWidth}}{\\raggedright\\arraybackslash\\textbf{${latexEscape(h)}}}`)
       .join(" & ") + " \\\\ \\hline\n";
 
   let productsBodyRowsLatex = "";

@@ -972,10 +972,15 @@ export async function updateCustomerHeader(req, res) {
     }
   } catch (err) {
     console.error("updateCustomerHeader error:", err);
+    // ✅ Log detailed LaTeX error if available
+    if (err.detail) {
+      console.error("📄 LaTeX Compilation Error Details:", err.detail);
+    }
     res.status(500).json({
       success: false,
       error: "Failed to update document",
       detail: err?.message || String(err),
+      latexError: err?.detail || undefined
     });
   }
 }

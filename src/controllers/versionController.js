@@ -497,14 +497,17 @@ export async function createVersion(req, res) {
 
     // Determine version number
     let versionNumber = 1;
-    if (replaceRecent && latestVersion &&
-        new Date() - new Date(latestVersion.createdAt) < 1000 * 60 * 10) {
-      // Replace recent version (within 10 minutes)
+
+    // ✅ FIX: If user explicitly requested replace, honor it (no time window check)
+    if (replaceRecent && latestVersion) {
+      // Replace the latest version (user explicitly clicked "Replace")
       versionNumber = latestVersion.versionNumber;
+      console.log(`🔄 [VERSION-CREATE] User requested replace - will replace v${versionNumber}`);
     } else {
       // ✅ FIX: Create new version based on highest version number (including deleted)
       // This ensures v2 is created if v1 is deleted, preventing version number conflicts
       versionNumber = highestVersionNumber + 1;
+      console.log(`✅ [VERSION-CREATE] Creating new version v${versionNumber}`);
     }
 
     // Compile PDF from current agreement payload
@@ -593,9 +596,14 @@ export async function createVersion(req, res) {
 
   } catch (error) {
     console.error("❌ Failed to create version:", error.message);
+    // ✅ Log detailed LaTeX error if available
+    if (error.detail) {
+      console.error("📄 LaTeX Compilation Error Details:", error.detail);
+    }
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      detail: error.detail || undefined
     });
   }
 }
