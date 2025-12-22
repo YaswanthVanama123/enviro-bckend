@@ -3342,43 +3342,106 @@ export async function permanentlyDeleteFile(req, res) {
       });
     }
 
-    // Find the deleted file (must be in trash first)
-    const file = await ManualUploadDocument.findOne({
+    let file = null;
+    let fileType = null;
+    let fileName = "Unknown File";
+    let cleanedReferences = 0;
+
+    // ✅ FIX: Check all file collections (same as deleteFile function)
+    // 1. Try to find in ManualUploadDocument (attached files)
+    file = await ManualUploadDocument.findOne({
       _id: fileId,
       isDeleted: true
     });
+
+    if (file) {
+      fileType = "attached_file";
+      fileName = file.fileName;
+      console.log(`💥 [PERMANENT DELETE] Starting deletion for attached file: ${fileName} (ID: ${fileId})`);
+
+      // Remove references from CustomerHeaderDoc.attachedFiles arrays
+      const updateResult = await CustomerHeaderDoc.updateMany(
+        { "attachedFiles.manualDocumentId": fileId },
+        {
+          $pull: {
+            attachedFiles: { manualDocumentId: fileId }
+          }
+        }
+      );
+
+      cleanedReferences = updateResult.modifiedCount;
+      console.log(`💥 [CLEANUP] Removed file references from ${cleanedReferences} agreements`);
+
+      // Delete the file from ManualUploadDocument collection
+      await ManualUploadDocument.findByIdAndDelete(fileId);
+
+    } else {
+      // 2. Try to find in VersionPdf (version PDFs)
+      file = await VersionPdf.findOne({
+        _id: fileId,
+        isDeleted: true
+      });
+
+      if (file) {
+        fileType = "version_pdf";
+        fileName = file.fileName || `Version ${file.versionNumber}`;
+        console.log(`💥 [PERMANENT DELETE] Starting deletion for version PDF: ${fileName} (ID: ${fileId})`);
+
+        // ✅ Clean up references in CustomerHeaderDoc.versionLogs array
+        const agreementUpdateResult = await CustomerHeaderDoc.updateMany(
+          { "versionLogs.versionId": fileId },
+          {
+            $pull: {
+              versionLogs: { versionId: fileId }
+            }
+          }
+        );
+
+        cleanedReferences += agreementUpdateResult.modifiedCount;
+        console.log(`💥 [CLEANUP] Removed version references from ${agreementUpdateResult.modifiedCount} agreements`);
+
+        // ✅ Delete associated version change logs
+        const logsDeleteResult = await mongoose.connection.collection('versionchangelogs').deleteMany({
+          versionId: fileId
+        });
+
+        if (logsDeleteResult.deletedCount > 0) {
+          console.log(`💥 [CLEANUP] Deleted ${logsDeleteResult.deletedCount} change logs for version ${fileId}`);
+        }
+
+        // ✅ Delete the version from VersionPdf collection
+        await VersionPdf.findByIdAndDelete(fileId);
+
+      } else {
+        // 3. Try to find in CustomerHeaderDoc (main agreement PDFs - should rarely be deleted individually)
+        file = await CustomerHeaderDoc.findOne({
+          _id: fileId,
+          isDeleted: true
+        });
+
+        if (file) {
+          fileType = "main_pdf";
+          fileName = file.payload?.headerTitle || "Agreement Document";
+
+          return res.status(400).json({
+            success: false,
+            error: "bad_request",
+            detail: "Cannot permanently delete main agreement PDFs individually. Please delete the entire agreement instead."
+          });
+        }
+      }
+    }
 
     if (!file) {
       return res.status(404).json({
         success: false,
         error: "not_found",
-        detail: "File not found in trash"
+        detail: "File not found in trash or not deleted"
       });
     }
 
-    const fileName = file.fileName;
-    let cleanedReferences = 0;
-
-    console.log(`💥 [PERMANENT DELETE] Starting deletion for file: ${fileName} (ID: ${fileId})`);
-
-    // 1. Remove references from CustomerHeaderDoc.attachedFiles arrays
-    const updateResult = await CustomerHeaderDoc.updateMany(
-      { "attachedFiles.manualDocumentId": fileId },
-      {
-        $pull: {
-          attachedFiles: { manualDocumentId: fileId }
-        }
-      }
-    );
-
-    cleanedReferences = updateResult.modifiedCount;
-    console.log(`💥 [CLEANUP] Removed file references from ${cleanedReferences} agreements`);
-
-    // 2. Delete the file from ManualUploadDocument collection
-    await ManualUploadDocument.findByIdAndDelete(fileId);
-
     console.log(`💥 [PERMANENT DELETE] File permanently deleted: ${fileName}`);
-    console.log(`💥 [CLEANUP SUMMARY] Cleaned ${cleanedReferences} references from agreements`);
+    console.log(`💥 [CLEANUP SUMMARY] Cleaned ${cleanedReferences} references`);
 
     res.json({
       success: true,
@@ -3386,6 +3449,7 @@ export async function permanentlyDeleteFile(req, res) {
       deletedData: {
         fileId,
         fileName,
+        fileType,
         cleanedReferences
       }
     });

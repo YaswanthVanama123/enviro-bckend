@@ -202,6 +202,25 @@ function latexEscape(value = "") {
     .replace(/~/g, "\\textasciitilde{}");
 }
 
+// ✅ NEW: Special escape for table headers - makes slashes breakable and allows word breaks
+function latexEscapeHeader(value = "") {
+  let result = String(value)
+    .replace(/\\/g, "\\textbackslash{}")
+    .replace(/([{}%&_#])/g, "\\$1")
+    .replace(/\$/g, "\\$")
+    .replace(/\^/g, "\\textasciicircum{}")
+    .replace(/~/g, "\\textasciitilde{}")
+    .replace(/\//g, "/\\allowbreak{}"); // ✅ Allow line breaks after slashes
+
+  // ✅ Allow word breaks in long words (10+ chars) by inserting \- at natural syllable breaks
+  result = result.replace(/Replacement/g, "Replace\\-ment");
+  result = result.replace(/Warranty/g, "War\\-ranty");
+  result = result.replace(/Frequency/g, "Fre\\-quency");
+  result = result.replace(/Install/g, "In\\-stall");
+
+  return result;
+}
+
 function buildProductsLatex(products = {}, customColumns = { products: [], dispensers: [] }) {
   // Handle BOTH payload formats:
   // 1. Original frontend format: { smallProducts: [...], dispensers: [...], bigProducts: [...] }
@@ -256,8 +275,9 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   );
 
   if (rowCount === 0) {
+    // ✅ FIX: Return proper longtable column spec (not "Y" which only works with tabularx)
     return {
-      productsColSpecLatex: "Y",
+      productsColSpecLatex: "p{\\textwidth}",
       productsHeaderRowLatex: "",
       productsBodyRowsLatex: "",
     };
@@ -281,21 +301,21 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     ...dispenserCustomHeaders,
   ];
 
-  // ✅ FIX: Generate longtable-compatible column spec
-  // longtable doesn't support 'Y' (tabularx-specific), use 'p{width}' instead
+  // Calculate column width for longtable
   const numCols = headers.length;
-  // Calculate width per column: divide textwidth by number of columns
-  // Using p{...} for paragraph columns with automatic text wrapping
   const colWidth = `\\dimexpr\\textwidth/${numCols}-2\\tabcolsep-1.5\\arrayrulewidth\\relax`;
-  const productsColSpecLatex = headers.map(() => `p{${colWidth}}`).join("|");
 
-  // ✅ FIX: Use \parbox for multi-line headers (supports 3+ lines)
-  // \parbox allows unlimited vertical space for text wrapping
-  // \arraybackslash resets row-ending behavior after \raggedright
-  // ✅ ADD: Inside padding for header cells with vspace
+  // ✅ FIX: Add \raggedright\arraybackslash to COLUMN SPEC (not cell content)
+  // This allows natural text wrapping without height restrictions
+  // >{...} prefix applies formatting to entire column
+  const productsColSpecLatex = headers.map(() => `>{\\raggedright\\arraybackslash}p{${colWidth}}`).join("|");
+
+  // ✅ FIX: Headers with breakable slashes and word breaks
+  // latexEscapeHeader makes slashes breakable with \allowbreak
+  // \hspace{0pt} allows hyphenation at any position for long words
   const productsHeaderRowLatex =
     headers
-      .map((h) => `\\parbox[c]{${colWidth}}{\\vspace{2pt}\\raggedright\\arraybackslash\\textbf{${latexEscape(h)}}\\vspace{2pt}}`)
+      .map((h) => `\\textbf{\\hspace{0pt}${latexEscapeHeader(h)}}`)
       .join(" & ") + " \\\\ \\hline\n";
 
   let productsBodyRowsLatex = "";
