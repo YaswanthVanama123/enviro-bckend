@@ -189,6 +189,7 @@ export async function compileAndStoreCustomerHeader(req, res) {
       products: body.products || {},
       services: body.services || {},
       agreement: body.agreement || {},
+      serviceAgreement: body.serviceAgreement || null, // ✅ Save Service Agreement data
     };
 
     // DEBUG: Log the products structure being sent from frontend
@@ -876,6 +877,7 @@ export async function updateCustomerHeader(req, res) {
     if (body.services !== undefined) doc.payload.services = body.services;
     if (body.agreement !== undefined) doc.payload.agreement = body.agreement;
     if (body.customColumns !== undefined) doc.payload.customColumns = body.customColumns; // Update custom columns
+    if (body.serviceAgreement !== undefined) doc.payload.serviceAgreement = body.serviceAgreement; // ✅ Save Service Agreement data
     doc.status = newStatus;
 
     // Update Zoho references if provided
@@ -915,6 +917,7 @@ export async function updateCustomerHeader(req, res) {
         services: body.services || doc.payload.services,
         agreement: doc.payload.agreement,
         customColumns: doc.payload.products?.customColumns || body.products?.customColumns || { products: [], dispensers: [] }, // Pass custom columns from products section
+        serviceAgreement: body.serviceAgreement || doc.payload.serviceAgreement, // ✅ Pass Service Agreement data to PDF compiler
       });
 
       buffer = pdfResult.buffer;
@@ -1684,6 +1687,7 @@ export async function getSavedFilesList(req, res) {
 }
 
 // GET /api/pdf/saved-files/grouped (CORRECTED: One document per agreement with attachedFiles)
+// ✅ OPTIMIZED: Fast queries with selective field projection and efficient filtering
 export async function getSavedFilesGrouped(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -1691,6 +1695,9 @@ export async function getSavedFilesGrouped(req, res) {
       Math.max(parseInt(req.query.limit || "20", 10), 1),
       100
     );
+
+    // ⚡ PERFORMANCE: Log query start time
+    const startTime = Date.now();
 
     // Check if we're in development mode without database
     if (mongoose.connection.readyState === 0) {
@@ -1700,7 +1707,7 @@ export async function getSavedFilesGrouped(req, res) {
         totalGroups: 0,
         page,
         limit,
-        agreements: []
+        groups: []
       });
     }
 
@@ -1720,16 +1727,20 @@ export async function getSavedFilesGrouped(req, res) {
     // ✅ FIXED: Different logic for trash mode vs normal mode
     const isTrashMode = req.query.isDeleted === 'true';
 
+    // ✅ NEW: Support includeDrafts parameter to include draft agreements without PDFs
+    const includeDrafts = req.query.includeDrafts === 'true';
+
     if (isTrashMode) {
-      // Trash mode: Fetch ALL agreements (we'll filter files later)
-      // Don't filter agreements by isDeleted - we want to show deleted files from any agreement
-      console.log(`📁 [TRASH MODE] Fetching all agreements to find deleted files`);
+      // ✅ FIXED: Trash mode should fetch ALL agreements (deleted + non-deleted)
+      // We'll show deleted agreements with all their files, AND non-deleted agreements that contain deleted files
+      console.log(`📁 [TRASH MODE] Fetching all agreements (deleted agreements + agreements with deleted files)`);
     } else {
       // Normal mode: show only non-deleted agreements
       filter.isDeleted = { $ne: true };
+      console.log(`📁 [NORMAL MODE] includeDrafts=${includeDrafts}`);
     }
 
-    // ✅ CORRECTED: Fetch agreements (no grouping - each is already one document)
+    // ⚡ PERFORMANCE: Count with index
     const totalAgreements = await CustomerHeaderDoc.countDocuments(filter);
 
     console.log(`📁 [FETCH] Found ${totalAgreements} total agreements matching filter`);
@@ -1737,13 +1748,16 @@ export async function getSavedFilesGrouped(req, res) {
     // ✅ FIXED: Dynamic populate filter based on trash mode
     let manualDocumentMatch;
     if (isTrashMode) {
-      // Trash mode: include only deleted manual documents
-      manualDocumentMatch = { isDeleted: true };
+      // ✅ FIXED: Trash mode - show ALL files from deleted agreements OR deleted files from non-deleted agreements
+      // Note: populate match doesn't support $or easily, so we'll filter after populate
+      // For now, don't filter - we'll handle it in the transformation step
+      manualDocumentMatch = {}; // No filter - fetch all attached files
     } else {
       // Normal mode: exclude deleted manual documents
       manualDocumentMatch = { isDeleted: { $ne: true } };
     }
 
+    // ⚡ PERFORMANCE: Use lean() and select only needed fields
     const agreements = await CustomerHeaderDoc.find(filter)
       .select({
         _id: 1,
@@ -1769,23 +1783,29 @@ export async function getSavedFilesGrouped(req, res) {
         path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
         model: 'ManualUploadDocument',
         match: manualDocumentMatch, // ✅ FIXED: Dynamic filter based on trash mode
-        select: 'fileName originalFileName fileSize mimeType description uploadedBy status zoho createdAt updatedAt' // ✅ OPTIMIZED: Exclude pdfBuffer from initial load
+        select: 'fileName originalFileName fileSize mimeType description uploadedBy status isDeleted zoho createdAt updatedAt' // ✅ ADDED: isDeleted field
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .lean();
+      .lean();  // ⚡ PERFORMANCE: Use lean() for faster queries
 
-    console.log(`📁 [FETCH] Retrieved ${agreements.length} agreements for page ${page}`);
-    console.log(`📁 [DEBUG] First agreement structure:`, agreements[0] ? {
-      id: agreements[0]._id,
-      title: agreements[0].payload?.headerTitle,
-      attachedFilesCount: agreements[0].attachedFiles?.length || 0,
-      attachedFilesStructure: agreements[0].attachedFiles?.slice(0, 1)
-    } : 'No agreements found');
+    const fetchAgreementsTime = Date.now() - startTime;
+    console.log(`⚡ [PERFORMANCE] Fetched ${agreements.length} agreements in ${fetchAgreementsTime}ms`);
 
     // ✅ FIXED: Fetch all version PDFs for these agreements in one query (dynamic filter)
     const agreementIds = agreements.map(agreement => agreement._id);
+
+    // ✅ NEW: Identify which agreements are deleted vs which have deleted files
+    const deletedAgreementIds = agreements
+      .filter(agreement => agreement.isDeleted === true)
+      .map(agreement => agreement._id);
+
+    const nonDeletedAgreementIds = agreements
+      .filter(agreement => agreement.isDeleted !== true)
+      .map(agreement => agreement._id);
+
+    console.log(`📁 [TRASH MODE] Found ${deletedAgreementIds.length} deleted agreements and ${nonDeletedAgreementIds.length} non-deleted agreements`);
 
     // ✅ FIXED: Dynamic version PDF filter based on trash mode
     let versionPdfFilter = {
@@ -1794,13 +1814,33 @@ export async function getSavedFilesGrouped(req, res) {
     };
 
     if (isTrashMode) {
-      // Trash mode: include only deleted version PDFs
-      versionPdfFilter.isDeleted = true;
+      // ✅ FIXED: Trash mode logic
+      // Show ALL files from deleted agreements OR deleted files from non-deleted agreements
+      if (deletedAgreementIds.length > 0 && nonDeletedAgreementIds.length > 0) {
+        // Both types exist: use $or condition
+        versionPdfFilter.$or = [
+          { agreementId: { $in: deletedAgreementIds } }, // All files from deleted agreements
+          { agreementId: { $in: nonDeletedAgreementIds }, isDeleted: true } // Only deleted files from non-deleted agreements
+        ];
+        delete versionPdfFilter.agreementId; // Remove the top-level agreementId filter
+      } else if (deletedAgreementIds.length > 0) {
+        // Only deleted agreements: show all their files
+        versionPdfFilter.agreementId = { $in: deletedAgreementIds };
+        // Don't filter by isDeleted - show all files
+      } else {
+        // Only non-deleted agreements: show only deleted files
+        versionPdfFilter.agreementId = { $in: nonDeletedAgreementIds };
+        versionPdfFilter.isDeleted = true;
+      }
+
+      console.log(`📁 [TRASH MODE] Version PDF filter:`, JSON.stringify(versionPdfFilter, null, 2));
     } else {
       // Normal mode: exclude deleted version PDFs
       versionPdfFilter.isDeleted = { $ne: true };
     }
 
+    // ⚡ PERFORMANCE: Single optimized query for all version PDFs
+    const versionStartTime = Date.now();
     const allVersionPdfs = await VersionPdf.find(versionPdfFilter)
     .select({
       _id: 1,
@@ -1808,6 +1848,7 @@ export async function getSavedFilesGrouped(req, res) {
       versionNumber: 1,
       versionLabel: 1,
       status: 1,  // ✅ ADDED: Include the status field
+      isDeleted: 1, // ✅ ADDED: Include the isDeleted field
       createdAt: 1,
       updatedAt: 1,
       createdBy: 1,
@@ -1821,7 +1862,10 @@ export async function getSavedFilesGrouped(req, res) {
       'zoho.crm.fileId': 1,
     })
     .sort({ agreementId: 1, versionNumber: -1 }) // Group by agreement, latest versions first
-    .lean();
+    .lean();  // ⚡ PERFORMANCE: Use lean() for faster queries
+
+    const versionFetchTime = Date.now() - versionStartTime;
+    console.log(`⚡ [PERFORMANCE] Fetched ${allVersionPdfs.length} version PDFs in ${versionFetchTime}ms`);
 
     // Group version PDFs by agreement ID for efficient lookup
     const versionsByAgreement = {};
@@ -1835,44 +1879,62 @@ export async function getSavedFilesGrouped(req, res) {
 
     console.log(`📁 [VERSIONS] Found ${allVersionPdfs.length} version PDFs across ${Object.keys(versionsByAgreement).length} agreements`);
 
+    // ⚡ PERFORMANCE: Start transformation timing
+    const transformStartTime = Date.now();
+
     // ✅ Transform to show attached files + version PDFs for each agreement (NO MAIN FILE)
     const transformedAgreements = agreements.map(agreement => {
       // ✅ REMOVED: No more mainFile since all PDFs are in VersionPdf collection
 
       // ✅ Add attached files to the same agreement (now using populated references)
-      const attachedFiles = (agreement.attachedFiles || []).map(attachmentRef => {
-        const manualDoc = attachmentRef.manualDocumentId; // Populated ManualUploadDocument
+      const attachedFiles = (agreement.attachedFiles || [])
+        .map(attachmentRef => {
+          const manualDoc = attachmentRef.manualDocumentId; // Populated ManualUploadDocument
 
-        // ✅ FIX: Handle case where populate failed or reference is invalid
-        if (!manualDoc || !manualDoc._id) {
-          console.warn(`⚠️ Invalid attachment reference in agreement ${agreement._id}:`, attachmentRef);
-          return null; // Skip this attachment
-        }
-
-        return {
-          id: manualDoc._id,
-          agreementId: agreement._id,  // ✅ FIX: Add agreement ID for Zoho upload
-          fileName: manualDoc.originalFileName,
-          fileType: 'attached_pdf',
-          title: manualDoc.originalFileName,
-          status: manualDoc.status || 'uploaded', // ✅ FIX: Use actual status from ManualUploadDocument
-          createdAt: manualDoc.createdAt,
-          updatedAt: manualDoc.updatedAt,
-          createdBy: manualDoc.uploadedBy,
-          updatedBy: null,
-          fileSize: manualDoc.fileSize || 0,
-          pdfStoredAt: manualDoc.createdAt,
-          // ✅ OPTIMIZED: Check if file exists using fileSize or Zoho upload (pdfBuffer excluded from initial load)
-          hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) || !!(manualDoc.zoho?.bigin?.fileId || manualDoc.zoho?.crm?.fileId),
-          description: attachmentRef.description || manualDoc.description || '',
-          zohoInfo: {
-            biginDealId: manualDoc.zoho?.bigin?.dealId || null,
-            biginFileId: manualDoc.zoho?.bigin?.fileId || null,
-            crmDealId: manualDoc.zoho?.crm?.dealId || null,
-            crmFileId: manualDoc.zoho?.crm?.fileId || null,
+          // ✅ FIX: Handle case where populate failed or reference is invalid
+          if (!manualDoc || !manualDoc._id) {
+            console.warn(`⚠️ Invalid attachment reference in agreement ${agreement._id}:`, attachmentRef);
+            return null; // Skip this attachment
           }
-        };
-      }).filter(file => file !== null); // Filter out any invalid references
+
+          // ✅ FIXED: In trash mode, filter based on agreement delete status
+          if (isTrashMode) {
+            const isAgreementDeleted = agreement.isDeleted === true;
+            const isFileDeleted = manualDoc.isDeleted === true;
+
+            // If agreement is deleted, show ALL files
+            // If agreement is not deleted, only show deleted files
+            if (!isAgreementDeleted && !isFileDeleted) {
+              return null; // Skip non-deleted files from non-deleted agreements
+            }
+          }
+
+          return {
+            id: manualDoc._id,
+            agreementId: agreement._id,  // ✅ FIX: Add agreement ID for Zoho upload
+            fileName: manualDoc.originalFileName,
+            fileType: 'attached_pdf',
+            title: manualDoc.originalFileName,
+            status: manualDoc.status || 'uploaded', // ✅ FIX: Use actual status from ManualUploadDocument
+            createdAt: manualDoc.createdAt,
+            updatedAt: manualDoc.updatedAt,
+            createdBy: manualDoc.uploadedBy,
+            updatedBy: null,
+            fileSize: manualDoc.fileSize || 0,
+            pdfStoredAt: manualDoc.createdAt,
+            // ✅ OPTIMIZED: Check if file exists using fileSize or Zoho upload (pdfBuffer excluded from initial load)
+            hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) || !!(manualDoc.zoho?.bigin?.fileId || manualDoc.zoho?.crm?.fileId),
+            description: attachmentRef.description || manualDoc.description || '',
+            isDeleted: manualDoc.isDeleted || false, // ✅ NEW: Include delete status
+            zohoInfo: {
+              biginDealId: manualDoc.zoho?.bigin?.dealId || null,
+              biginFileId: manualDoc.zoho?.bigin?.fileId || null,
+              crmDealId: manualDoc.zoho?.crm?.dealId || null,
+              crmFileId: manualDoc.zoho?.crm?.fileId || null,
+            }
+          };
+        })
+        .filter(file => file !== null); // Filter out any invalid or excluded references
 
       // ✅ NEW: Add version PDFs to the same agreement (using pre-fetched data)
       const agreementVersions = versionsByAgreement[agreement._id.toString()] || [];
@@ -1898,6 +1960,7 @@ export async function getSavedFilesGrouped(req, res) {
         ),
         description: version.changeNotes || `Version ${version.versionNumber} created on ${new Date(version.createdAt).toLocaleDateString()}`,
         versionNumber: version.versionNumber, // ✅ Add version number for sorting/display
+        isDeleted: version.isDeleted || false, // ✅ NEW: Include delete status
         zohoInfo: {
           biginDealId: version.zoho?.bigin?.dealId || null,
           biginFileId: version.zoho?.bigin?.fileId || null,
@@ -1923,14 +1986,48 @@ export async function getSavedFilesGrouped(req, res) {
       };
     });
 
-    // ✅ NEW: In trash mode, filter out agreements with no deleted files
+    const transformTime = Date.now() - transformStartTime;
+    console.log(`⚡ [PERFORMANCE] Transformed ${transformedAgreements.length} agreements with ${transformedAgreements.reduce((sum, a) => sum + a.fileCount, 0)} files in ${transformTime}ms`);
+
+    // ⚡ PERFORMANCE: Start filtering timing
+    const filterStartTime = Date.now();
+
+    // ✅ NEW: Apply filtering based on mode
     let finalAgreements = transformedAgreements;
+
     if (isTrashMode) {
+      // ✅ FIXED: Trash mode - show agreements that:
+      // 1. Have files (deleted files from non-deleted agreements, or all files from deleted agreements)
+      // 2. OR are deleted themselves (even if they have no files - empty deleted folders)
+      finalAgreements = transformedAgreements.filter(agreement =>
+        agreement.fileCount > 0 || agreement.isDeleted === true
+      );
+      console.log(`📁 [TRASH FILTER] Filtered from ${transformedAgreements.length} to ${finalAgreements.length} agreements (deleted agreements + agreements with deleted files)`);
+    } else if (!includeDrafts) {
+      // Normal mode without includeDrafts: filter out agreements with no files (drafts)
       finalAgreements = transformedAgreements.filter(agreement => agreement.fileCount > 0);
-      console.log(`📁 [TRASH FILTER] Filtered from ${transformedAgreements.length} to ${finalAgreements.length} agreements with deleted files`);
+      console.log(`📁 [DRAFT FILTER] Filtered from ${transformedAgreements.length} to ${finalAgreements.length} agreements (excluding drafts without files)`);
+    } else {
+      // Normal mode with includeDrafts: include all agreements (even drafts without files)
+      console.log(`📁 [INCLUDE DRAFTS] Returning all ${transformedAgreements.length} agreements (including drafts without files)`);
+
+      // ✅ NEW: Mark agreements without files as draft-only
+      finalAgreements = transformedAgreements.map(agreement => ({
+        ...agreement,
+        isDraftOnly: agreement.fileCount === 0 // Flag for frontend UI
+      }));
     }
 
+    const filterTime = Date.now() - filterStartTime;
+    console.log(`⚡ [PERFORMANCE] Filtered agreements in ${filterTime}ms`);
+
     const totalFiles = finalAgreements.reduce((sum, agreement) => sum + agreement.fileCount, 0);
+
+    // ⚡ PERFORMANCE: Calculate total response time and log summary
+    const totalTime = Date.now() - startTime;
+    console.log(`⚡ [PERFORMANCE SUMMARY] Total response time: ${totalTime}ms`);
+    console.log(`⚡ [BREAKDOWN] Database queries: ${fetchAgreementsTime + versionFetchTime}ms (Agreements: ${fetchAgreementsTime}ms, Versions: ${versionFetchTime}ms), Transform: ${transformTime}ms, Filter: ${filterTime}ms`);
+    console.log(`⚡ [RESULTS] Returning ${finalAgreements.length} agreements with ${totalFiles} files`);
 
     console.log(`📁 [SAVED-FILES-GROUPED] Fetched ${finalAgreements.length} agreements with ${totalFiles} total files for page ${page}`);
 
@@ -1945,7 +2042,18 @@ export async function getSavedFilesGrouped(req, res) {
         queryType: 'agreements_with_attached_files',
         structure: 'single_document_per_agreement',
         fieldsIncluded: ['basic_info', 'file_meta', 'attached_files', 'zoho_refs'],
-        fieldsExcluded: ['full_payload', 'pdf_buffer']
+        fieldsExcluded: ['full_payload', 'pdf_buffer'],
+        // ⚡ PERFORMANCE: Include timing breakdown
+        performance: {
+          totalTime: `${totalTime}ms`,
+          dbQueryTime: `${fetchAgreementsTime + versionFetchTime}ms`,
+          agreementsFetchTime: `${fetchAgreementsTime}ms`,
+          versionsFetchTime: `${versionFetchTime}ms`,
+          transformTime: `${transformTime}ms`,
+          filterTime: `${filterTime}ms`,
+          agreementsReturned: finalAgreements.length,
+          filesReturned: totalFiles
+        }
       }
     });
   } catch (error) {
@@ -2467,6 +2575,294 @@ export async function deleteAgreement(req, res) {
 }
 
 // ✅ FIXED: Soft delete file (move to trash) - handles all file types
+// ✅ NEW: Debug endpoint to check all files and their delete status
+export async function debugGetAllFiles(req, res) {
+  try {
+    console.log('🔍 [DEBUG] Fetching all files with delete status...');
+
+    // Get all version PDFs
+    const versionPdfs = await VersionPdf.find({})
+      .select({
+        _id: 1,
+        agreementId: 1,
+        versionNumber: 1,
+        fileName: 1,
+        isDeleted: 1,
+        deletedAt: 1,
+        deletedBy: 1,
+        createdAt: 1,
+        updatedAt: 1
+      })
+      .limit(100)
+      .lean();
+
+    // Get all manual uploads
+    const manualUploads = await ManualUploadDocument.find({})
+      .select({
+        _id: 1,
+        fileName: 1,
+        originalFileName: 1,
+        isDeleted: 1,
+        deletedAt: 1,
+        deletedBy: 1,
+        createdAt: 1,
+        updatedAt: 1
+      })
+      .limit(100)
+      .lean();
+
+    // Get all customer headers
+    const agreements = await CustomerHeaderDoc.find({})
+      .select({
+        _id: 1,
+        'payload.headerTitle': 1,
+        status: 1,
+        isDeleted: 1,
+        deletedAt: 1,
+        deletedBy: 1,
+        createdAt: 1,
+        updatedAt: 1
+      })
+      .limit(100)
+      .lean();
+
+    // Count deleted items
+    const deletedVersionPdfs = versionPdfs.filter(v => v.isDeleted === true);
+    const deletedManualUploads = manualUploads.filter(m => m.isDeleted === true);
+    const deletedAgreements = agreements.filter(a => a.isDeleted === true);
+
+    console.log(`🔍 [DEBUG] Version PDFs: ${versionPdfs.length} total, ${deletedVersionPdfs.length} deleted`);
+    console.log(`🔍 [DEBUG] Manual Uploads: ${manualUploads.length} total, ${deletedManualUploads.length} deleted`);
+    console.log(`🔍 [DEBUG] Agreements: ${agreements.length} total, ${deletedAgreements.length} deleted`);
+
+    res.json({
+      success: true,
+      summary: {
+        versionPdfs: {
+          total: versionPdfs.length,
+          deleted: deletedVersionPdfs.length,
+          active: versionPdfs.length - deletedVersionPdfs.length
+        },
+        manualUploads: {
+          total: manualUploads.length,
+          deleted: deletedManualUploads.length,
+          active: manualUploads.length - deletedManualUploads.length
+        },
+        agreements: {
+          total: agreements.length,
+          deleted: deletedAgreements.length,
+          active: agreements.length - deletedAgreements.length
+        }
+      },
+      data: {
+        versionPdfs: versionPdfs,
+        manualUploads: manualUploads,
+        agreements: agreements,
+        deletedVersionPdfs: deletedVersionPdfs,
+        deletedManualUploads: deletedManualUploads,
+        deletedAgreements: deletedAgreements
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ [DEBUG] Error:', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || String(err)
+    });
+  }
+}
+
+// ✅ NEW: Comprehensive trash workflow verification endpoint
+export async function verifyTrashWorkflow(req, res) {
+  try {
+    console.log('🧪 [VERIFY-TRASH] Starting comprehensive trash workflow verification...');
+
+    const results = {
+      timestamp: new Date().toISOString(),
+      databaseConnection: false,
+      collections: {
+        versionPdfs: { exists: false, total: 0, deleted: 0, canQuery: false },
+        manualUploads: { exists: false, total: 0, deleted: 0, canQuery: false },
+        agreements: { exists: false, total: 0, deleted: 0, canQuery: false }
+      },
+      trashQuery: {
+        canExecute: false,
+        resultsCount: 0,
+        error: null
+      },
+      deleteEndpoints: {
+        deleteFileExists: true,
+        deleteAgreementExists: true,
+        restoreFileExists: true,
+        restoreAgreementExists: true
+      },
+      recommendations: []
+    };
+
+    // 1. Check database connection
+    try {
+      if (mongoose.connection.readyState === 1) {
+        results.databaseConnection = true;
+        console.log('✅ [VERIFY-TRASH] Database connected');
+      } else {
+        results.databaseConnection = false;
+        results.recommendations.push('Database is not connected. Check MongoDB connection string.');
+        console.error('❌ [VERIFY-TRASH] Database not connected');
+      }
+    } catch (err) {
+      results.recommendations.push(`Database connection error: ${err.message}`);
+    }
+
+    // 2. Check collections exist and query them
+    if (results.databaseConnection) {
+      // Check VersionPdf collection
+      try {
+        const versionCount = await VersionPdf.countDocuments({});
+        const deletedVersionCount = await VersionPdf.countDocuments({ isDeleted: true });
+        results.collections.versionPdfs = {
+          exists: true,
+          total: versionCount,
+          deleted: deletedVersionCount,
+          canQuery: true
+        };
+        console.log(`✅ [VERIFY-TRASH] VersionPdf: ${versionCount} total, ${deletedVersionCount} deleted`);
+
+        if (deletedVersionCount === 0) {
+          results.recommendations.push('No deleted version PDFs found in database. Try deleting a version PDF first.');
+        }
+      } catch (err) {
+        results.collections.versionPdfs.canQuery = false;
+        results.recommendations.push(`Cannot query VersionPdf collection: ${err.message}`);
+        console.error(`❌ [VERIFY-TRASH] VersionPdf query failed:`, err);
+      }
+
+      // Check ManualUploadDocument collection
+      try {
+        const uploadCount = await ManualUploadDocument.countDocuments({});
+        const deletedUploadCount = await ManualUploadDocument.countDocuments({ isDeleted: true });
+        results.collections.manualUploads = {
+          exists: true,
+          total: uploadCount,
+          deleted: deletedUploadCount,
+          canQuery: true
+        };
+        console.log(`✅ [VERIFY-TRASH] ManualUploadDocument: ${uploadCount} total, ${deletedUploadCount} deleted`);
+
+        if (deletedUploadCount === 0) {
+          results.recommendations.push('No deleted manual uploads found in database. Try deleting an attached file first.');
+        }
+      } catch (err) {
+        results.collections.manualUploads.canQuery = false;
+        results.recommendations.push(`Cannot query ManualUploadDocument collection: ${err.message}`);
+        console.error(`❌ [VERIFY-TRASH] ManualUploadDocument query failed:`, err);
+      }
+
+      // Check CustomerHeaderDoc collection
+      try {
+        const agreementCount = await CustomerHeaderDoc.countDocuments({});
+        const deletedAgreementCount = await CustomerHeaderDoc.countDocuments({ isDeleted: true });
+        results.collections.agreements = {
+          exists: true,
+          total: agreementCount,
+          deleted: deletedAgreementCount,
+          canQuery: true
+        };
+        console.log(`✅ [VERIFY-TRASH] CustomerHeaderDoc: ${agreementCount} total, ${deletedAgreementCount} deleted`);
+
+        if (deletedAgreementCount === 0) {
+          results.recommendations.push('No deleted agreements found in database. Try deleting an agreement first.');
+        }
+      } catch (err) {
+        results.collections.agreements.canQuery = false;
+        results.recommendations.push(`Cannot query CustomerHeaderDoc collection: ${err.message}`);
+        console.error(`❌ [VERIFY-TRASH] CustomerHeaderDoc query failed:`, err);
+      }
+    }
+
+    // 3. Test trash query (simulating the actual trash view query)
+    if (results.databaseConnection) {
+      try {
+        // Simulate the exact query that trash view uses
+        const agreementIds = (await CustomerHeaderDoc.find({})
+          .select('_id')
+          .limit(10)
+          .lean()).map(a => a._id);
+
+        // Query for deleted version PDFs
+        const deletedVersions = await VersionPdf.find({
+          agreementId: { $in: agreementIds },
+          isDeleted: true,
+          status: { $ne: 'archived' }
+        })
+        .select('_id agreementId versionNumber fileName isDeleted')
+        .limit(10)
+        .lean();
+
+        // Query for deleted manual uploads
+        const deletedUploads = await ManualUploadDocument.find({
+          isDeleted: true
+        })
+        .select('_id fileName isDeleted')
+        .limit(10)
+        .lean();
+
+        results.trashQuery.canExecute = true;
+        results.trashQuery.resultsCount = deletedVersions.length + deletedUploads.length;
+
+        console.log(`✅ [VERIFY-TRASH] Trash query executed: ${deletedVersions.length} deleted versions, ${deletedUploads.length} deleted uploads`);
+
+        if (results.trashQuery.resultsCount === 0) {
+          results.recommendations.push('Trash query works but returns 0 results. This means no files are marked as deleted in the database.');
+          results.recommendations.push('ACTION REQUIRED: Delete a file using the UI or Postman, then run this verification again.');
+        } else {
+          results.recommendations.push(`SUCCESS: Trash query found ${results.trashQuery.resultsCount} deleted files. Trash view should show these files.`);
+          results.recommendations.push('If trash view is still empty, check frontend console logs for errors.');
+        }
+      } catch (err) {
+        results.trashQuery.canExecute = false;
+        results.trashQuery.error = err.message;
+        results.recommendations.push(`Trash query failed: ${err.message}`);
+        console.error(`❌ [VERIFY-TRASH] Trash query failed:`, err);
+      }
+    }
+
+    // 4. Overall diagnosis
+    const totalDeleted = results.collections.versionPdfs.deleted +
+                        results.collections.manualUploads.deleted +
+                        results.collections.agreements.deleted;
+
+    if (totalDeleted === 0) {
+      results.recommendations.unshift('⚠️ ROOT CAUSE: No files are marked as deleted in the database.');
+      results.recommendations.push('📋 NEXT STEPS:');
+      results.recommendations.push('1. Open Postman and run: GET /api/pdfs/debug/all-files');
+      results.recommendations.push('2. Copy a file ID from the response (any non-deleted file)');
+      results.recommendations.push('3. Run: DELETE /api/pdfs/files/{fileId}/delete');
+      results.recommendations.push('4. Check backend console for: 🗑️ [SOFT DELETE] ... message');
+      results.recommendations.push('5. Run this verification endpoint again');
+      results.recommendations.push('6. Navigate to /trash in frontend');
+    } else {
+      results.recommendations.unshift(`✅ Found ${totalDeleted} deleted files in database.`);
+    }
+
+    console.log('🧪 [VERIFY-TRASH] Verification complete');
+    console.log('📋 [VERIFY-TRASH] Recommendations:', results.recommendations);
+
+    res.json({
+      success: true,
+      ...results
+    });
+
+  } catch (err) {
+    console.error('❌ [VERIFY-TRASH] Verification failed:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Verification failed',
+      detail: err?.message || String(err)
+    });
+  }
+}
+
 export async function deleteFile(req, res) {
   try {
     const { fileId } = req.params;

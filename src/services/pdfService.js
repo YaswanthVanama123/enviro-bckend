@@ -84,8 +84,8 @@ function buildServiceAgreementLatex(agreementData = {}) {
 
   const escape = latexEscape;
 
-  // Helper for checkbox
-  const checkbox = (checked) => checked ? '\\rlap{$\\checkmark$}\\square' : '\\square';
+  // Helper for checkbox - using simple text boxes that don't require special packages
+  const checkbox = (checked) => checked ? '{[\\textbf{X}]}' : '{[~~]}';
 
   // Build the LaTeX content for the service agreement on a new page
   return `
@@ -187,7 +187,7 @@ ${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \
 \\vspace{2em}
 
 \\begin{center}
-${escape(agreementData.pageNumberText || 'Page \\#2')}
+${escape(agreementData.pageNumberText || 'Page #2')}
 \\end{center}
 `;
 }

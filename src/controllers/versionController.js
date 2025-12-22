@@ -372,11 +372,25 @@ export async function checkVersionStatus(req, res) {
       });
     }
 
-    // Get existing versions
+    // Get existing versions (non-deleted)
     const versions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: { $ne: true }
     }).sort({ versionNumber: -1 });
+
+    // ✅ NEW: Also get deleted versions to inform user about trash
+    const deletedVersions = await VersionPdf.find({
+      agreementId: agreementId,
+      isDeleted: true
+    }).sort({ versionNumber: -1 });
+
+    // ✅ NEW: Get highest version number from ALL versions (to show what the next version will be)
+    const allVersionsForCount = await VersionPdf.find({
+      agreementId: agreementId
+    }).sort({ versionNumber: -1 }).limit(1);
+
+    const highestVersionNumber = allVersionsForCount.length > 0 ? allVersionsForCount[0].versionNumber : 0;
+    const nextVersionNumber = highestVersionNumber + 1;
 
     const totalVersions = versions.length;
     const latestVersion = versions[0];
@@ -396,6 +410,8 @@ export async function checkVersionStatus(req, res) {
       isFirstTime,
       hasMainPdf,
       totalVersions,
+      deletedVersionsCount: deletedVersions.length, // ✅ NEW: Show count of deleted versions
+      nextVersionNumber, // ✅ NEW: Show what the next version number will be
       latestVersionNumber: latestVersion?.versionNumber || 0,
       suggestedAction,
       canCreateVersion: true,
@@ -409,6 +425,12 @@ export async function checkVersionStatus(req, res) {
         status: v.status,
         sizeBytes: v.pdf_meta?.sizeBytes || 0
       })),
+      deletedVersions: deletedVersions.map(v => ({ // ✅ NEW: Show deleted versions info
+        id: v._id,
+        versionNumber: v.versionNumber,
+        versionLabel: v.versionLabel,
+        deletedAt: v.deletedAt
+      })),
       agreement: {
         id: agreement._id,
         headerTitle: agreement.payload?.headerTitle || 'Untitled Agreement',
@@ -417,7 +439,7 @@ export async function checkVersionStatus(req, res) {
       }
     };
 
-    console.log(`📋 [VERSION-STATUS] Agreement ${agreementId}: ${totalVersions} versions, action: ${suggestedAction}`);
+    console.log(`📋 [VERSION-STATUS] Agreement ${agreementId}: ${totalVersions} active versions, ${deletedVersions.length} deleted, next version: v${nextVersionNumber}, action: ${suggestedAction}`);
 
     res.json(versionStatus);
 
@@ -457,11 +479,18 @@ export async function createVersion(req, res) {
       });
     }
 
-    // Get existing versions
+    // Get existing versions (excluding deleted for display, but we need to check all for version numbering)
     const existingVersions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: { $ne: true }
     }).sort({ versionNumber: -1 });
+
+    // ✅ FIX: Get highest version number from ALL versions (including deleted) to avoid conflicts
+    const allVersions = await VersionPdf.find({
+      agreementId: agreementId
+    }).sort({ versionNumber: -1 }).limit(1);
+
+    const highestVersionNumber = allVersions.length > 0 ? allVersions[0].versionNumber : 0;
 
     const totalVersions = existingVersions.length;
     const latestVersion = existingVersions[0];
@@ -473,8 +502,9 @@ export async function createVersion(req, res) {
       // Replace recent version (within 10 minutes)
       versionNumber = latestVersion.versionNumber;
     } else {
-      // Create new version
-      versionNumber = (latestVersion?.versionNumber || 0) + 1;
+      // ✅ FIX: Create new version based on highest version number (including deleted)
+      // This ensures v2 is created if v1 is deleted, preventing version number conflicts
+      versionNumber = highestVersionNumber + 1;
     }
 
     // Compile PDF from current agreement payload

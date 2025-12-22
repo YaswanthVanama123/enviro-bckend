@@ -51,7 +51,11 @@ import {
   reviewVersionChanges,
   getPendingVersionChanges,
   // ✅ NEW: Approval documents grouped API
-  getApprovalDocumentsGrouped
+  getApprovalDocumentsGrouped,
+  // ✅ NEW: Debug endpoint
+  debugGetAllFiles,
+  // ✅ NEW: Trash workflow verification endpoint
+  verifyTrashWorkflow
 } from "../controllers/pdfController.js";
 
 const router = Router();
@@ -64,6 +68,10 @@ router.get("/zoho-diagnostics", runZohoDiagnosticsEndpoint);
 router.get("/test-v10-compatibility", testV10CompatibilityEndpoint);
 router.get("/test-v9-simple-pipeline", testV9SimplePipelineEndpoint);
 router.get("/test-v7-layout-pipeline", testV7LayoutPipelineEndpoint);
+
+/* ---- ✅ NEW: debug endpoint ---- */
+router.get("/debug/all-files", debugGetAllFiles);
+router.get("/debug/verify-trash-workflow", verifyTrashWorkflow);  // ✅ NEW: Comprehensive trash verification
 
 /* ---- basic compile ---- */
 router.post("/compile", compileFromRaw);
