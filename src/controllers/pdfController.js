@@ -775,6 +775,7 @@ export async function getCustomerHeaderForEdit(req, res) {
           customColumns: originalProducts.customColumns || { products: [], dispensers: [] } // Include custom columns inside products
         },
         services: convertedServices, // Use converted services instead of original
+        serviceAgreement: doc.payload.serviceAgreement || undefined, // ✅ Explicitly include service agreement data for editing
       },
       _editFormatMetadata: {
         originalStructure: {

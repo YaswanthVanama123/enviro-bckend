@@ -292,9 +292,10 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   // ✅ FIX: Use \parbox for multi-line headers (supports 3+ lines)
   // \parbox allows unlimited vertical space for text wrapping
   // \arraybackslash resets row-ending behavior after \raggedright
+  // ✅ ADD: Inside padding for header cells with vspace
   const productsHeaderRowLatex =
     headers
-      .map((h) => `\\parbox[c]{${colWidth}}{\\raggedright\\arraybackslash\\textbf{${latexEscape(h)}}}`)
+      .map((h) => `\\parbox[c]{${colWidth}}{\\vspace{2pt}\\raggedright\\arraybackslash\\textbf{${latexEscape(h)}}\\vspace{2pt}}`)
       .join(" & ") + " \\\\ \\hline\n";
 
   let productsBodyRowsLatex = "";
@@ -464,7 +465,8 @@ function buildServiceRows(rows = []) {
   for (const r of rows) {
     const type = r.type || "line";
     if (type === "line") {
-      out += `\\serviceLine{${latexEscape(" " + (r.label || ""))}}{${latexEscape(r.value || "")}}\n`;
+      // ✅ FIX: Remove space prefix before label for proper left alignment
+      out += `\\serviceLine{${latexEscape(r.label || "")}}{${latexEscape(r.value || "")}}\n`;
     } else if (type === "bold") {
       // Check if this is a total field and use appropriate command
       const label = r.label || "";
@@ -477,9 +479,11 @@ function buildServiceRows(rows = []) {
                      label.toLowerCase().includes('visit');
 
       if (isTotal) {
-        out += `\\serviceTotalLine{${latexEscape(" " + label)}}{${latexEscape(r.value || "")}}\n`;
+        // ✅ FIX: Remove space prefix before label for proper left alignment
+        out += `\\serviceTotalLine{${latexEscape(label)}}{${latexEscape(r.value || "")}}\n`;
       } else {
-        out += `\\serviceBoldLine{${latexEscape(" " + label)}}{${latexEscape(r.value || "")}}\n`;
+        // ✅ FIX: Remove space prefix before label for proper left alignment
+        out += `\\serviceBoldLine{${latexEscape(label)}}{${latexEscape(r.value || "")}}\n`;
       }
     } else if (type === "atCharge") {
       out += `\\serviceAtCharge{${latexEscape(r.label || "")}}{${latexEscape(r.v1 || "")}}{${latexEscape(r.v2 || "")}}{${latexEscape(r.v3 || "")}}\n`;
@@ -521,10 +525,8 @@ function transformServicesToPdfFormat(usedServices) {
   const topRow = [];
   const bottomRow = [];
 
-  // Service display configuration - determines which row each service goes into
-  const topRowServices = ['saniclean', 'saniscrub', 'microfiberMopping', 'rpmWindows'];
-  const bottomRowServices = ['foamingDrain', 'sanipod', 'carpetclean', 'janitorial', 'stripwax', 'greaseTrap', 'electrostaticSpray'];
-  // Note: refreshPowerScrub is handled separately in the refreshSectionLatex
+  // ✅ FIX: Collect all services in order, then distribute 2 per row
+  const allServices = [];
 
   // Service labels mapping
   const serviceLabels = {
@@ -548,12 +550,7 @@ function transformServicesToPdfFormat(usedServices) {
 
     const column = transformServiceToColumn(serviceKey, serviceData, serviceLabels[serviceKey]);
     if (column && column.rows && column.rows.length > 0) {
-      // Determine which row this service belongs to
-      if (topRowServices.includes(serviceKey)) {
-        topRow.push(column);
-      } else if (bottomRowServices.includes(serviceKey)) {
-        bottomRow.push(column);
-      }
+      allServices.push(column);
     }
   }
 
@@ -562,9 +559,18 @@ function transformServicesToPdfFormat(usedServices) {
     for (const customService of usedServices.customServices) {
       const column = transformCustomServiceToColumn(customService);
       if (column && column.rows && column.rows.length > 0) {
-        // Add custom services to bottom row
-        bottomRow.push(column);
+        allServices.push(column);
       }
+    }
+  }
+
+  // ✅ FIX: Distribute services 2 per row automatically
+  // First 2 services go to topRow, next 2 to bottomRow, etc.
+  for (let i = 0; i < allServices.length; i++) {
+    if (i < 2) {
+      topRow.push(allServices[i]);
+    } else {
+      bottomRow.push(allServices[i]);
     }
   }
 

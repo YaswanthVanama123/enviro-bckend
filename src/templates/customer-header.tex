@@ -25,25 +25,47 @@
   \leavevmode
   \makebox[\linewidth][c]{%
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\linewidth}{0.25pt}}}%
-    \makebox[0pt][c]{\strut #1}%
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #1}}% ✅ Lift text above line
   }%
 }
 
 % medium underline with text centered on the line (generic inline field)
 \newcommand{\smallfilled}[1]{%
   \leavevmode
-  \makebox[2.0cm][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{2.0cm}{0.25pt}}}%
-    \makebox[0pt][c]{\strut #1}%
+  % ✅ IMPROVED: Calculate width dynamically based on content
+  \setbox0=\hbox{\strut #1}%
+  \ifdim\wd0>5cm%
+    \def\fieldwidth{5cm}% ✅ Max width
+  \else%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ✅ Min width
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Actual width + padding
+    \fi%
+  \fi%
+  \makebox[\fieldwidth][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #1}}%
   }%
 }
 
-% short blank for calc fields – wider width with normal font size to match other fields
+% short blank for calc fields – dynamic width based on content
 \newcommand{\smallfilledshort}[1]{%
   \leavevmode
-  \makebox[1.5cm][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{1.5cm}{0.25pt}}}%
-    \makebox[0pt][c]{\strut\small #1}%
+  % ✅ IMPROVED: Calculate width dynamically based on content
+  \setbox0=\hbox{\strut\small #1}%
+  \ifdim\wd0>5cm%
+    \def\fieldwidth{5cm}% ✅ Max width for calc fields
+  \else%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ✅ Min width for calc fields
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Actual width + padding
+    \fi%
+  \fi%
+  \makebox[\fieldwidth][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\raisebox{1pt}{\strut\small #1}}%
   }%
 }
 
@@ -77,23 +99,24 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % Calculate appropriate width based on content, max 4cm
+  % ✅ IMPROVED: Calculate width based on content with better limits
+  % Removed minimum, increased maximum to prevent overlapping
   \setbox0=\hbox{\strut #2}%
-  \ifdim\wd0>4cm%
-    \def\fieldwidth{4cm}%
+  \ifdim\wd0>7cm%
+    \def\fieldwidth{7cm}% ✅ Increased max from 4cm to 7cm (prevents overlap)
   \else%
-    \ifdim\wd0<1.5cm%
-      \def\fieldwidth{1.5cm}%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ✅ Reduced min from 1.5cm to 0.8cm (less wasted space)
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.5cm\relax}%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Reduced padding from 0.5cm to 0.3cm
     \fi%
   \fi%
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    % value text centered on top of that line
-    \makebox[0pt][c]{\strut #2}%
+    % ✅ FIX: Lift value text slightly above the line
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -109,23 +132,23 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % Calculate appropriate width based on content, max 4cm
+  % ✅ IMPROVED: Calculate width based on content with better limits
   \setbox0=\hbox{\strut #2}%
-  \ifdim\wd0>4cm%
-    \def\fieldwidth{4cm}%
+  \ifdim\wd0>7cm%
+    \def\fieldwidth{7cm}% ✅ Increased max from 4cm to 7cm
   \else%
-    \ifdim\wd0<1.5cm%
-      \def\fieldwidth{1.5cm}%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ✅ Reduced min from 1.5cm to 0.8cm
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.5cm\relax}%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Reduced padding from 0.5cm to 0.3cm
     \fi%
   \fi%
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    % value text centered on top of that line
-    \makebox[0pt][c]{\strut #2}%
+    % ✅ FIX: Lift value text slightly above the line
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -141,23 +164,23 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % Calculate appropriate width based on content, max 4cm
+  % ✅ IMPROVED: Calculate width based on content with better limits
   \setbox0=\hbox{\strut #2}%
-  \ifdim\wd0>4cm%
-    \def\fieldwidth{4cm}%
+  \ifdim\wd0>7cm%
+    \def\fieldwidth{7cm}% ✅ Increased max from 4cm to 7cm
   \else%
-    \ifdim\wd0<1.5cm%
-      \def\fieldwidth{1.5cm}%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ✅ Reduced min from 1.5cm to 0.8cm
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.5cm\relax}%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Reduced padding from 0.5cm to 0.3cm
     \fi%
   \fi%
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    % value text centered on top of that line
-    \makebox[0pt][c]{\strut #2}%
+    % ✅ FIX: Lift value text slightly above the line
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -183,7 +206,10 @@
 
 % short blanks in agreement paragraph (with optional value)
 \newcommand{\agreementBlank}[2][2.5cm]{%
-  \underline{\makebox[#1][c]{#2}}%
+  \makebox[#1][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{#1}{0.25pt}}}%
+    \makebox[0pt][c]{\raisebox{1pt}{#2}}% ✅ Lift text above line
+  }%
 }
 
 % signature-line blanks (no values)
@@ -205,9 +231,9 @@
   \centering
   {\bfseries\normalsize\textcolor{emred}{CUSTOMER UPDATE ADDENDUM}\par}
 
-  \vspace{0.5em}
+  \vspace{1.2em} % ✅ Increased from 0.5em to 1.2em for more space
 
-  \footnotesize
+  \small % ✅ Changed from \footnotesize to \small for larger values
   \renewcommand{\arraystretch}{1.20}%
 
   \begin{tabularx}{\linewidth}{@{}lX lX@{}}
@@ -261,7 +287,7 @@
 \fcolorbox{emred}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
-    \bfseries\footnotesize\textcolor{white}{SERVICES}%
+    \bfseries\normalsize\textcolor{white}{SERVICES}% ✅ Changed from \footnotesize to \normalsize
   }%
 }
 
@@ -294,46 +320,46 @@
 
 \vspace{0.6em}
 
-\small
-Enviro-Master of \agreementBlank{ {{{agreementEnviroOf}}} }, and Customer hereby
-agree to extend the current term of the current Service Agreement, executed
-by Customer on \agreementBlank[1.8cm]{ {{{agreementExecutedOn}}} }, for an
-additional \agreementBlank[1.8cm]{ {{{agreementAdditionalMonths}}} } months.
-The parties agree that except as amended by this Renewal Addendum, all other
-terms and conditions set forth in the Service Agreement shall remain in full
-force and effect.
+% \small
+% Enviro-Master of \agreementBlank{ {{{agreementEnviroOf}}} }, and Customer hereby
+% agree to extend the current term of the current Service Agreement, executed
+% by Customer on \agreementBlank[1.8cm]{ {{{agreementExecutedOn}}} }, for an
+% additional \agreementBlank[1.8cm]{ {{{agreementAdditionalMonths}}} } months.
+% The parties agree that except as amended by this Renewal Addendum, all other
+% terms and conditions set forth in the Service Agreement shall remain in full
+% force and effect.
 
-\vspace{1.2em}
+% \vspace{1.2em}
 
-\noindent
-\begin{minipage}[t]{0.55\textwidth}
-  \raggedright
-  \textsc{Print}\ \sigblank{7.0cm}\\[-0.2em]
-  {\scriptsize Name of Customer}\par
+% \noindent
+% \begin{minipage}[t]{0.55\textwidth}
+%   \raggedright
+%   \textsc{Print}\ \sigblank{7.0cm}\\[-0.2em]
+%   {\scriptsize Name of Customer}\par
 
-  \vspace{0.8em}
+%   \vspace{0.8em}
 
-  \textsc{Print}\ \sigblank{7.0cm}\\[-0.2em]
-  {\scriptsize Name \& Title of Customer Contact}\par
+%   \textsc{Print}\ \sigblank{7.0cm}\\[-0.2em]
+%   {\scriptsize Name \& Title of Customer Contact}\par
 
-  \vspace{0.8em}
+%   \vspace{0.8em}
 
-  By\ \sigblank{4.0cm}\hfill\\[-0.2em]
-  {\scriptsize Signature of Authorized Customer Representative}\par
-\end{minipage}%
-\hfill
-\begin{minipage}[t]{0.40\textwidth}
-  \raggedright
-  Sign\ \sigblank{4.0cm}\hfill Date\ \sigblank{2.0cm}\\[-0.2em]
-  {\scriptsize Signature -- Enviro-Master Representative}\par
+%   By\ \sigblank{4.0cm}\hfill\\[-0.2em]
+%   {\scriptsize Signature of Authorized Customer Representative}\par
+% \end{minipage}%
+% \hfill
+% \begin{minipage}[t]{0.40\textwidth}
+%   \raggedright
+%   Sign\ \sigblank{4.0cm}\hfill Date\ \sigblank{2.0cm}\\[-0.2em]
+%   {\scriptsize Signature -- Enviro-Master Representative}\par
 
-  \vspace{0.8em}
+%   \vspace{0.8em}
 
-  Sign\ \sigblank{4.0cm}\hfill Date\ \sigblank{2.0cm}\\[-0.2em]
-  {\scriptsize Signature -- Enviro-Master Franchisee}\par
-\end{minipage}
+%   Sign\ \sigblank{4.0cm}\hfill Date\ \sigblank{2.0cm}\\[-0.2em]
+%   {\scriptsize Signature -- Enviro-Master Franchisee}\par
+% \end{minipage}
 
-\vspace{1.2em}
-\noindent\textcolor{emred}{\rule{\textwidth}{0.4pt}}
+% \vspace{1.2em}
+% \noindent\textcolor{emred}{\rule{\textwidth}{0.4pt}}
 
 \end{document}
