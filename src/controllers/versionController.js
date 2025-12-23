@@ -252,11 +252,14 @@ export async function updateVersionStatus(req, res) {
 
 /**
  * GET /api/versions/:id/download
- * Download a specific version PDF
+ * Download a specific version PDF (with optional watermark)
+ * ✅ NEW: Supports ?watermark=true query parameter for on-demand watermark generation
  */
 export async function downloadVersionPdf(req, res) {
   try {
     const { id } = req.params;
+    const { watermark = 'false' } = req.query; // Query param defaults to 'false'
+    const applyWatermark = watermark === 'true' || watermark === true;
 
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
@@ -265,7 +268,7 @@ export async function downloadVersionPdf(req, res) {
       });
     }
 
-    const version = await VersionPdf.findById(id);
+    const version = await VersionPdf.findById(id).populate('agreementId');
     if (!version) {
       return res.status(404).json({
         success: false,
@@ -273,20 +276,35 @@ export async function downloadVersionPdf(req, res) {
       });
     }
 
-    if (!version.pdf_meta?.pdfBuffer) {
-      return res.status(404).json({
-        success: false,
-        error: "PDF content not found for this version"
-      });
+    console.log(`📥 [VERSION-DOWNLOAD] Downloading version ${version.versionNumber}:`, {
+      fileName: version.fileName,
+      watermark: applyWatermark,
+      hasStoredPdf: !!version.pdf_meta?.pdfBuffer
+    });
+
+    // ✅ FIXED: Always regenerate on-demand to respect checkbox state
+    // This ensures the watermark checkbox works correctly
+    // The stored PDF might have a watermark baked in, so we regenerate based on user's choice
+    console.log(`🔄 [ON-DEMAND] Regenerating PDF on-demand with watermark=${applyWatermark}`);
+
+    const compiledPdf = await compileCustomerHeader(version.payloadSnapshot, {
+      watermark: applyWatermark  // Use the checkbox state from frontend
+    });
+
+    if (!compiledPdf || !compiledPdf.buffer) {
+      throw new Error("Failed to compile PDF");
     }
 
+    const fileName = applyWatermark
+      ? version.fileName.replace('.pdf', '_DRAFT.pdf')
+      : version.fileName;
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${version.fileName}"`);
-    res.setHeader('Content-Length', version.pdf_meta.sizeBytes);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', compiledPdf.buffer.length);
 
-    res.end(version.pdf_meta.pdfBuffer);
-
-    console.log(`📥 [VERSION-DOWNLOAD] Downloaded version ${version.versionNumber}: ${version.fileName}`);
+    res.end(compiledPdf.buffer);
+    console.log(`📥 [VERSION-DOWNLOAD] Downloaded version ${version.versionNumber}: ${fileName}`);
 
   } catch (error) {
     console.error("❌ Failed to download version:", error.message);
@@ -459,7 +477,7 @@ export async function checkVersionStatus(req, res) {
 export async function createVersion(req, res) {
   try {
     const { agreementId } = req.params;
-    const { changeNotes, createdBy, replaceRecent, isFirstTime } = req.body || {};
+    const { changeNotes, createdBy, replaceRecent, isFirstTime, watermark = false } = req.body || {};
 
     if (!mongoose.isValidObjectId(agreementId)) {
       return res.status(400).json({
@@ -468,7 +486,11 @@ export async function createVersion(req, res) {
       });
     }
 
-    console.log(`📝 [VERSION-CREATE] Creating version for agreement ${agreementId}`);
+    console.log(`📝 [VERSION-CREATE] Creating version for agreement ${agreementId}`, {
+      watermark,
+      replaceRecent,
+      isFirstTime
+    });
 
     // Get agreement
     const agreement = await CustomerHeaderDoc.findById(agreementId);
@@ -510,8 +532,22 @@ export async function createVersion(req, res) {
       console.log(`✅ [VERSION-CREATE] Creating new version v${versionNumber}`);
     }
 
-    // Compile PDF from current agreement payload
-    const compiledPdf = await compileCustomerHeader(agreement.payload);
+    // ✅ NEW: Compile PDF with watermark option
+    // Watermark is applied if explicitly requested OR if status is draft/pending_approval
+    const shouldApplyWatermark = watermark === true ||
+                                  agreement.status === 'draft' ||
+                                  agreement.status === 'pending_approval';
+
+    console.log(`💧 [WATERMARK-CHECK] Watermark decision:`, {
+      requestedWatermark: watermark,
+      agreementStatus: agreement.status,
+      shouldApplyWatermark
+    });
+
+    const compiledPdf = await compileCustomerHeader(agreement.payload, {
+      watermark: shouldApplyWatermark
+    });
+
     if (!compiledPdf || !compiledPdf.buffer) {
       throw new Error("Failed to compile PDF for version");
     }
@@ -762,10 +798,13 @@ export async function getVersionsList(req, res) {
 /**
  * GET /api/versions/version/:versionId/view
  * View a specific version PDF (for inline display in browser)
+ * ✅ NEW: Supports ?watermark=true query parameter for on-demand watermark generation
  */
 export async function viewVersionPdf(req, res) {
   try {
     const { versionId } = req.params;
+    const { watermark = 'false' } = req.query; // Query param defaults to 'false'
+    const applyWatermark = watermark === 'true' || watermark === true;
 
     if (!mongoose.isValidObjectId(versionId)) {
       return res.status(400).json({
@@ -782,20 +821,35 @@ export async function viewVersionPdf(req, res) {
       });
     }
 
-    if (!version.pdf_meta?.pdfBuffer) {
-      return res.status(404).json({
-        success: false,
-        error: "PDF content not found for this version"
-      });
+    console.log(`👁️ [VERSION-VIEW] Viewing version ${version.versionNumber}:`, {
+      fileName: version.fileName,
+      watermark: applyWatermark,
+      hasStoredPdf: !!version.pdf_meta?.pdfBuffer
+    });
+
+    // ✅ FIXED: Always regenerate on-demand to respect checkbox state
+    // This ensures the watermark checkbox works correctly
+    // The stored PDF might have a watermark baked in, so we regenerate based on user's choice
+    console.log(`🔄 [ON-DEMAND] Regenerating PDF on-demand with watermark=${applyWatermark}`);
+
+    const compiledPdf = await compileCustomerHeader(version.payloadSnapshot, {
+      watermark: applyWatermark  // Use the checkbox state from frontend
+    });
+
+    if (!compiledPdf || !compiledPdf.buffer) {
+      throw new Error("Failed to compile PDF");
     }
 
+    const fileName = applyWatermark
+      ? version.fileName.replace('.pdf', '_DRAFT.pdf')
+      : version.fileName;
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${version.fileName}"`);
-    res.setHeader('Content-Length', version.pdf_meta.sizeBytes);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.setHeader('Content-Length', compiledPdf.buffer.length);
 
-    res.end(version.pdf_meta.pdfBuffer);
-
-    console.log(`👁️ [VERSION-VIEW] Viewed version ${version.versionNumber}: ${version.fileName}`);
+    res.end(compiledPdf.buffer);
+    console.log(`👁️ [VERSION-VIEW] Viewed version ${version.versionNumber}: ${fileName}`);
 
   } catch (error) {
     console.error("❌ Failed to view version:", error.message);

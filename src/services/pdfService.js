@@ -192,6 +192,43 @@ ${escape(agreementData.pageNumberText || 'Page #2')}
 `;
 }
 
+/* ---------------- Watermark LaTeX Builder ---------------- */
+/**
+ * ✅ NEW: Builds LaTeX code for "DRAFT" watermark overlay
+ * Uses TikZ to place diagonal watermark on every page
+ * Watermark is semi-transparent gray, centered, rotated 45 degrees
+ *
+ * Returns object with:
+ *  - preamble: packages to be inserted before \begin{document}
+ *  - command: watermark command to be inserted after \begin{document}
+ */
+function buildWatermarkLatex() {
+  const preamble = `
+% ====== DRAFT WATERMARK PACKAGES ======================================
+\\usepackage{tikz}
+\\usepackage{everypage}
+% ======================================================================
+`;
+
+  const command = `
+% ====== DRAFT WATERMARK COMMAND =======================================
+\\AddEverypageHook{%
+  \\begin{tikzpicture}[remember picture, overlay]
+    \\node[
+      rotate=45,
+      scale=10,
+      text opacity=0.15,
+      inner sep=0pt,
+      text=gray
+    ] at (current page.center) {\\textbf{DRAFT}};
+  \\end{tikzpicture}%
+}
+% ======================================================================
+`;
+
+  return { preamble, command };
+}
+
 /* ---------------- LaTeX helpers ---------------- */
 function latexEscape(value = "") {
   return String(value)
@@ -2009,8 +2046,15 @@ export async function compileProposalTemplate() {
 }
 
 // (C) customer-header — render Mustache locally, then SEND BUNDLE with logo
-export async function compileCustomerHeader(body = {}) {
-  // console.log('🔍 [TEMPLATE DEBUG] Starting PDF compilation with template path:', PDF_HEADER_TEMPLATE_PATH);
+// ✅ NEW: Added watermark parameter for draft PDF generation
+export async function compileCustomerHeader(body = {}, options = {}) {
+  const { watermark = false } = options;
+
+  console.log('🔍 [PDF COMPILE] Starting compilation with options:', {
+    templatePath: PDF_HEADER_TEMPLATE_PATH,
+    watermark,
+    status: body.status,
+  });
 
   const view = {
     headerTitle: latexEscape(body.headerTitle || ""),
@@ -2025,6 +2069,8 @@ export async function compileCustomerHeader(body = {}) {
     agreementAdditionalMonths: latexEscape(body.agreement?.additionalMonths || ""),
     ...buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] }),
     ...buildServicesLatex(body.services || {}),
+    // ✅ NEW: Add watermark flag to view for template
+    includeWatermark: watermark,
   };
 
   // console.log('🔍 [TEMPLATE DEBUG] Template view data generated:', {
@@ -2041,8 +2087,19 @@ export async function compileCustomerHeader(body = {}) {
   // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesBottomRowLatex placeholder:', template.includes('{{{servicesBottomRowLatex}}}'));
 
   let tex = Mustache.render(template, view);
-  // console.log('🔍 [TEMPLATE DEBUG] After Mustache rendering, LaTeX length:', tex.length);
-  // console.log('🔍 [TEMPLATE DEBUG] Rendered LaTeX contains service sections:', tex.includes('SERVICES'));
+  console.log('🔍 [PDF COMPILE] After Mustache rendering, LaTeX length:', tex.length);
+
+  // ✅ NEW: Add watermark overlay if requested
+  if (watermark) {
+    console.log('💧 [WATERMARK] Adding DRAFT watermark to PDF');
+    const { preamble, command } = buildWatermarkLatex();
+
+    // Insert packages in preamble (before \begin{document})
+    tex = tex.replace(/\\begin\{document\}/, preamble + '\\begin{document}');
+
+    // Insert watermark command after \begin{document}
+    tex = tex.replace(/\\begin\{document\}/, '\\begin{document}\n' + command);
+  }
 
   // ✅ NEW: Add Service Agreement if checkbox is checked
   if (body.serviceAgreement && body.serviceAgreement.includeInPdf) {
