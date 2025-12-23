@@ -224,7 +224,11 @@ router.get("/debug", async (req, res) => {
             <h3>🔑 Required App Settings in Zoho:</h3>
             <p><strong>Client Type:</strong> Server-based Applications</p>
             <p><strong>Redirect URI:</strong> <code>http://localhost:5000/oauth/callback</code></p>
-            <p><strong>Scopes:</strong> ZohoBigin.modules.ALL, ZohoBigin.files.ALL, AaaServer.profile.Read</p>
+            <p><strong>Scopes:</strong> ZohoBigin.modules.ALL, ZohoBigin.modules.attachments.ALL, ZohoBigin.settings.ALL</p>
+            <p style="margin-top: 10px; padding: 10px; background: #ffc107; border-radius: 3px;">
+              <strong>⚠️ Important:</strong> Make sure your Zoho app has these exact scopes enabled.
+              If you previously used different scopes, you must regenerate the refresh token by completing the OAuth flow again.
+            </p>
           </div>
 
           <div style="margin-top: 30px;">

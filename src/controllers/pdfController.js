@@ -179,7 +179,9 @@ export async function compileCustomerHeaderPdf(req, res) {
 export async function compileAndStoreCustomerHeader(req, res) {
   try {
     const body = req.body || {};
-    let status = body.status || "saved"; // Default to "saved" instead of "draft"
+    // ✅ FIXED: Respect status from frontend (for Red/Green Line approval workflow)
+    // Frontend now sends "saved" (green line), "pending_approval" (red/neutral line), or "draft"
+    let status = body.status || "draft"; // Default to "draft" only if no status provided
     const isDraft = status === "draft";
 
     // Prepare payload structure
@@ -314,7 +316,9 @@ export async function compileAndStoreCustomerHeader(req, res) {
       res.setHeader("X-CustomerHeaderDoc-Id", mockDocId);
 
       // Return successful response for testing (matches normal flow)
-      const isDraft = (req.body?.status || "saved") === "draft";
+      // ✅ FIXED: Respect status from frontend for approval workflow
+      const testStatus = req.body?.status || "draft";
+      const isDraft = testStatus === "draft";
 
       if (isDraft) {
         return res.status(201).json({
@@ -326,11 +330,11 @@ export async function compileAndStoreCustomerHeader(req, res) {
           testing: true
         });
       } else {
-        // ✅ NEW: Return JSON for non-draft too (PDF creation happens in version system)
+        // ✅ FIXED: Return actual status from frontend (saved or pending_approval)
         return res.status(201).json({
           success: true,
           _id: mockDocId,
-          status: "saved",
+          status: testStatus, // Use the actual status from frontend
           createdAt: new Date().toISOString(),
           message: "Agreement created successfully - PDF will be generated in version system",
           testing: true

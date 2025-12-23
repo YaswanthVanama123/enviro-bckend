@@ -522,7 +522,9 @@ export async function createVersion(req, res) {
       versionNumber: versionNumber,
       versionLabel: `v${versionNumber}`,
       fileName: `${agreement.payload?.headerTitle || 'Agreement'}_v${versionNumber}.pdf`,
-      status: 'saved', // ✅ FIXED: Use 'saved' status for Save and Generate PDF action
+      // ✅ FIXED: Inherit status from agreement (for Red/Green Line approval workflow)
+      // Agreement status was already set based on pricing calculations
+      status: agreement.status || 'saved',
       createdBy: createdBy || null,
       changeNotes: changeNotes || `Version ${versionNumber} - ${isFirstTime ? 'Initial version' : 'Updated agreement'}`,
       payloadSnapshot: agreement.payload,
@@ -537,6 +539,8 @@ export async function createVersion(req, res) {
         crm: {}
       }
     };
+
+    console.log(`📋 [VERSION-CREATE] Creating version with status: ${versionData.status} (inherited from agreement)`);
 
     let version;
     let wasReplacement = false;
