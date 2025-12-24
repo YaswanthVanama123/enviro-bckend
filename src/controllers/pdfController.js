@@ -19,6 +19,7 @@ import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW
 import VersionPdf from "../models/VersionPdf.js"; // ✅ NEW: For version PDFs
 import PriceOverrideLog from "../models/PriceOverrideLog.js"; // ✅ NEW: For price override logging
 import VersionChangeLog from "../models/VersionChangeLog.js"; // ✅ NEW: For version-based change logging
+import Log from "../models/Log.js"; // ✅ NEW: For MongoDB-based version log files (TXT)
 // import mongoose from "mongoose"; // ✅ Add mongoose import for ObjectId handling
 
 /* ------------ health + low-level compile endpoints ------------ */
@@ -1740,6 +1741,9 @@ export async function getSavedFilesGrouped(req, res) {
     // ✅ NEW: Support includeDrafts parameter to include draft agreements without PDFs
     const includeDrafts = req.query.includeDrafts === 'true';
 
+    // ✅ NEW: Support includeLogs parameter to include version log files
+    const includeLogs = req.query.includeLogs === 'true';
+
     if (isTrashMode) {
       // ✅ FIXED: Trash mode should fetch ALL agreements (deleted + non-deleted)
       // We'll show deleted agreements with all their files, AND non-deleted agreements that contain deleted files
@@ -1889,6 +1893,51 @@ export async function getSavedFilesGrouped(req, res) {
 
     console.log(`📁 [VERSIONS] Found ${allVersionPdfs.length} version PDFs across ${Object.keys(versionsByAgreement).length} agreements`);
 
+    // ✅ NEW: Fetch log files if includeLogs is true
+    let logsByAgreement = {};
+    if (includeLogs) {
+      console.log(`📝 [LOGS] Fetching log files for ${agreementIds.length} agreements`);
+
+      const logStartTime = Date.now();
+      const allLogs = await Log.find({
+        agreementId: { $in: agreementIds },
+        isDeleted: { $ne: true } // Only include non-deleted logs
+      })
+      .select({
+        _id: 1,
+        agreementId: 1,
+        versionId: 1,
+        versionNumber: 1,
+        fileName: 1,
+        fileSize: 1,
+        contentType: 1,
+        salespersonId: 1,
+        salespersonName: 1,
+        saveAction: 1,
+        totalChanges: 1,
+        totalPriceImpact: 1,
+        hasSignificantChanges: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .sort({ agreementId: 1, versionNumber: -1, createdAt: -1 }) // Group by agreement, latest first
+      .lean();
+
+      const logFetchTime = Date.now() - logStartTime;
+      console.log(`⚡ [PERFORMANCE] Fetched ${allLogs.length} log files in ${logFetchTime}ms`);
+
+      // Group logs by agreement ID for efficient lookup
+      allLogs.forEach(log => {
+        const agreementId = log.agreementId.toString();
+        if (!logsByAgreement[agreementId]) {
+          logsByAgreement[agreementId] = [];
+        }
+        logsByAgreement[agreementId].push(log);
+      });
+
+      console.log(`📝 [LOGS] Found ${allLogs.length} log files across ${Object.keys(logsByAgreement).length} agreements`);
+    }
+
     // ⚡ PERFORMANCE: Start transformation timing
     const transformStartTime = Date.now();
 
@@ -1979,8 +2028,37 @@ export async function getSavedFilesGrouped(req, res) {
         }
       }));
 
-      // ✅ Combine attached files + version files (NO MORE MAIN FILE)
-      const allFiles = [...attachedFiles, ...versionFiles];
+      // ✅ NEW: Add log files to the same agreement (using pre-fetched data)
+      const agreementLogs = logsByAgreement[agreement._id.toString()] || [];
+
+      const logFiles = agreementLogs.map(log => ({
+        id: log._id,
+        agreementId: agreement._id,
+        versionId: log.versionId, // ✅ Link to version PDF
+        fileName: log.fileName,
+        fileType: 'version_log',
+        title: `v${log.versionNumber} Changes`,
+        status: 'attached', // Log files have 'attached' status
+        createdAt: log.createdAt,
+        updatedAt: log.updatedAt,
+        createdBy: log.salespersonId,
+        updatedBy: null,
+        fileSize: log.fileSize || 0,
+        pdfStoredAt: log.createdAt, // Log files are always stored (MongoDB-based)
+        hasPdf: true, // Log files always exist (generated dynamically from MongoDB)
+        description: `${log.totalChanges} changes, $${(log.totalPriceImpact || 0).toFixed(2)} total impact`,
+        versionNumber: log.versionNumber, // ✅ Add version number for sorting/display
+        isDeleted: false, // Only non-deleted logs are fetched
+        zohoInfo: {
+          biginDealId: null,
+          biginFileId: null,
+          crmDealId: null,
+          crmFileId: null,
+        }
+      }));
+
+      // ✅ Combine attached files + version files + log files (NO MORE MAIN FILE)
+      const allFiles = [...attachedFiles, ...versionFiles, ...logFiles];
 
       return {
         id: agreement._id,

@@ -58,6 +58,14 @@ import {
   verifyTrashWorkflow
 } from "../controllers/pdfController.js";
 
+// ✅ NEW: Version log controller (MongoDB-based log files)
+import {
+  createVersionLog,
+  getVersionLogs,
+  getAllVersionLogs,
+  downloadVersionLog
+} from "../controllers/logController.js";
+
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -128,6 +136,12 @@ router.get("/version-changes/logs/:agreementId", getVersionChangeLogs); // Get a
 router.get("/version-changes/log/:versionId", getVersionChangeLog); // Get specific version change log
 router.patch("/version-changes/:logId/review", reviewVersionChanges); // Review/approve a version's changes
 router.get("/version-changes/pending", getPendingVersionChanges); // Get all pending version changes (admin view)
+
+/* ---- NEW: version log files API (MongoDB-based TXT log files) ---- */
+router.post("/logs/create", createVersionLog); // Create a version log file and store in MongoDB
+router.get("/logs/agreement/:agreementId", getVersionLogs); // Get all log files for an agreement
+router.get("/logs/all", getAllVersionLogs); // Get all log files with pagination (admin)
+router.get("/logs/:logId/download", downloadVersionLog); // Download a log file as TXT
 
 /* ---- pass-through (files uploaded to your backend) ---- */
 router.post("/compile-file", upload.single("file"), proxyCompileFile);
