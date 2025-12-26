@@ -31,7 +31,7 @@ async function getPdfForAgreement(agreementId, options = {}) {
   const requestedVersionId = options?.versionId ? String(options.versionId).trim() : null;
   console.log(`ÐY"? [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}${requestedVersionId ? ` (versionId: ${requestedVersionId})` : ''}`);
 
-  const selectFields = '_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt';
+  const selectFields = '_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt fileName';
   let versionDoc = null;
 
   if (requestedVersionId) {
@@ -71,10 +71,10 @@ async function getPdfForAgreement(agreementId, options = {}) {
         status: { $ne: 'archived' }
       });
 
-      return {
-        pdfBuffer: null,
-        source: null,
-        version: null,
+    return {
+      pdfBuffer: null,
+      source: null,
+      version: null,
         debugInfo: {
           error: 'no_versions_found',
           versionCount: versionCount,
@@ -144,8 +144,9 @@ async function getPdfForAgreement(agreementId, options = {}) {
     };
   }
 
-  const bufferSize = actualSize;
-  const sizeBytes = versionDoc.pdf_meta.sizeBytes || bufferSize;
+    const bufferSize = actualSize;
+    const sizeBytes = versionDoc.pdf_meta.sizeBytes || bufferSize;
+    const resolvedFileName = versionDoc.fileName || `version_${versionDoc.versionNumber}.pdf`;
 
   let properBuffer;
   if (Buffer.isBuffer(mongoBuffer)) {
@@ -164,6 +165,7 @@ async function getPdfForAgreement(agreementId, options = {}) {
     source: sourceLabel,
     version: versionDoc.versionNumber,
     versionId: versionDoc._id,
+    fileName: resolvedFileName,
     requestedVersionId,
     sizeBytes: sizeBytes,
     bufferSize: properBuffer.length
@@ -806,12 +808,23 @@ router.post("/:agreementId/update", async (req, res) => {
       console.log(`📝 [SINGLE] Adding version ${nextVersion} to existing deal: ${dealId}`);
     }
 
+    const rawVersionFileName = pdfData.fileName || `Version_${pdfData.version || nextVersion}`;
+    const sanitizedBase = rawVersionFileName.replace(/[^a-zA-Z0-9-_.]/g, "_");
+    const extensionMatch = sanitizedBase.match(/(\.[^./]+)$/);
+    const extension = extensionMatch ? extensionMatch[1] : ".pdf";
+    const baseName = extensionMatch
+      ? sanitizedBase.slice(0, sanitizedBase.length - extension.length)
+      : sanitizedBase;
+    const finalVersionFileName = `${baseName || `Version_${pdfData.version || nextVersion}`}${extension}`;
+
     // Step 1: Create note (skip if this is a subsequent file in bulk upload)
     let note = null;
     if (!skipNoteCreation) {
+      const sanitizedNoteText = noteText?.trim() || "";
+      const noteContent = `${sanitizedNoteText}${sanitizedNoteText ? "\n\n" : ""}Uploaded File: ${finalVersionFileName}`;
       const noteResult = await createBiginNote(dealId, {
-        title: `Agreement v${nextVersion} - ${new Date().toLocaleDateString()}`,
-        content: noteText.trim()
+        title: finalVersionFileName,
+        content: noteContent
       });
 
       if (!noteResult.success) {
@@ -829,21 +842,9 @@ router.post("/:agreementId/update", async (req, res) => {
     }
 
     // Step 2: Upload the updated PDF
-    // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
+    // ƒo. FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
     const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
-    const fileName = `${dealName.replace(/[^a-zA-Z0-9-_]/g, '_')}_v${nextVersion}.pdf`;
-
-    console.log(`📎 Retrieved updated PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`);
-
-    // ✅ DEBUG: Verify buffer format for Zoho upload
-    console.log(`🔍 [BUFFER-DEBUG] Update buffer info:`, {
-      isBuffer: Buffer.isBuffer(pdfBuffer),
-      length: pdfBuffer.length,
-      type: typeof pdfBuffer,
-      constructor: pdfBuffer.constructor.name
-    });
-
-    const fileResult = await uploadBiginFile(dealId, pdfBuffer, fileName);
+    const fileResult = await uploadBiginFile(dealId, pdfBuffer, finalVersionFileName);
 
     if (!fileResult.success) {
       console.error(`❌ Failed to upload file, but note exists: ${note.id}`);
@@ -864,7 +865,7 @@ router.post("/:agreementId/update", async (req, res) => {
         zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
         zohoFileId: file.id,
         noteText: noteText.trim(),
-        fileName: fileName,
+        fileName: finalVersionFileName,
         uploadedBy: 'system' // TODO: Add user context
       });
       await mapping.save();
@@ -890,7 +891,7 @@ router.post("/:agreementId/update", async (req, res) => {
           zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
           zohoFileId: file.id,
           noteText: noteText.trim(),
-          fileName: fileName,
+          fileName: finalVersionFileName,
           uploadedAt: new Date(),
           uploadedBy: 'system'
         }]
@@ -907,7 +908,7 @@ router.post("/:agreementId/update", async (req, res) => {
     } else {
       console.log(`  ├ Note: Skipped (bulk upload)`);
     }
-    console.log(`  ├ File: ${fileName} (${file.id})`);
+    console.log(`  ├ File: ${finalVersionFileName} (${file.id})`);
     console.log(`  └ Version: ${nextVersion}`);
 
     res.json({
@@ -924,7 +925,7 @@ router.post("/:agreementId/update", async (req, res) => {
         } : null, // ✅ Handle case where note creation was skipped
         file: {
           id: file.id,
-          fileName: fileName
+          fileName: finalVersionFileName
         },
         mapping: {
           id: mapping._id,
