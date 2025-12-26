@@ -20,6 +20,12 @@ import VersionPdf from "../models/VersionPdf.js"; // ✅ NEW: For version PDFs
 import PriceOverrideLog from "../models/PriceOverrideLog.js"; // ✅ NEW: For price override logging
 import VersionChangeLog from "../models/VersionChangeLog.js"; // ✅ NEW: For version-based change logging
 import Log from "../models/Log.js"; // ✅ NEW: For MongoDB-based version log files (TXT)
+// Helper to consistently check if an agreement is already marked deleted
+const isAgreementMarkedDeleted = async (agreementId) => {
+  if (!agreementId || !mongoose.isValidObjectId(agreementId)) return false;
+  const agreement = await CustomerHeaderDoc.findById(agreementId).select('isDeleted').lean();
+  return agreement?.isDeleted === true;
+};
 // import mongoose from "mongoose"; // ✅ Add mongoose import for ObjectId handling
 
 /* ------------ health + low-level compile endpoints ------------ */
@@ -1742,7 +1748,7 @@ export async function getSavedFilesGrouped(req, res) {
     const includeDrafts = req.query.includeDrafts === 'true';
 
     // ✅ NEW: Support includeLogs parameter to include version log files
-    const includeLogs = req.query.includeLogs === 'true';
+    const includeLogs = req.query.includeLogs === 'true' || isTrashMode;
 
     if (isTrashMode) {
       // ✅ FIXED: Trash mode should fetch ALL agreements (deleted + non-deleted)
@@ -1797,7 +1803,7 @@ export async function getSavedFilesGrouped(req, res) {
         path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
         model: 'ManualUploadDocument',
         match: manualDocumentMatch, // ✅ FIXED: Dynamic filter based on trash mode
-        select: 'fileName originalFileName fileSize mimeType description uploadedBy status isDeleted zoho createdAt updatedAt' // ✅ ADDED: isDeleted field
+        select: 'fileName originalFileName fileSize mimeType description uploadedBy status isDeleted deletedAt deletedBy zoho createdAt updatedAt' // ✅ ADDED: isDeleted field
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -1863,6 +1869,8 @@ export async function getSavedFilesGrouped(req, res) {
       versionLabel: 1,
       status: 1,  // ✅ ADDED: Include the status field
       isDeleted: 1, // ✅ ADDED: Include the isDeleted field
+      deletedAt: 1,
+      deletedBy: 1,
       createdAt: 1,
       updatedAt: 1,
       createdBy: 1,
@@ -1893,16 +1901,34 @@ export async function getSavedFilesGrouped(req, res) {
 
     console.log(`📁 [VERSIONS] Found ${allVersionPdfs.length} version PDFs across ${Object.keys(versionsByAgreement).length} agreements`);
 
-    // ✅ NEW: Fetch log files if includeLogs is true
+        // ✅ NEW: Fetch log files if includeLogs is true
     let logsByAgreement = {};
-    if (includeLogs) {
-      console.log(`📝 [LOGS] Fetching log files for ${agreementIds.length} agreements`);
+    if (includeLogs && agreementIds.length > 0) {
+      console.log(`[LOGS] Fetching log files for ${agreementIds.length} agreements (trashMode=${isTrashMode})`);
+
+      const logFilter = { agreementId: { $in: agreementIds } };
+
+      if (isTrashMode) {
+        if (deletedAgreementIds.length > 0 && nonDeletedAgreementIds.length > 0) {
+          logFilter.$or = [
+            { agreementId: { $in: deletedAgreementIds } },
+            { agreementId: { $in: nonDeletedAgreementIds }, isDeleted: true }
+          ];
+          delete logFilter.agreementId;
+        } else if (deletedAgreementIds.length > 0) {
+          logFilter.agreementId = { $in: deletedAgreementIds };
+        } else {
+          logFilter.agreementId = { $in: nonDeletedAgreementIds };
+          logFilter.isDeleted = true;
+        }
+      } else {
+        logFilter.isDeleted = { $ne: true };
+      }
+
+      console.log(`[LOGS] Log filter: ${JSON.stringify(logFilter, null, 2)}`);
 
       const logStartTime = Date.now();
-      const allLogs = await Log.find({
-        agreementId: { $in: agreementIds },
-        isDeleted: { $ne: true } // Only include non-deleted logs
-      })
+      const allLogs = await Log.find(logFilter)
       .select({
         _id: 1,
         agreementId: 1,
@@ -1919,12 +1945,15 @@ export async function getSavedFilesGrouped(req, res) {
         hasSignificantChanges: 1,
         createdAt: 1,
         updatedAt: 1,
+        isDeleted: 1,
+        deletedAt: 1,
+        deletedBy: 1
       })
       .sort({ agreementId: 1, versionNumber: -1, createdAt: -1 }) // Group by agreement, latest first
       .lean();
 
       const logFetchTime = Date.now() - logStartTime;
-      console.log(`⚡ [PERFORMANCE] Fetched ${allLogs.length} log files in ${logFetchTime}ms`);
+      console.log(`?s? [PERFORMANCE] Fetched ${allLogs.length} log files in ${logFetchTime}ms`);
 
       // Group logs by agreement ID for efficient lookup
       allLogs.forEach(log => {
@@ -1935,10 +1964,9 @@ export async function getSavedFilesGrouped(req, res) {
         logsByAgreement[agreementId].push(log);
       });
 
-      console.log(`📝 [LOGS] Found ${allLogs.length} log files across ${Object.keys(logsByAgreement).length} agreements`);
+      console.log(`[LOGS] Found ${allLogs.length} log files across ${Object.keys(logsByAgreement).length} agreements`);
     }
-
-    // ⚡ PERFORMANCE: Start transformation timing
+// ⚡ PERFORMANCE: Start transformation timing
     const transformStartTime = Date.now();
 
     // ✅ Transform to show attached files + version PDFs for each agreement (NO MAIN FILE)
@@ -1985,6 +2013,8 @@ export async function getSavedFilesGrouped(req, res) {
             hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) || !!(manualDoc.zoho?.bigin?.fileId || manualDoc.zoho?.crm?.fileId),
             description: attachmentRef.description || manualDoc.description || '',
             isDeleted: manualDoc.isDeleted || false, // ✅ NEW: Include delete status
+            deletedAt: manualDoc.deletedAt || null,
+            deletedBy: manualDoc.deletedBy || null,
             zohoInfo: {
               biginDealId: manualDoc.zoho?.bigin?.dealId || null,
               biginFileId: manualDoc.zoho?.bigin?.fileId || null,
@@ -2020,6 +2050,8 @@ export async function getSavedFilesGrouped(req, res) {
         description: version.changeNotes || `Version ${version.versionNumber} created on ${new Date(version.createdAt).toLocaleDateString()}`,
         versionNumber: version.versionNumber, // ✅ Add version number for sorting/display
         isDeleted: version.isDeleted || false, // ✅ NEW: Include delete status
+        deletedAt: version.deletedAt || null,
+        deletedBy: version.deletedBy || null,
         zohoInfo: {
           biginDealId: version.zoho?.bigin?.dealId || null,
           biginFileId: version.zoho?.bigin?.fileId || null,
@@ -2048,7 +2080,9 @@ export async function getSavedFilesGrouped(req, res) {
         hasPdf: true, // Log files always exist (generated dynamically from MongoDB)
         description: `${log.totalChanges} changes, $${(log.totalPriceImpact || 0).toFixed(2)} total impact`,
         versionNumber: log.versionNumber, // ✅ Add version number for sorting/display
-        isDeleted: false, // Only non-deleted logs are fetched
+        isDeleted: log.isDeleted || false,
+        deletedAt: log.deletedAt || null,
+        deletedBy: log.deletedBy || null,
         zohoInfo: {
           biginDealId: null,
           biginFileId: null,
@@ -2568,11 +2602,111 @@ export async function restoreFile(req, res) {
       });
     }
 
-    // Find the deleted file
-    const file = await ManualUploadDocument.findOne({
-      _id: fileId,
-      isDeleted: true
-    });
+    let file = null;
+    let fileType = null;
+    let fileName = "Unknown File";
+
+    const fileTypeHint = String(req.query.fileType || "").trim().toLowerCase();
+    const lookupOrderBase = ['attached_pdf', 'version_pdf', 'version_log'];
+    const lookupOrder = fileTypeHint && lookupOrderBase.includes(fileTypeHint)
+      ? [fileTypeHint, ...lookupOrderBase.filter(type => type !== fileTypeHint)]
+      : lookupOrderBase;
+
+    const loadManualFile = async () => {
+      const manual = await ManualUploadDocument.findOne({
+        _id: fileId,
+        isDeleted: true
+      });
+      if (manual) {
+        return manual;
+      }
+      const candidate = await ManualUploadDocument.findById(fileId);
+      if (!candidate) {
+        return null;
+      }
+      const manualDeleted = candidate.isDeleted === true || !!candidate.deletedAt;
+      const attachedAgreementId = candidate?.metadata?.attachedToAgreement;
+      if (manualDeleted || await isAgreementMarkedDeleted(attachedAgreementId)) {
+        if (!manualDeleted) {
+          console.log(`ÐY'¾ [FORCE DELETE] Manual file belongs to deleted agreement (${attachedAgreementId})`);
+        }
+        return candidate;
+      }
+      return null;
+    };
+
+    const loadVersionFile = async () => {
+      const version = await VersionPdf.findOne({
+        _id: fileId,
+        isDeleted: true
+      });
+      if (version) {
+        return version;
+      }
+      const candidate = await VersionPdf.findById(fileId);
+      if (!candidate) {
+        return null;
+      }
+      const versionDeleted = candidate.isDeleted === true || !!candidate.deletedAt;
+      if (versionDeleted || await isAgreementMarkedDeleted(candidate.agreementId)) {
+        if (!versionDeleted) {
+          console.log(`ÐY'¾ [FORCE DELETE] Version PDF belongs to deleted agreement (${candidate.agreementId})`);
+        }
+        return candidate;
+      }
+      return null;
+    };
+
+    const loadLogFile = async () => {
+      const log = await Log.findOne({
+        _id: fileId,
+        isDeleted: true
+      });
+      if (log) {
+        return log;
+      }
+      const candidate = await Log.findById(fileId);
+      if (!candidate) {
+        return null;
+      }
+      const logDeleted = candidate.isDeleted === true || !!candidate.deletedAt;
+      if (logDeleted || await isAgreementMarkedDeleted(candidate.agreementId)) {
+        if (!logDeleted) {
+          console.log(`ÐY'¾ [FORCE DELETE] Log file belongs to deleted agreement (${candidate.agreementId})`);
+        }
+        return candidate;
+      }
+      return null;
+    };
+
+    for (const type of lookupOrder) {
+      if (file) break;
+      if (type === 'attached_pdf') {
+        const doc = await loadManualFile();
+        if (doc) {
+          file = doc;
+          fileType = "attached_file";
+          fileName = doc.originalFileName || doc.fileName;
+          break;
+        }
+      } else if (type === 'version_pdf') {
+        const doc = await loadVersionFile();
+        if (doc) {
+          file = doc;
+          fileType = "version_pdf";
+          fileName = doc.fileName || `Version ${doc.versionNumber}`;
+          break;
+        }
+      } else if (type === 'version_log') {
+        const doc = await loadLogFile();
+        if (doc) {
+          file = doc;
+          fileType = "version_log";
+          fileName = doc.fileName || `Log v${doc.versionNumber}`;
+          break;
+        }
+      }
+    }
 
     if (!file) {
       return res.status(404).json({
@@ -2582,21 +2716,37 @@ export async function restoreFile(req, res) {
       });
     }
 
-    // Restore the file
     file.isDeleted = false;
     file.deletedAt = null;
     file.deletedBy = null;
 
+    let agreementIdToRestore;
+    if (fileType === "attached_file") {
+      agreementIdToRestore = file.metadata?.attachedToAgreement;
+    } else if (fileType === "version_pdf" || fileType === "version_log") {
+      agreementIdToRestore = file.agreementId;
+    }
+
     await file.save();
 
-    console.log(`♻️ [RESTORE] File restored: ${file.fileName} (ID: ${fileId})`);
+    if (agreementIdToRestore && mongoose.isValidObjectId(agreementIdToRestore)) {
+      await CustomerHeaderDoc.findByIdAndUpdate(agreementIdToRestore, {
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+        updatedBy: req.user?.id || req.admin?.id || 'system'
+      });
+    }
+
+    console.log(`[RESTORE] ${fileType} restored: ${fileName} (ID: ${fileId})`);
 
     res.json({
       success: true,
       message: "File restored successfully",
       file: {
         id: file._id,
-        title: file.fileName
+        title: fileName,
+        type: fileType
       }
     });
 
@@ -2609,7 +2759,6 @@ export async function restoreFile(req, res) {
     });
   }
 }
-
 // ✅ NEW: Soft delete agreement (move to trash)
 export async function deleteAgreement(req, res) {
   try {
@@ -2967,35 +3116,65 @@ export async function deleteFile(req, res) {
     let fileType = null;
     let fileName = "Unknown File";
 
-    // 1. Try to find in ManualUploadDocument (attached files)
-    file = await ManualUploadDocument.findOne({
+    const fileTypeHint = String(req.query.fileType || "").trim().toLowerCase();
+    const lookupOrderBase = ['attached_pdf', 'version_pdf', 'version_log', 'main_pdf'];
+    const lookupOrder = fileTypeHint && lookupOrderBase.includes(fileTypeHint)
+      ? [fileTypeHint, ...lookupOrderBase.filter(type => type !== fileTypeHint)]
+      : lookupOrderBase;
+
+    const loadManualFile = async () => ManualUploadDocument.findOne({
       _id: fileId,
       isDeleted: { $ne: true }
     });
 
-    if (file) {
-      fileType = "attached_file";
-      fileName = file.fileName;
-    } else {
-      // 2. Try to find in VersionPdf (version PDFs)
-      file = await VersionPdf.findOne({
-        _id: fileId,
-        isDeleted: { $ne: true }
-      });
+    const loadVersionFile = async () => VersionPdf.findOne({
+      _id: fileId,
+      isDeleted: { $ne: true }
+    });
 
-      if (file) {
-        fileType = "version_pdf";
-        fileName = file.fileName || `Version ${file.versionNumber}`;
-      } else {
-        // 3. Try to find in CustomerHeaderDoc (main agreement PDFs)
-        file = await CustomerHeaderDoc.findOne({
-          _id: fileId,
-          isDeleted: { $ne: true }
-        });
+    const loadLogFile = async () => Log.findOne({
+      _id: fileId,
+      isDeleted: { $ne: true }
+    });
 
-        if (file) {
+    const loadMainAgreement = async () => CustomerHeaderDoc.findOne({
+      _id: fileId,
+      isDeleted: { $ne: true }
+    });
+
+    for (const type of lookupOrder) {
+      if (file) break;
+      if (type === 'attached_pdf') {
+        const doc = await loadManualFile();
+        if (doc) {
+          file = doc;
+          fileType = "attached_file";
+          fileName = doc.fileName || doc.originalFileName;
+          break;
+        }
+      } else if (type === 'version_pdf') {
+        const doc = await loadVersionFile();
+        if (doc) {
+          file = doc;
+          fileType = "version_pdf";
+          fileName = doc.fileName || `Version ${doc.versionNumber}`;
+          break;
+        }
+      } else if (type === 'version_log') {
+        const doc = await loadLogFile();
+        if (doc) {
+          file = doc;
+          fileType = "version_log";
+          fileName = doc.fileName || `Log v${doc.versionNumber}`;
+          break;
+        }
+      } else if (type === 'main_pdf') {
+        const doc = await loadMainAgreement();
+        if (doc) {
+          file = doc;
           fileType = "main_pdf";
-          fileName = file.payload?.headerTitle || "Agreement Document";
+          fileName = doc.payload?.headerTitle || "Agreement Document";
+          break;
         }
       }
     }
@@ -3429,87 +3608,99 @@ export async function permanentlyDeleteFile(req, res) {
     let fileName = "Unknown File";
     let cleanedReferences = 0;
 
-    // ✅ FIX: Check all file collections (same as deleteFile function)
-    // 1. Try to find in ManualUploadDocument (attached files)
-    file = await ManualUploadDocument.findOne({
-      _id: fileId,
-      isDeleted: true
-    });
-
-    if (file) {
-      fileType = "attached_file";
-      fileName = file.fileName;
-      console.log(`💥 [PERMANENT DELETE] Starting deletion for attached file: ${fileName} (ID: ${fileId})`);
-
-      // Remove references from CustomerHeaderDoc.attachedFiles arrays
-      const updateResult = await CustomerHeaderDoc.updateMany(
-        { "attachedFiles.manualDocumentId": fileId },
-        {
-          $pull: {
-            attachedFiles: { manualDocumentId: fileId }
-          }
-        }
-      );
-
-      cleanedReferences = updateResult.modifiedCount;
-      console.log(`💥 [CLEANUP] Removed file references from ${cleanedReferences} agreements`);
-
-      // Delete the file from ManualUploadDocument collection
-      await ManualUploadDocument.findByIdAndDelete(fileId);
-
-    } else {
-      // 2. Try to find in VersionPdf (version PDFs)
-      file = await VersionPdf.findOne({
+    const loadManualFile = async () => {
+      const manual = await ManualUploadDocument.findOne({
         _id: fileId,
         isDeleted: true
       });
+      if (manual) {
+        return manual;
+      }
+      const candidate = await ManualUploadDocument.findById(fileId);
+      if (!candidate) {
+        return null;
+      }
+      const manualDeleted = candidate.isDeleted === true || !!candidate.deletedAt;
+      const attachedAgreementId = candidate?.metadata?.attachedToAgreement;
+      if (manualDeleted || await isAgreementMarkedDeleted(attachedAgreementId)) {
+        return candidate;
+      }
+      return null;
+    };
 
-      if (file) {
-        fileType = "version_pdf";
-        fileName = file.fileName || `Version ${file.versionNumber}`;
-        console.log(`💥 [PERMANENT DELETE] Starting deletion for version PDF: ${fileName} (ID: ${fileId})`);
+    const loadVersionFile = async () => {
+      const version = await VersionPdf.findOne({
+        _id: fileId,
+        isDeleted: true
+      });
+      if (version) {
+        return version;
+      }
+      const candidate = await VersionPdf.findById(fileId);
+      if (!candidate) {
+        return null;
+      }
+      const versionDeleted = candidate.isDeleted === true || !!candidate.deletedAt;
+      if (versionDeleted || await isAgreementMarkedDeleted(candidate.agreementId)) {
+        return candidate;
+      }
+      return null;
+    };
 
-        // ✅ Clean up references in CustomerHeaderDoc.versionLogs array
-        const agreementUpdateResult = await CustomerHeaderDoc.updateMany(
-          { "versionLogs.versionId": fileId },
-          {
-            $pull: {
-              versionLogs: { versionId: fileId }
-            }
-          }
-        );
+    const loadLogFile = async () => {
+      const log = await Log.findOne({
+        _id: fileId,
+        isDeleted: true
+      });
+      if (log) {
+        return log;
+      }
+      const candidate = await Log.findById(fileId);
+      if (!candidate) {
+        return null;
+      }
+      const logDeleted = candidate.isDeleted === true || !!candidate.deletedAt;
+      if (logDeleted || await isAgreementMarkedDeleted(candidate.agreementId)) {
+        return candidate;
+      }
+      return null;
+    };
 
-        cleanedReferences += agreementUpdateResult.modifiedCount;
-        console.log(`💥 [CLEANUP] Removed version references from ${agreementUpdateResult.modifiedCount} agreements`);
+    const lookupOrderBase = [
+      'attached_pdf',
+      'version_pdf',
+      'version_log'
+    ];
+    const requestedType = String(req.query.fileType || "").trim().toLowerCase();
+    const lookupOrder = requestedType && lookupOrderBase.includes(requestedType)
+      ? [requestedType, ...lookupOrderBase.filter(type => type !== requestedType)]
+      : lookupOrderBase;
 
-        // ✅ Delete associated version change logs
-        const logsDeleteResult = await mongoose.connection.collection('versionchangelogs').deleteMany({
-          versionId: fileId
-        });
-
-        if (logsDeleteResult.deletedCount > 0) {
-          console.log(`💥 [CLEANUP] Deleted ${logsDeleteResult.deletedCount} change logs for version ${fileId}`);
+    for (const type of lookupOrder) {
+      if (file) break;
+      if (type === 'attached_pdf') {
+        const doc = await loadManualFile();
+        if (doc) {
+          file = doc;
+          fileType = "attached_file";
+          fileName = doc.originalFileName || doc.fileName;
+          break;
         }
-
-        // ✅ Delete the version from VersionPdf collection
-        await VersionPdf.findByIdAndDelete(fileId);
-
-      } else {
-        // 3. Try to find in CustomerHeaderDoc (main agreement PDFs - should rarely be deleted individually)
-        file = await CustomerHeaderDoc.findOne({
-          _id: fileId,
-          isDeleted: true
-        });
-
-        if (file) {
-          fileType = "main_pdf";
-          fileName = file.payload?.headerTitle || "Agreement Document";
-
-          return res.status(400).json({
-            success: false,
-            error: "bad_request",
-            detail: "Cannot permanently delete main agreement PDFs individually. Please delete the entire agreement instead."
-          });
+      } else if (type === 'version_pdf') {
+        const doc = await loadVersionFile();
+        if (doc) {
+          file = doc;
+          fileType = "version_pdf";
+          fileName = doc.fileName || `Version ${doc.versionNumber}`;
+          break;
+        }
+      } else if (type === 'version_log') {
+        const doc = await loadLogFile();
+        if (doc) {
+          file = doc;
+          fileType = "version_log";
+          fileName = doc.fileName || `Log v${doc.versionNumber}`;
+          break;
         }
       }
     }
@@ -3520,6 +3711,43 @@ export async function permanentlyDeleteFile(req, res) {
         error: "not_found",
         detail: "File not found in trash or not deleted"
       });
+    }
+
+    if (fileType === "attached_file") {
+      console.log(`💥 [PERMANENT DELETE] Starting deletion for attached file: ${fileName} (ID: ${fileId})`);
+      const updateResult = await CustomerHeaderDoc.updateMany(
+        { "attachedFiles.manualDocumentId": fileId },
+        {
+          $pull: {
+            attachedFiles: { manualDocumentId: fileId }
+          }
+        }
+      );
+      cleanedReferences = updateResult.modifiedCount;
+      console.log(`💥 [CLEANUP] Removed file references from ${cleanedReferences} agreements`);
+      await ManualUploadDocument.findByIdAndDelete(fileId);
+    } else if (fileType === "version_pdf") {
+      console.log(`💥 [PERMANENT DELETE] Starting deletion for version PDF: ${fileName} (ID: ${fileId})`);
+      const agreementUpdateResult = await CustomerHeaderDoc.updateMany(
+        { "versionLogs.versionId": fileId },
+        {
+          $pull: {
+            versionLogs: { versionId: fileId }
+          }
+        }
+      );
+      cleanedReferences += agreementUpdateResult.modifiedCount;
+      console.log(`💥 [CLEANUP] Removed version references from ${agreementUpdateResult.modifiedCount} agreements`);
+      const logsDeleteResult = await mongoose.connection.collection('versionchangelogs').deleteMany({
+        versionId: fileId
+      });
+      if (logsDeleteResult.deletedCount > 0) {
+        console.log(`💥 [CLEANUP] Deleted ${logsDeleteResult.deletedCount} change logs for version ${fileId}`);
+      }
+      await VersionPdf.findByIdAndDelete(fileId);
+    } else if (fileType === "version_log") {
+      console.log(`[PERMANENT DELETE] Starting deletion for log file: ${fileName} (ID: ${fileId})`);
+      await Log.findByIdAndDelete(fileId);
     }
 
     console.log(`💥 [PERMANENT DELETE] File permanently deleted: ${fileName}`);

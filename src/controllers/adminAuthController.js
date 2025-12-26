@@ -619,3 +619,133 @@ export async function getAdminRecentDocuments(req, res) {
     });
   }
 }
+
+function parseDateParam(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getTimeRange(period, from, to) {
+  const now = new Date();
+  let startDate = null;
+  let endDate = null;
+
+  switch (period) {
+    case "this_week": {
+      startDate = new Date(now);
+      const day = startDate.getDay();
+      startDate.setDate(now.getDate() - day);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
+    case "this_year": {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
+    case "date_range": {
+      startDate = from ? new Date(from) : null;
+      endDate = to ? new Date(to) : null;
+      break;
+    }
+    case "this_month":
+    default: {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
+  }
+
+  if (endDate) {
+    endDate.setHours(23, 59, 59, 999);
+  }
+
+  if (startDate && !endDate) {
+    // allow end of range to be now if not specified
+    endDate = new Date();
+  }
+
+  if (!startDate) {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    startDate.setHours(0, 0, 0, 0);
+  }
+
+  return { startDate, endDate };
+}
+
+export async function getAdminDashboardStatusCounts(req, res) {
+  try {
+    const requestedPeriod = String(req.query.period || "this_month").toLowerCase();
+    const fromDate = parseDateParam(req.query.from);
+    const toDate = parseDateParam(req.query.to);
+
+    const { startDate, endDate } = getTimeRange(requestedPeriod, fromDate, toDate);
+
+    const softDeleteFilter = {
+      $or: [
+        { isDeleted: { $exists: false } },
+        { isDeleted: false },
+        { isDeleted: { $ne: true } }
+      ]
+    };
+
+    const timeFilter = {};
+    if (startDate || endDate) {
+      timeFilter.updatedAt = {};
+      if (startDate) {
+        timeFilter.updatedAt.$gte = startDate;
+      }
+      if (endDate) {
+        timeFilter.updatedAt.$lte = endDate;
+      }
+    }
+
+    const filter = {
+      ...softDeleteFilter,
+      ...timeFilter
+    };
+
+    const [doneCount, pendingCount, savedCount, draftCount] = await Promise.all([
+      CustomerHeaderDoc.countDocuments({
+        ...filter,
+        status: "approved_admin"
+      }),
+      CustomerHeaderDoc.countDocuments({
+        ...filter,
+        status: { $in: ["pending_approval", "approved_salesman"] }
+      }),
+      CustomerHeaderDoc.countDocuments({
+        ...filter,
+        status: "saved"
+      }),
+      CustomerHeaderDoc.countDocuments({
+        ...filter,
+        status: "draft"
+      })
+    ]);
+
+    const total = doneCount + pendingCount + savedCount + draftCount;
+
+    res.json({
+      success: true,
+      period: requestedPeriod,
+      counts: {
+        done: doneCount,
+        pending: pendingCount,
+        saved: savedCount,
+        drafts: draftCount,
+        total
+      },
+      startDate: startDate?.toISOString() || null,
+      endDate: endDate?.toISOString() || null
+    });
+  } catch (err) {
+    console.error("getAdminDashboardStatusCounts error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch status counts",
+      detail: err?.message || String(err)
+    });
+  }
+}

@@ -7,6 +7,7 @@ import {
   createAdminAccount,
   getAdminDashboard,
   getAdminRecentDocuments,
+  getAdminDashboardStatusCounts,
 } from "../controllers/adminAuthController.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 
@@ -23,5 +24,6 @@ router.post("/create", createAdminAccount);
 // New admin dashboard routes
 router.get("/dashboard", requireAdminAuth, getAdminDashboard);
 router.get("/recent-documents", requireAdminAuth, getAdminRecentDocuments);
+router.get("/dashboard/status-counts", requireAdminAuth, getAdminDashboardStatusCounts);
 
 export default router;

@@ -3,7 +3,8 @@ import { Router } from "express";
 import mongoose from "mongoose";  // ✅ NEW: Added for ObjectId validation
 import ZohoMapping from "../models/ZohoMapping.js";
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
-import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW: For attached files
+import ManualUploadDocument from "../models/ManualUploadDocument.js";
+import Log from "../models/Log.js"; // ✅ NEW: For attached files
 import VersionPdf from "../models/VersionPdf.js"; // ✅ FIX: Import VersionPdf for PDF data
 import {
   getBiginCompanies,
@@ -26,68 +27,92 @@ const router = Router();
  * Current architecture: ALL PDFs (including v1) are stored in VersionPdf documents
  * CustomerHeaderDoc.pdf_meta.pdfBuffer is always null/empty
  */
-async function getPdfForAgreement(agreementId) {
-  console.log(`🔍 [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}`);
+async function getPdfForAgreement(agreementId, options = {}) {
+  const requestedVersionId = options?.versionId ? String(options.versionId).trim() : null;
+  console.log(`ÐY"? [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}${requestedVersionId ? ` (versionId: ${requestedVersionId})` : ''}`);
 
-  // Get latest active VersionPdf for this agreement
-  const latestVersion = await VersionPdf.findOne({
-    agreementId: agreementId,
-    status: { $ne: 'archived' }
-  })
-  .sort({ versionNumber: -1 })
-  .select('_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt')
-  .lean();
+  const selectFields = '_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt';
+  let versionDoc = null;
 
-  if (!latestVersion) {
-    console.error(`❌ [PDF-LOOKUP] No VersionPdf documents found for agreement: ${agreementId}`);
-
-    const versionCount = await VersionPdf.countDocuments({
-      agreementId: agreementId,
-      status: { $ne: 'archived' }
-    });
-
-    return {
-      pdfBuffer: null,
-      source: null,
-      version: null,
-      debugInfo: {
-        error: 'no_versions_found',
-        versionCount: versionCount,
+  if (requestedVersionId) {
+    if (mongoose.Types.ObjectId.isValid(requestedVersionId)) {
+      versionDoc = await VersionPdf.findOne({
+        _id: requestedVersionId,
         agreementId: agreementId,
-        message: 'No VersionPdf documents exist for this agreement'
+        status: { $ne: 'archived' }
+      })
+      .select(selectFields)
+      .lean();
+
+      if (versionDoc) {
+        console.log(`ÐY"? [PDF-LOOKUP] Found requested VersionPdf v${versionDoc.versionNumber} (ID: ${versionDoc._id})`);
+      } else {
+        console.warn(`ƒsÿ‹÷? [PDF-LOOKUP] Requested VersionPdf not found for agreement: ${agreementId} (id: ${requestedVersionId})`);
       }
-    };
+    } else {
+      console.warn(`ƒsÿ‹÷? [PDF-LOOKUP] Invalid requested versionId format: ${requestedVersionId}`);
+    }
   }
 
-  console.log(`🔍 [PDF-LOOKUP] Found VersionPdf v${latestVersion.versionNumber} (ID: ${latestVersion._id})`);
+  if (!versionDoc) {
+    versionDoc = await VersionPdf.findOne({
+      agreementId: agreementId,
+      status: { $ne: 'archived' }
+    })
+    .sort({ versionNumber: -1 })
+    .select(selectFields)
+    .lean();
 
-  // Check if pdfBuffer exists and has content
-  if (!latestVersion.pdf_meta?.pdfBuffer) {
-    console.error(`❌ [PDF-LOOKUP] VersionPdf v${latestVersion.versionNumber} has no pdfBuffer field`);
+    if (!versionDoc) {
+      console.error(`ƒ?O [PDF-LOOKUP] No VersionPdf documents found for agreement: ${agreementId}`);
+
+      const versionCount = await VersionPdf.countDocuments({
+        agreementId: agreementId,
+        status: { $ne: 'archived' }
+      });
+
+      return {
+        pdfBuffer: null,
+        source: null,
+        version: null,
+        debugInfo: {
+          error: 'no_versions_found',
+          versionCount: versionCount,
+          agreementId: agreementId,
+          requestedVersionId,
+          message: 'No VersionPdf documents exist for this agreement'
+        }
+      };
+    }
+
+    console.log(`ÐY"? [PDF-LOOKUP] Found VersionPdf v${versionDoc.versionNumber} (ID: ${versionDoc._id})`);
+  }
+
+  if (!versionDoc.pdf_meta?.pdfBuffer) {
+    console.error(`ƒ?O [PDF-LOOKUP] VersionPdf v${versionDoc.versionNumber} has no pdfBuffer field`);
 
     return {
       pdfBuffer: null,
       source: 'VersionPdf',
-      version: latestVersion.versionNumber,
+      version: versionDoc.versionNumber,
       debugInfo: {
         error: 'no_pdf_buffer',
-        versionId: latestVersion._id,
-        versionNumber: latestVersion.versionNumber,
-        hasPdfMeta: !!latestVersion.pdf_meta,
-        createdAt: latestVersion.createdAt,
+        versionId: versionDoc._id,
+        versionNumber: versionDoc.versionNumber,
+        hasPdfMeta: !!versionDoc.pdf_meta,
+        createdAt: versionDoc.createdAt,
+        requestedVersionId,
         message: 'VersionPdf document exists but pdfBuffer field is missing'
       }
     };
   }
 
-  // Check if pdfBuffer is empty (0 bytes) - handle MongoDB Buffer format
-  const mongoBuffer = latestVersion.pdf_meta.pdfBuffer;
+  const mongoBuffer = versionDoc.pdf_meta.pdfBuffer;
   const actualSize = mongoBuffer.length || mongoBuffer.buffer?.length || 0;
 
   if (actualSize === 0) {
-    console.error(`❌ [PDF-LOOKUP] VersionPdf v${latestVersion.versionNumber} has empty pdfBuffer (0 bytes)`);
+    console.error(`ƒ?O [PDF-LOOKUP] VersionPdf v${versionDoc.versionNumber} has empty pdfBuffer (0 bytes)`);
 
-    // Get debugging info about other versions
     const versionCount = await VersionPdf.countDocuments({
       agreementId: agreementId,
       status: { $ne: 'archived' }
@@ -103,49 +128,47 @@ async function getPdfForAgreement(agreementId) {
     return {
       pdfBuffer: null,
       source: 'VersionPdf',
-      version: latestVersion.versionNumber,
+      version: versionDoc.versionNumber,
       debugInfo: {
         error: 'empty_pdf_buffer',
-        versionId: latestVersion._id,
-        versionNumber: latestVersion.versionNumber,
+        versionId: versionDoc._id,
+        versionNumber: versionDoc.versionNumber,
         versionCount: versionCount,
         versionsWithPdf: versionsWithPdf,
-        sizeBytes: latestVersion.pdf_meta.sizeBytes || 0,
+        sizeBytes: versionDoc.pdf_meta.sizeBytes || 0,
         actualSize: actualSize,
-        createdAt: latestVersion.createdAt,
-        message: `VersionPdf v${latestVersion.versionNumber} exists but pdfBuffer is empty (0 bytes). This suggests PDF compilation failed.`
+        createdAt: versionDoc.createdAt,
+        requestedVersionId,
+        message: `VersionPdf v${versionDoc.versionNumber} exists but pdfBuffer is empty (0 bytes). This suggests PDF compilation failed.`
       }
     };
   }
 
-  // Success! Found valid PDF buffer
-  const bufferSize = actualSize; // Use the size we already calculated
-  const sizeBytes = latestVersion.pdf_meta.sizeBytes || bufferSize;
+  const bufferSize = actualSize;
+  const sizeBytes = versionDoc.pdf_meta.sizeBytes || bufferSize;
 
-  // ✅ FIX: Convert MongoDB Binary/Buffer to proper Node.js Buffer for file upload
   let properBuffer;
   if (Buffer.isBuffer(mongoBuffer)) {
     properBuffer = mongoBuffer;
   } else if (mongoBuffer.buffer) {
-    // Handle MongoDB Binary object
     properBuffer = Buffer.from(mongoBuffer.buffer);
   } else {
-    // Handle other formats (like ArrayBuffer)
     properBuffer = Buffer.from(mongoBuffer);
   }
 
-  console.log(`✅ [PDF-LOOKUP] Found valid PDF in VersionPdf v${latestVersion.versionNumber}: ${properBuffer.length} bytes (converted to proper Buffer)`);
+  const sourceLabel = requestedVersionId ? 'VersionPdf (requested)' : 'VersionPdf';
+  console.log(`ƒo. [PDF-LOOKUP] Found valid PDF in ${sourceLabel} v${versionDoc.versionNumber}: ${properBuffer.length} bytes (converted to proper Buffer)`);
 
   return {
-    pdfBuffer: properBuffer, // Proper Node.js Buffer for file upload
-    source: 'VersionPdf',
-    version: latestVersion.versionNumber,
-    versionId: latestVersion._id,
+    pdfBuffer: properBuffer,
+    source: sourceLabel,
+    version: versionDoc.versionNumber,
+    versionId: versionDoc._id,
+    requestedVersionId,
     sizeBytes: sizeBytes,
     bufferSize: properBuffer.length
   };
 }
-
 /**
  * GET /zoho-upload/:agreementId/status
  * Check if this is first-time upload or update
@@ -711,7 +734,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
 router.post("/:agreementId/update", async (req, res) => {
   try {
     const { agreementId } = req.params;
-    const { noteText, dealId: providedDealId, skipNoteCreation } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
+    const { noteText, dealId: providedDealId, skipNoteCreation, versionId } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
 
     console.log(`🔄 Starting update upload for agreement: ${agreementId}`,
                 providedDealId ? `(target dealId: ${providedDealId})` : '(using existing mapping)',
@@ -735,7 +758,7 @@ router.post("/:agreementId/update", async (req, res) => {
     }
 
     // ✅ FIX: Check for PDF in either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
-    const pdfData = await getPdfForAgreement(agreementId);
+    const pdfData = await getPdfForAgreement(agreementId, { versionId });
 
     if (!pdfData.pdfBuffer) {
       console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
@@ -1316,12 +1339,606 @@ router.get("/companies/:companyId/deals", async (req, res) => {
 
 /**
  * POST /zoho-upload/attached-file/:fileId/add-to-deal
+ * Add attached file or version log to existing Zoho deal
+ */
+router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { dealId, noteText, dealName, skipNoteCreation, fileType } = req.body;
+
+    const trimmedNoteText = (noteText || "").trim();
+    if (!trimmedNoteText) {
+      return res.status(400).json({
+        success: false,
+        error: "Note text is required"
+      });
+    }
+
+    if (!dealId) {
+      return res.status(400).json({
+        success: false,
+        error: "Deal ID is required"
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file ID format"
+      });
+    }
+
+    const normalizedFileType = (fileType || "attached_pdf").toLowerCase();
+    const isLogAttachment = normalizedFileType === "version_log";
+
+    let pdfBuffer;
+    let originalFileName = isLogAttachment ? "Version_Log.txt" : "AttachedFile.pdf";
+
+    if (isLogAttachment) {
+      console.log(`[ATTACHED-FILE] Looking up Log document with ID: ${fileId}`);
+      const logDoc = await Log.findOne({
+        _id: fileId,
+        isDeleted: { $ne: true }
+      });
+
+      if (!logDoc) {
+        console.error(`[ATTACHED-FILE] Log document not found: ${fileId}`);
+        const recentLogs = await Log.find({})
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .select("_id versionNumber agreementId createdAt");
+
+        console.log(`[ATTACHED-FILE] Recent logs for debugging:`);
+        recentLogs.forEach(doc => {
+          console.log(`   - ${doc._id} (v${doc.versionNumber}) created ${doc.createdAt}`);
+        });
+
+        return res.status(404).json({
+          success: false,
+          error: "Log file not found",
+          detail: `Log document with ID ${fileId} does not exist in database`,
+          debugInfo: {
+            providedId: fileId,
+            isValidObjectId: mongoose.Types.ObjectId.isValid(fileId),
+            recentLogIds: recentLogs.map(l => l._id.toString())
+          }
+        });
+      }
+
+      originalFileName = logDoc.fileName || logDoc.documentTitle || originalFileName;
+      const textContent = logDoc.generateTextContent();
+      pdfBuffer = Buffer.from(textContent, "utf8");
+    } else {
+      console.log(`[ATTACHED-FILE] Looking up ManualUploadDocument with ID: ${fileId}`);
+      const manualDoc = await ManualUploadDocument.findById(fileId).select("fileName originalFileName pdfBuffer");
+
+      if (!manualDoc) {
+        console.error(`[ATTACHED-FILE] ManualUploadDocument not found: ${fileId}`);
+        const recentAttachedFiles = await ManualUploadDocument.find({})
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .select("_id fileName originalFileName createdAt");
+
+        console.log(`[ATTACHED-FILE] Recent attached files for debugging:`);
+        recentAttachedFiles.forEach(doc => {
+          console.log(`   - ${doc._id} (${doc.originalFileName || "No name"}) created ${doc.createdAt}`);
+        });
+
+        return res.status(404).json({
+          success: false,
+          error: "Attached file not found",
+          detail: `ManualUploadDocument with ID ${fileId} does not exist in database`,
+          debugInfo: {
+            providedId: fileId,
+            isValidObjectId: mongoose.Types.ObjectId.isValid(fileId),
+            recentAttachedFileIds: recentAttachedFiles.map(f => f._id.toString())
+          }
+        });
+      }
+
+      if (!manualDoc.pdfBuffer) {
+        return res.status(400).json({
+          success: false,
+          error: "Attached file has no PDF content"
+        });
+      }
+
+      originalFileName = manualDoc.originalFileName || manualDoc.fileName || originalFileName;
+
+      if (Buffer.isBuffer(manualDoc.pdfBuffer)) {
+        pdfBuffer = manualDoc.pdfBuffer;
+      } else if (typeof manualDoc.pdfBuffer === "string") {
+        pdfBuffer = Buffer.from(manualDoc.pdfBuffer, "base64");
+      } else {
+        throw new Error("Invalid PDF buffer format");
+      }
+    }
+
+    const sanitizedFileNameBase = (originalFileName || "file").replace(/[^a-zA-Z0-9-_.]/g, "_");
+    const extensionMatch = sanitizedFileNameBase.match(/(\.[^./]+)$/);
+    const extensionFromName = extensionMatch ? extensionMatch[1] : "";
+    const baseName = extensionMatch
+      ? sanitizedFileNameBase.slice(0, sanitizedFileNameBase.length - extensionFromName.length)
+      : sanitizedFileNameBase;
+    const suffix = isLogAttachment ? "_log" : "_attached";
+    const finalExtension = isLogAttachment ? (extensionFromName || ".txt") : ".pdf";
+    const zohoFileName = `${baseName || "file"}${suffix}${finalExtension}`;
+
+    console.log(`[ATTACHED-FILE] Processing ${normalizedFileType}: ${originalFileName} -> ${zohoFileName}`);
+
+    let note = null;
+    if (!skipNoteCreation) {
+      const noteTitle = isLogAttachment ? `Version Log - ${originalFileName}` : `Attached File - ${originalFileName}`;
+      const noteResult = await createBiginNote(dealId, {
+        title: noteTitle,
+        content: trimmedNoteText
+      });
+
+      if (!noteResult.success) {
+        console.error(`[ATTACHED-FILE] Note creation failed: ${noteResult.error}`);
+        return res.status(500).json({
+          success: false,
+          error: `Failed to create note: ${noteResult.error?.message || "Unknown error"}`
+        });
+      }
+
+      note = noteResult.note;
+      console.log(`[ATTACHED-FILE] Note created: ${note.id}`);
+    } else {
+      console.log(`[ATTACHED-FILE] Skipping note creation for ${normalizedFileType} (bulk upload)`);
+    }
+
+    const fileResult = await uploadBiginFile(dealId, pdfBuffer, zohoFileName);
+    if (!fileResult.success) {
+      console.error(`[ATTACHED-FILE] File upload failed: ${fileResult.error}`);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to upload file: ${fileResult.error?.message || "Unknown error"}`,
+        noteId: note?.id,
+        fileType: normalizedFileType
+      });
+    }
+
+    const file = fileResult.file;
+    console.log(`[ATTACHED-FILE] Uploaded file ${file.id} to deal ${dealId}`);
+
+    res.json({
+      success: true,
+      message: `Successfully uploaded ${isLogAttachment ? "version log" : "attached file"} to Zoho Bigin`,
+      data: {
+        deal: {
+          id: dealId,
+          name: dealName || "Unknown Deal"
+        },
+        note: note
+          ? {
+              id: note.id,
+              title: note.title
+            }
+          : null,
+        file: {
+          id: file.id,
+          fileName: zohoFileName
+        },
+        uploadedFile: {
+          id: fileId,
+          originalName: originalFileName,
+          fileType: normalizedFileType
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Attached file Zoho upload error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to upload attached file to Zoho",
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /zoho-upload/:agreementId/history
+ * Get upload history for an agreement
+ */
+router.get("/:agreementId/history", async (req, res) => {
+  try {
+    const { agreementId } = req.params;
+
+    console.log(`📋 Fetching upload history for agreement: ${agreementId}`);
+
+    const mapping = await ZohoMapping.findByAgreementId(agreementId);
+    if (!mapping) {
+      return res.json({
+        success: true,
+        hasHistory: false,
+        message: "No Zoho upload history found for this agreement"
+      });
+    }
+
+    res.json({
+      success: true,
+      hasHistory: true,
+      company: {
+        id: mapping.zohoCompany.id,
+        name: mapping.zohoCompany.name
+      },
+      deal: {
+        id: mapping.zohoDeal.id,
+        name: mapping.zohoDeal.name,
+        pipelineName: mapping.zohoDeal.pipelineName,
+        stage: mapping.zohoDeal.stage
+      },
+      uploads: mapping.uploads.map(upload => ({
+        version: upload.version,
+        fileName: upload.fileName,
+        noteText: upload.noteText,
+        uploadedAt: upload.uploadedAt,
+        uploadedBy: upload.uploadedBy
+      })),
+      totalVersions: mapping.uploads.length,
+      currentVersion: mapping.currentVersion,
+      lastUploadedAt: mapping.lastUploadedAt
+    });
+
+  } catch (error) {
+    console.error("❌ Failed to fetch upload history:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /zoho-upload/modules
+ * Get available Zoho Bigin modules (for debugging/admin)
+ */
+router.get("/modules", async (req, res) => {
+  try {
+    console.log(`📋 Fetching Zoho Bigin modules...`);
+
+    const result = await getBiginModules();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        modules: result.modules
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch modules:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /zoho-upload/companies/:companyId/pipeline-options
+ * Get pipeline and stage options for a specific company
+ */
+router.get("/companies/:companyId/pipeline-options", async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    console.log(`📋 Fetching pipeline options for company: ${companyId}`);
+
+    // Validate companyId
+    if (!companyId || !companyId.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    const result = await getBiginPipelineStages();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        companyId: companyId,
+        pipelines: result.pipelines,
+        stages: result.stages,
+        message: `Pipeline options retrieved for company ${companyId}`
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        companyId: companyId,
+        error: result.error,
+        // Provide fallback values even if API fails
+        pipelines: result.pipelines || [
+          { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
+        ],
+        stages: result.stages || [
+          { label: 'Qualification', value: 'Qualification' },
+          { label: 'Needs Analysis', value: 'Needs Analysis' },
+          { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+          { label: 'Negotiation/Review', value: 'Negotiation/Review' },
+          { label: 'Closed Won', value: 'Closed Won' },
+          { label: 'Closed Lost', value: 'Closed Lost' }
+        ]
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch company pipeline options:", error.message);
+    res.status(500).json({
+      success: false,
+      companyId: req.params.companyId,
+      error: error.message,
+      // Provide fallback values
+      pipelines: [
+        { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
+      ],
+      stages: [
+        { label: 'Qualification', value: 'Qualification' },
+        { label: 'Needs Analysis', value: 'Needs Analysis' },
+        { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+        { label: 'Negotiation/Review', value: 'Negotiation/Review' },
+        { label: 'Closed Won', value: 'Closed Won' },
+        { label: 'Closed Lost', value: 'Closed Lost' }
+      ]
+    });
+  }
+});
+
+/**
+ * GET /zoho-upload/pipeline-options
+ * Get available pipeline and stage options from Zoho Bigin (general)
+ */
+router.get("/pipeline-options", async (req, res) => {
+  try {
+    console.log(`📋 Fetching Zoho Bigin pipeline and stage options...`);
+
+    const result = await getBiginPipelineStages();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        pipelines: result.pipelines,
+        stages: result.stages
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error,
+        // Provide fallback values even if API fails
+        pipelines: result.pipelines || [
+          { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
+        ],
+        stages: result.stages || [
+          { label: 'Qualification', value: 'Qualification' },
+          { label: 'Needs Analysis', value: 'Needs Analysis' },
+          { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+          { label: 'Negotiation/Review', value: 'Negotiation/Review' },
+          { label: 'Closed Won', value: 'Closed Won' },
+          { label: 'Closed Lost', value: 'Closed Lost' }
+        ]
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch pipeline options:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      // Provide fallback values
+      pipelines: [
+        { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
+      ],
+      stages: [
+        { label: 'Qualification', value: 'Qualification' },
+        { label: 'Needs Analysis', value: 'Needs Analysis' },
+        { label: 'Proposal/Price Quote', value: 'Proposal/Price Quote' },
+        { label: 'Negotiation/Review', value: 'Negotiation/Review' },
+        { label: 'Closed Won', value: 'Closed Won' },
+        { label: 'Closed Lost', value: 'Closed Lost' }
+      ]
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/validate-deal-fields
+ * Validate pipeline and stage values before deal creation
+ */
+router.post("/validate-deal-fields", async (req, res) => {
+  try {
+    const { pipelineName, stage } = req.body;
+
+    if (!pipelineName || !stage) {
+      return res.status(400).json({
+        success: false,
+        error: "Pipeline name and stage are required"
+      });
+    }
+
+    console.log(`🔍 Validating deal fields: pipeline="${pipelineName}", stage="${stage}"`);
+
+    const result = await validatePipelineStage(pipelineName, stage);
+
+    if (result.success && result.valid) {
+      res.json({
+        success: true,
+        valid: true,
+        correctedPipeline: result.correctedPipeline,
+        correctedStage: result.correctedStage,
+        note: result.note || "Pipeline and stage are valid"
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        valid: false,
+        error: result.error,
+        validPipelines: result.validPipelines || [],
+        validStages: result.validStages || []
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to validate deal fields:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/cleanup-failed
+ * Clean up any failed/partial mappings to ensure fresh state
+ */
+router.post("/cleanup-failed", async (req, res) => {
+  try {
+    console.log(`🧹 [V2-CLEANUP] Starting cleanup of failed mappings...`);
+
+    // Find all failed or partial mappings
+    const failedMappings = await ZohoMapping.find({
+      $or: [
+        { lastUploadStatus: 'failed' },
+        { lastUploadStatus: 'partial' },
+        { 'zohoDeal.id': 'FAILED_CREATION' },
+        { 'zohoDeal.id': { $regex: /^MOCK_/ } }
+      ]
+    });
+
+    console.log(`🧹 [V2-CLEANUP] Found ${failedMappings.length} failed mappings to clean up`);
+
+    // Delete all failed mappings
+    const deleteResult = await ZohoMapping.deleteMany({
+      $or: [
+        { lastUploadStatus: 'failed' },
+        { lastUploadStatus: 'partial' },
+        { 'zohoDeal.id': 'FAILED_CREATION' },
+        { 'zohoDeal.id': { $regex: /^MOCK_/ } }
+      ]
+    });
+
+    console.log(`✅ [V2-CLEANUP] Deleted ${deleteResult.deletedCount} failed mappings`);
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${deleteResult.deletedCount} failed mappings`,
+      deletedCount: deleteResult.deletedCount,
+      cleanedMappings: failedMappings.map(m => ({
+        id: m._id,
+        agreementId: m.agreementId,
+        status: m.lastUploadStatus,
+        error: m.lastError
+      }))
+    });
+
+  } catch (error) {
+    console.error("❌ Failed to cleanup failed mappings:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /zoho-upload/companies/:companyId/deals
+ * Fetch deals associated with a specific company
+ */
+router.get("/companies/:companyId/deals", async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const { page = 1, per_page = 20 } = req.query;
+
+    console.log(`💼 Fetching deals for company: ${companyId} (page ${page}, ${per_page} per page)`);
+
+    // Validate companyId
+    if (!companyId || !companyId.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    // Validate pagination parameters
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const perPage = Math.min(200, Math.max(1, parseInt(per_page) || 20));
+
+    const result = await getBiginDealsByCompany(companyId.trim(), pageNum, perPage);
+
+    if (result.success) {
+      console.log(`✅ Successfully fetched ${result.deals.length} deals for company ${companyId}`);
+
+      res.json({
+        success: true,
+        companyId: companyId,
+        deals: result.deals,
+        pagination: result.pagination,
+        message: `Found ${result.deals.length} deals for this company`
+      });
+    } else {
+      console.error(`❌ Failed to fetch deals for company ${companyId}:`, result.error);
+
+      // ✅ Provide helpful error messages for OAuth issues
+      if (result.error === "ZOHO_AUTH_REQUIRED") {
+        return res.status(401).json({
+          success: false,
+          error: "Zoho integration not configured. Please contact administrator to set up Zoho Bigin access."
+        });
+      }
+
+      if (result.error?.includes('credentials') || result.error?.includes('token')) {
+        return res.status(401).json({
+          success: false,
+          error: "Zoho authentication failed. Please contact administrator to reconfigure Zoho access."
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: result.error,
+        companyId: companyId
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch company deals:", error.message);
+
+    // ✅ Handle specific OAuth errors
+    if (error.message === "ZOHO_AUTH_REQUIRED") {
+      return res.status(401).json({
+        success: false,
+        error: "Zoho integration not configured. Please contact administrator to set up Zoho Bigin access."
+      });
+    }
+
+    if (error.message?.includes('credentials') || error.message?.includes('token')) {
+      return res.status(401).json({
+        success: false,
+        error: "Zoho authentication failed. Please contact administrator to reconfigure Zoho access."
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      companyId: req.params.companyId
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/attached-file/:fileId/add-to-deal
  * Add attached file to existing Zoho deal
  */
 router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { dealId, noteText, dealName, skipNoteCreation } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
+    const { dealId, noteText, dealName, skipNoteCreation, fileType } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
 
     console.log(`📎 [ATTACHED-FILE] Adding attached file ${fileId} to deal ${dealId}`,
                 skipNoteCreation ? '(skipping note creation)' : '(will create note)');
