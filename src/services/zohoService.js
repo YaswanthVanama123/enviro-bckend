@@ -2074,14 +2074,16 @@ export async function createBiginNote(dealId, noteData) {
  */
 
 /**
- * Upload a PDF file to a deal in Zoho Bigin
+ * Upload a file to a deal in Zoho Bigin
  * @param {string} dealId - Zoho deal ID
- * @param {Buffer} pdfBuffer - PDF file buffer
- * @param {string} fileName - PDF filename
+ * @param {Buffer} pdfBuffer - File buffer
+ * @param {string} fileName - File name
+ * @param {Object} [options] - Optional parameters (contentType)
  * @returns {Promise<Object>} Upload result
  */
-export async function uploadBiginFile(dealId, pdfBuffer, fileName) {
-  console.log(`📎 Uploading file to deal ${dealId}: ${fileName} (${pdfBuffer.length} bytes)`);
+export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {}) {
+  const contentType = options.contentType || "application/pdf";
+  console.log(`📎 Uploading file to deal ${dealId}: ${fileName} (${pdfBuffer.length} bytes, contentType=${contentType})`);
 
   try {
     const accessToken = await getZohoAccessToken();
@@ -2090,7 +2092,7 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName) {
     const formData = new FormData();
     formData.append('file', pdfBuffer, {
       filename: fileName,
-      contentType: 'application/pdf'
+      contentType
     });
 
     // ✅ V2 FIX: Upload to deal's attachments using Pipelines module (matches deal creation endpoint)
