@@ -2002,18 +2002,26 @@ export async function createBiginNote(dealId, noteData) {
     const notesFields = await getBiginModuleFields('Notes');
     if (notesFields.success) {
       const requiredFields = notesFields.fields.filter(f => f.required);
-      console.log(`🔍 [NOTE CREATION] Required fields for Notes:`, requiredFields.map(f => f.apiName));
-    }
-  } catch (e) {
-    console.log(`⚠️ [NOTE CREATION] Could not fetch Notes fields:`, e.message);
+    console.log(`🔍 [NOTE CREATION] Required fields for Notes:`, requiredFields.map(f => ({
+      apiName: f.apiName,
+      required: f.required,
+      dataType: f.data_type,
+      writable: f.writable
+    })));
   }
+} catch (e) {
+  console.log(`⚠️ [NOTE CREATION] Could not fetch Notes fields:`, e.message);
+}
 
   const payload = {
     data: [{
       Note_Title: noteData.title || 'EnviroMaster Agreement Update',  // ✅ Correct Bigin field name
-      Note_Content: noteData.content,                                 // ✅ Correct Bigin field name
-      Parent_Id: dealId,                                              // ✅ Links note to the deal
-      $se_module: 'Deals',                                           // ✅ FIX: Specify which module the parent belongs to
+      Note_Content: noteData.content || '',                                 // ✅ Correct Bigin field name
+      Parent_Id: {                                                      // ✅ Links note to the deal
+        id: dealId,
+        module: 'Deals'
+      },
+      se_module: 'Deals',                                           // ✅ FIX: Specify which module the parent belongs to
       // Optional: set owner, created time, etc.
     }]
   };
@@ -2025,6 +2033,13 @@ export async function createBiginNote(dealId, noteData) {
   console.log(`🔍 [NOTE CREATION] Using v2 Notes endpoint: ${endpoint}`);
 
   const result = await makeBiginRequest('POST', endpoint, payload);
+  const errorPayload = result.error ? JSON.stringify(result.error, null, 2) : 'None';
+  console.log(`🔍 [NOTE CREATION] Zoho response status:`, result.status, 'error:', errorPayload);
+  console.log(`🔍 [NOTE CREATION] Zoho response payload:`, JSON.stringify(result.data, null, 2));
+  const detailedError = result.error?.data?.[0]?.details || result.error?.details;
+  if (detailedError) {
+    console.log(`🔍 [NOTE CREATION] Zoho error detail payload:`, JSON.stringify(detailedError, null, 2));
+  }
 
   if (result.success) {
     const createdNote = result.data?.data?.[0];
