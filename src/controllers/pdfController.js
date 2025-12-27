@@ -588,11 +588,20 @@ export async function getCustomerHeaderForEdit(req, res) {
     const convertedServices = { ...originalServices };
 
     // Special handling for Refresh Power Scrub
-    if (originalServices.refreshPowerScrub && originalServices.refreshPowerScrub.services) {
+    if (originalServices.refreshPowerScrub) {
       // console.log(`🔄 [EDIT FORMAT] Converting Refresh Power Scrub from stored format to form format`);
 
       const storedRPS = originalServices.refreshPowerScrub;
-      // console.log(`🔄 [EDIT FORMAT] Stored services keys:`, Object.keys(storedRPS.services || {}));
+        const REFRESH_AREA_KEYS = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+        const hasTopLevelAreas = REFRESH_AREA_KEYS.every((areaKey) => storedRPS[areaKey] !== undefined);
+        if (hasTopLevelAreas) {
+          convertedServices.refreshPowerScrub = {
+            ...storedRPS,
+            frequency: storedRPS.frequency || "monthly",
+            contractMonths: storedRPS.contractMonths || 12
+          };
+        } else {
+          // console.log(`🔄 [EDIT FORMAT] Stored services keys:`, Object.keys(storedRPS.services || {}));
 
       // Helper function to normalize frequency labels
       const normalizeFrequencyLabel = (freq) => {
@@ -637,6 +646,26 @@ export async function getCustomerHeaderForEdit(req, res) {
         'backHouse': 'boh',
         'walkway': 'walkway',
         'other': 'other'
+      };
+
+      const readNumericValue = (input) => {
+        if (input === undefined || input === null) return undefined;
+        if (typeof input === "object") {
+          if ("value" in input && input.value !== undefined) {
+            return readNumericValue(input.value);
+          }
+          if ("quantity" in input && input.quantity !== undefined) {
+            return readNumericValue(input.quantity);
+          }
+          if ("amount" in input && input.amount !== undefined) {
+            return readNumericValue(input.amount);
+          }
+        }
+        if (typeof input === "string" && input.trim() === "") {
+          return undefined;
+        }
+        const parsed = Number(input);
+        return Number.isNaN(parsed) ? undefined : parsed;
       };
 
       for (const [serviceKey, areaKey] of Object.entries(areaMapping)) {
@@ -717,6 +746,30 @@ export async function getCustomerHeaderForEdit(req, res) {
                 // console.log(`🔄 [EDIT FORMAT] Patio conversion: patioMode=${convertedArea.patioMode}, includePatioAddon=${convertedArea.includePatioAddon}`);
               } else if (areaKey === 'boh') {
                 convertedArea.kitchenSize = serviceData.plan.value === 'Large' ? 'large' : 'smallMedium';
+                const smallMediumQty = readNumericValue(serviceData.smallMediumQuantity);
+                if (smallMediumQty !== undefined) {
+                  convertedArea.smallMediumQuantity = smallMediumQty;
+                }
+                const smallMediumRate = readNumericValue(serviceData.smallMediumRate);
+                if (smallMediumRate !== undefined) {
+                  convertedArea.smallMediumRate = smallMediumRate;
+                }
+                const smallMediumCustom = readNumericValue(serviceData.smallMediumCustomAmount);
+                if (smallMediumCustom !== undefined) {
+                  convertedArea.smallMediumCustomAmount = smallMediumCustom;
+                }
+                const largeQty = readNumericValue(serviceData.largeQuantity);
+                if (largeQty !== undefined) {
+                  convertedArea.largeQuantity = largeQty;
+                }
+                const largeRate = readNumericValue(serviceData.largeRate);
+                if (largeRate !== undefined) {
+                  convertedArea.largeRate = largeRate;
+                }
+                const largeCustom = readNumericValue(serviceData.largeCustomAmount);
+                if (largeCustom !== undefined) {
+                  convertedArea.largeCustomAmount = largeCustom;
+                }
               }
             }
           } else if (pricingType === 'custom' && serviceData.total) {
@@ -771,7 +824,9 @@ export async function getCustomerHeaderForEdit(req, res) {
         }
       }
 
-      convertedServices.refreshPowerScrub = convertedRPS;
+        convertedServices.refreshPowerScrub = convertedRPS;
+        }
+
       // console.log(`✅ [EDIT FORMAT] Refresh Power Scrub conversion complete`);
       // console.log(`🔄 [EDIT FORMAT] Final converted RPS:`, JSON.stringify(convertedRPS, null, 2));
     }
