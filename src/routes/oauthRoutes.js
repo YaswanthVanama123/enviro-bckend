@@ -9,6 +9,14 @@ import {
 const router = Router();
 
 /**
+ * Utility to mask sensitive config values for display.
+ */
+const maskValue = (value, length = 6) => {
+  if (!value) return "Not configured";
+  return `${value.substring(0, Math.min(length, value.length))}...`;
+};
+
+/**
  * GET /oauth/zoho/auth
  * Generate Zoho OAuth authorization URL
  */
@@ -73,6 +81,9 @@ router.get("/callback", async (req, res) => {
       console.log("  ├ Refresh token length:", tokens.refresh_token?.length || 0);
       console.log("  └ Expires in:", tokens.expires_in, "seconds");
 
+      const clientId = process.env.ZOHO_CLIENT_ID;
+      const clientSecret = process.env.ZOHO_CLIENT_SECRET;
+
       // Success page
       res.send(`
         <html>
@@ -81,10 +92,12 @@ router.get("/callback", async (req, res) => {
             <p>Zoho integration has been successfully configured.</p>
             <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
               <h3>Token Information:</h3>
-              <p><strong>Access Token:</strong> ${tokens.access_token.substring(0, 20)}... (${tokens.access_token.length} chars)</p>
-              <p><strong>Refresh Token:</strong> ${tokens.refresh_token.substring(0, 20)}... (${tokens.refresh_token.length} chars)</p>
+              <p><strong>Access Token:</strong> ${tokens.access_token}... (${tokens.access_token.length} chars)</p>
+              <p><strong>Refresh Token:</strong> ${tokens.refresh_token}... (${tokens.refresh_token.length} chars)</p>
               <p><strong>Expires In:</strong> ${tokens.expires_in} seconds</p>
               <p><strong>Location:</strong> ${location || 'Not specified'}</p>
+              <p><strong>Client ID:</strong> ${maskValue(clientId)}</p>
+              <p><strong>Client Secret:</strong> ${maskValue(clientSecret)}</p>
             </div>
             <div style="margin-top: 30px;">
               <a href="/oauth/test-zoho" style="background: #17a2b8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-right: 10px;">Test Integration</a>

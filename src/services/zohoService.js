@@ -53,6 +53,11 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
     const clientSecret = process.env.ZOHO_CLIENT_SECRET;
     const redirectUri = process.env.ZOHO_REDIRECT_URI || "http://localhost:5000/oauth/callback";
 
+    console.log("ÐY\"? [TOKEN-CREATE] Step 1 - environment values");
+    console.log(`  ƒ\"o Client ID present: ${!!clientId}`);
+    console.log(`  ƒ\"o Client Secret present: ${!!clientSecret}`);
+    console.log(`  ƒ\"o Redirect URI: ${redirectUri}`);
+
     if (!clientId || !clientSecret) {
       throw new Error("ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET environment variables are required");
     }
@@ -63,11 +68,18 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
                        location === "com.au" ? "https://accounts.zoho.com.au" :
                        "https://accounts.zoho.com";
 
-    console.log("🔄 Exchanging authorization code for tokens...");
+    console.log("🔄 Step 2 - exchanging authorization code for tokens...");
     console.log("  ├ Accounts URL:", accountsUrl);
     console.log("  ├ Client ID:", clientId);
     console.log("  ├ Redirect URI:", redirectUri);
     console.log("  └ Auth code:", authorizationCode.substring(0, 20) + "...");
+    console.log("  └ Location hint:", location);
+    console.log('  └ Token endpoint:', `${accountsUrl}/oauth/v2/token`);
+    console.log('  └ Request params:', {
+      grant_type: "authorization_code",
+      code: authorizationCode ? "present" : "missing",
+      redirect_uri: redirectUri
+    });
 
     const response = await axios.post(
       `${accountsUrl}/oauth/v2/token`,
@@ -87,6 +99,11 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
     );
 
     const { access_token, refresh_token, expires_in } = response.data;
+
+    console.log("🔁 Step 3 - token response received");
+    console.log("  ├ Response status:", response.status);
+    console.log("  ├ Access token length check:", access_token ? access_token.length : 'missing');
+    console.log("  ├ Refresh token length check:", refresh_token ? refresh_token.length : 'missing');
 
     if (!access_token || !refresh_token) {
       console.error("❌ Invalid token response:", response.data);
@@ -833,7 +850,7 @@ export async function getZohoAccessToken() {
 
         const { access_token, expires_in } = response.data;
         console.log(`✅ Auto-refreshed Zoho token successfully!`);
-        console.log(`  ├ New access token: ${access_token.substring(0, 30)}...`);
+        console.log(`  ├ New access token: ${access_token.substring(0, 1000)}...`);
         console.log(`  ├ Expires in: ${expires_in} seconds (${Math.round(expires_in/3600)} hours)`);
         console.log(`  └ Refresh token status: PERMANENT (never expires) ✅`);
 
@@ -1607,6 +1624,7 @@ function getBiginBaseUrl() {
  */
 async function makeBiginRequest(method, endpoint, data = null) {
   try {
+    // const accessToken = await getZohoAccessToken();
     const accessToken = await getZohoAccessToken();
     const baseUrl = getBiginBaseUrl();
     const url = `${baseUrl}${endpoint}`;
@@ -1793,7 +1811,7 @@ export async function getBiginCompanies(page = 1, perPage = 50) {
   if (result.success) {
     const companies = result.data?.data || [];
     console.log(`✅ Found ${companies.length} companies`);
-
+    console.log(`✅ Found ${companies} companies`);
     // Return simplified company objects for UI
     return {
       success: true,
@@ -2016,12 +2034,9 @@ export async function createBiginNote(dealId, noteData) {
   const payload = {
     data: [{
       Note_Title: noteData.title || 'EnviroMaster Agreement Update',  // ✅ Correct Bigin field name
-      Note_Content: noteData.content || '',                                 // ✅ Correct Bigin field name
-      Parent_Id: {                                                      // ✅ Links note to the deal
-        id: dealId,
-        module: 'Deals'
-      },
-      se_module: 'Deals',                                           // ✅ FIX: Specify which module the parent belongs to
+      Note_Content: noteData.content,                                 // ✅ Correct Bigin field name
+      Parent_Id: dealId,                                              // ✅ Links note to the deal
+      $se_module: 'Deals',                                           // ✅ FIX: Specify which module the parent belongs to
       // Optional: set owner, created time, etc.
     }]
   };
