@@ -610,6 +610,12 @@ export async function createVersion(req, res) {
         changeNotes: changeNotes || '',
         status: 'active'
       });
+
+      if (latestVersion && latestVersion.status === 'draft') {
+        latestVersion.status = 'saved';
+        await latestVersion.save();
+        console.log(`ÐY"õ [VERSION-CREATE] Auto-updated previous draft (v${latestVersion.versionNumber}) to saved after creating v${versionNumber}`);
+      }
     }
 
     await agreement.save();
