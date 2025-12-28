@@ -171,6 +171,16 @@ async function getPdfForAgreement(agreementId, options = {}) {
     bufferSize: properBuffer.length
   };
 }
+
+function buildNormalizedFileName(rawName, fallbackBase = "file", fallbackExtension = ".pdf") {
+  const candidate = ((rawName || "").trim()).replace(/[^a-zA-Z0-9-_.]/g, "_");
+  const extensionMatch = candidate.match(/(\.[^./]+)$/);
+  const extension = extensionMatch ? extensionMatch[1] : fallbackExtension;
+  const baseName = extensionMatch ? candidate.slice(0, candidate.length - extension.length) : candidate;
+  const sanitizedFallback = ((fallbackBase || "").trim()).replace(/[^a-zA-Z0-9-_.]/g, "_") || "file";
+  const finalBase = baseName || sanitizedFallback;
+  return `${finalBase}${extension}`;
+}
 /**
  * GET /zoho-upload/:agreementId/status
  * Check if this is first-time upload or update
@@ -610,12 +620,14 @@ router.post("/:agreementId/first-time", async (req, res) => {
 
     // Step 3: Upload the PDF (optional - can be skipped for bulk uploads)
     let file = null;
-    let fileName = null;
+    let finalVersionFileName = null;
 
     if (!skipFileUpload) {
       // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
       const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
-      fileName = `${dealName.replace(/[^a-zA-Z0-9-_]/g, '_')}_v1.pdf`;
+      const sanitizedDealNameBase = dealName ? dealName.replace(/[^a-zA-Z0-9-_.]/g, "_") : "deal";
+      const fallbackBase = `${sanitizedDealNameBase || "deal"}_v1`;
+      finalVersionFileName = buildNormalizedFileName(pdfData.fileName, fallbackBase);
 
       console.log(`📎 Retrieved PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`);
 
@@ -627,7 +639,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         constructor: pdfBuffer.constructor.name
       });
 
-      const fileResult = await uploadBiginFile(deal.id, pdfBuffer, fileName);
+      const fileResult = await uploadBiginFile(deal.id, pdfBuffer, finalVersionFileName);
 
       if (!fileResult.success) {
         console.error(`❌ Failed to upload file, but deal and note exist: ${deal.id}, ${note.id}`);
@@ -678,7 +690,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         zohoNoteId: note.id,
         zohoFileId: file.id,
         noteText: noteText.trim(),
-        fileName: fileName,
+        fileName: finalVersionFileName,
         uploadedBy: 'system' // TODO: Add user context
       });
     }
@@ -689,7 +701,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
     console.log(`  ├ Deal: ${deal.name} (${deal.id})`);
     console.log(`  ├ Note: ${note.id}`);
     if (!skipFileUpload && file) {
-      console.log(`  ├ File: ${fileName} (${file.id})`);
+      console.log(`  ├ File: ${finalVersionFileName} (${file.id})`);
     } else {
       console.log(`  ├ File: Skipped (will be added separately)`);
     }
@@ -711,7 +723,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         },
         file: !skipFileUpload && file ? {
           id: file.id,
-          fileName: fileName
+          fileName: finalVersionFileName
         } : null, // ✅ Handle case where file upload was skipped
         mapping: {
           id: mapping._id,
@@ -736,7 +748,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
 router.post("/:agreementId/update", async (req, res) => {
   try {
     const { agreementId } = req.params;
-    const { noteText, dealId: providedDealId, skipNoteCreation, versionId } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
+    const { noteText, dealId: providedDealId, skipNoteCreation, versionId, versionFileName } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
 
     console.log(`🔄 Starting update upload for agreement: ${agreementId}`,
                 providedDealId ? `(target dealId: ${providedDealId})` : '(using existing mapping)',
@@ -808,14 +820,12 @@ router.post("/:agreementId/update", async (req, res) => {
       console.log(`📝 [SINGLE] Adding version ${nextVersion} to existing deal: ${dealId}`);
     }
 
-    const rawVersionFileName = pdfData.fileName || `Version_${pdfData.version || nextVersion}`;
-    const sanitizedBase = rawVersionFileName.replace(/[^a-zA-Z0-9-_.]/g, "_");
-    const extensionMatch = sanitizedBase.match(/(\.[^./]+)$/);
-    const extension = extensionMatch ? extensionMatch[1] : ".pdf";
-    const baseName = extensionMatch
-      ? sanitizedBase.slice(0, sanitizedBase.length - extension.length)
-      : sanitizedBase;
-    const finalVersionFileName = `${baseName || `Version_${pdfData.version || nextVersion}`}${extension}`;
+    const fallbackVersionBase = `Version_${pdfData.version || nextVersion}`;
+    const incomingVersionFileName = versionFileName || pdfData.fileName || fallbackVersionBase;
+    const finalVersionFileName = buildNormalizedFileName(incomingVersionFileName, fallbackVersionBase);
+    if (versionFileName) {
+      console.log(`🔍 Using provided version filename override: ${versionFileName}`);
+    }
 
     // Step 1: Create note (skip if this is a subsequent file in bulk upload)
     let note = null;
@@ -847,11 +857,11 @@ router.post("/:agreementId/update", async (req, res) => {
     const fileResult = await uploadBiginFile(dealId, pdfBuffer, finalVersionFileName);
 
     if (!fileResult.success) {
-      console.error(`❌ Failed to upload file, but note exists: ${note.id}`);
+      console.error(`❌ Failed to upload file, noteId: ${note?.id || 'none'}`);
       return res.status(500).json({
         success: false,
         error: `Note created but failed to upload file: ${fileResult.error?.message}`,
-        noteId: note.id
+        noteId: note?.id || null
       });
     }
 
