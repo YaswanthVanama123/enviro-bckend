@@ -29,6 +29,7 @@ const router = Router();
  */
 async function getPdfForAgreement(agreementId, options = {}) {
   const requestedVersionId = options?.versionId ? String(options.versionId).trim() : null;
+  const cachedAgreement = options?.agreementDoc || null;
   console.log(`ÐY"? [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}${requestedVersionId ? ` (versionId: ${requestedVersionId})` : ''}`);
 
   const selectFields = '_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt fileName';
@@ -65,16 +66,39 @@ async function getPdfForAgreement(agreementId, options = {}) {
 
     if (!versionDoc) {
       console.error(`ƒ?O [PDF-LOOKUP] No VersionPdf documents found for agreement: ${agreementId}`);
+      const customerDoc = cachedAgreement || await CustomerHeaderDoc.findById(agreementId)
+        .select('pdf_meta fileName currentVersionNumber')
+        .lean();
+
+      if (customerDoc?.pdf_meta?.pdfBuffer) {
+        const fallbackBuffer = Buffer.isBuffer(customerDoc.pdf_meta.pdfBuffer)
+          ? customerDoc.pdf_meta.pdfBuffer
+          : Buffer.from(customerDoc.pdf_meta.pdfBuffer);
+        const resolvedFileName = customerDoc.fileName || customerDoc.pdf_meta.fileName || `agreement_${customerDoc.currentVersionNumber || 1}.pdf`;
+
+        console.log(`ƒo. [PDF-LOOKUP] Falling back to CustomerHeaderDoc PDF: ${resolvedFileName} (${fallbackBuffer.length} bytes)`);
+
+        return {
+          pdfBuffer: fallbackBuffer,
+          source: 'CustomerHeaderDoc',
+          version: customerDoc.currentVersionNumber || 1,
+          versionId: null,
+          fileName: resolvedFileName,
+          requestedVersionId,
+          sizeBytes: customerDoc.pdf_meta.sizeBytes || fallbackBuffer.length,
+          bufferSize: fallbackBuffer.length
+        };
+      }
 
       const versionCount = await VersionPdf.countDocuments({
         agreementId: agreementId,
         status: { $ne: 'archived' }
       });
 
-    return {
-      pdfBuffer: null,
-      source: null,
-      version: null,
+      return {
+        pdfBuffer: null,
+        source: null,
+        version: null,
         debugInfo: {
           error: 'no_versions_found',
           versionCount: versionCount,
@@ -478,7 +502,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
     console.log(`✅ Found CustomerHeaderDoc: ${agreement._id} (${agreement.payload?.headerTitle || 'No title'})`);
 
     // ✅ FIX: Get PDF from either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
-    const pdfData = await getPdfForAgreement(agreementId);
+    const pdfData = await getPdfForAgreement(agreementId, { agreementDoc: agreement });
 
     if (!pdfData.pdfBuffer) {
       console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
@@ -772,7 +796,7 @@ router.post("/:agreementId/update", async (req, res) => {
     }
 
     // ✅ FIX: Check for PDF in either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
-    const pdfData = await getPdfForAgreement(agreementId, { versionId });
+    const pdfData = await getPdfForAgreement(agreementId, { versionId, agreementDoc: agreement });
 
     if (!pdfData.pdfBuffer) {
       console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
