@@ -3404,7 +3404,9 @@ export async function getApprovalDocumentsGrouped(req, res) {
               updatedAt: manualDoc.updatedAt,
               createdBy: manualDoc.uploadedBy,
               fileSize: manualDoc.fileSize || 0,
-              hasPdf: !!(manualDoc.pdfBuffer && manualDoc.pdfBuffer.length > 0),
+          hasPdf:
+            !!(manualDoc.pdfBuffer && manualDoc.pdfBuffer.length > 0) ||
+            !!(manualDoc.fileSize && manualDoc.fileSize > 0),
               canChangeStatus: true,
               description: attachmentRef.description || ''
             });
@@ -3491,7 +3493,9 @@ export async function getApprovalDocumentsGrouped(req, res) {
           updatedAt: attachedFile.updatedAt,
           createdBy: attachedFile.uploadedBy,
           fileSize: attachedFile.fileSize || 0,
-          hasPdf: !!(attachedFile.pdfBuffer && attachedFile.pdfBuffer.length > 0),
+      hasPdf:
+        !!(attachedFile.pdfBuffer && attachedFile.pdfBuffer.length > 0) ||
+        !!(attachedFile.fileSize && attachedFile.fileSize > 0),
           canChangeStatus: true
         });
 
