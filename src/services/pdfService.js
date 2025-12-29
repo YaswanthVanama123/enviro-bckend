@@ -599,6 +599,30 @@ function buildServicesRow(cols = []) {
   return rowLatex;
 }
 
+function buildServiceRowSequence(cols = []) {
+  if (!cols || !cols.length) return "";
+  const trimmedCols = [];
+  for (let i = 0; i < cols.length; i += 2) {
+    const group = [];
+    for (let j = i; j < i + 2 && j < cols.length; j++) {
+      const col = cols[j];
+      if (col && Array.isArray(col.rows) && col.rows.length > 0) {
+        group.push(col);
+      }
+    }
+    if (group.length) {
+      trimmedCols.push(group);
+    }
+  }
+  if (!trimmedCols.length) return "";
+  return trimmedCols
+    .map((group, index) => {
+      const prefix = index > 0 ? "\\vspace{2.5em}\n" : "";
+      return prefix + buildServicesRow(group);
+    })
+    .join("");
+}
+
 function shouldDisplayField(field) {
   if (!field || typeof field !== "object") return true;
   if (typeof field.isDisplay === "boolean") return field.isDisplay;
@@ -1730,8 +1754,8 @@ function buildServicesLatex(services = {}) {
     const filteredTopRowCols = filterServiceColumns(topRowCols);
     const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-    servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
-    servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
+    servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols);
+    servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols);
 
     // Refresh Power Scrub for this format (sec is already the "display" object)
     const sec = services.refreshPowerScrub;
@@ -1889,8 +1913,8 @@ function buildServicesLatex(services = {}) {
   }
 
   // Generate LaTeX for the service rows
-  servicesTopRowLatex = buildServicesRow(filteredTopRowCols);
-  servicesBottomRowLatex = buildServicesRow(filteredBottomRowCols);
+  servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols);
+  servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols);
 
   // Debug generated LaTeX only for Refresh Power Scrub
   if (refreshPowerScrubUsed || services.refreshPowerScrub) {
