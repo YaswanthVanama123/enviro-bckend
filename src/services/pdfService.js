@@ -756,6 +756,7 @@ function transformServicesToPdfFormat(usedServices) {
   // Transform each service into column format
   for (const [serviceKey, serviceData] of Object.entries(usedServices)) {
     if (serviceKey === 'customServices') continue; // Handle custom services separately
+    if (serviceKey === 'refreshPowerScrub') continue; // Refresh is rendered as its own table
 
     const column = transformServiceToColumn(serviceKey, serviceData, serviceLabels[serviceKey]);
     if (column && column.rows && column.rows.length > 0) {
@@ -1933,6 +1934,8 @@ function buildServicesLatex(services = {}) {
       // Check for new services structure vs old direct area structure
       let enabledAreas = [];
 
+      const isVisibleArea = (area) => area?.isDisplay !== false;
+
       if (refreshData.services) {
         // New structure: services.dumpster, services.frontHouse, etc.
         // console.log('🔍 [REFRESH POWER SCRUB] Using NEW services structure');
@@ -1940,7 +1943,13 @@ function buildServicesLatex(services = {}) {
 
         for (const serviceKey of serviceKeys) {
           const serviceData = refreshData.services[serviceKey];
-          if (serviceData && serviceData.enabled && serviceData.total && serviceData.total.value > 0) {
+          if (
+            serviceData &&
+            serviceData.enabled &&
+            isVisibleArea(serviceData) &&
+            serviceData.total &&
+            serviceData.total.value > 0
+          ) {
             // Map service keys back to area names for display
             const displayName = serviceKey === 'frontHouse' ? 'FRONT HOUSE' :
                               serviceKey === 'backHouse' ? 'BACK HOUSE' :
@@ -1960,9 +1969,14 @@ function buildServicesLatex(services = {}) {
         const areas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
 
         for (const areaKey of areas) {
-          if (refreshData[areaKey] && typeof refreshData[areaKey] === 'object' &&
-              refreshData[areaKey].type === 'calc' &&
-              refreshData[areaKey].qty > 0) {
+          const legacyArea = refreshData[areaKey];
+          if (
+            legacyArea &&
+            typeof legacyArea === 'object' &&
+            legacyArea.isDisplay !== false &&
+            legacyArea.type === 'calc' &&
+            legacyArea.qty > 0
+          ) {
             const displayName = areaKey === 'foh' ? 'FRONT HOUSE' :
                               areaKey === 'boh' ? 'BACK HOUSE' :
                               areaKey.toUpperCase();
