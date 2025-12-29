@@ -2046,6 +2046,11 @@ function buildServicesLatex(services = {}) {
         };
 
         // Helper function to get calculation details for each area
+        const readFieldValue = (field) => {
+          if (field === null || field === undefined) return undefined;
+          return typeof field === "object" && "value" in field ? field.value : field;
+        };
+
         const getCalculationDetails = (area) => {
           if (refreshData.services) {
             // New structure: detailed breakdown
@@ -2083,6 +2088,41 @@ function buildServicesLatex(services = {}) {
               } else {
                 // Other preset areas (dumpster, foh, boh, etc.)
                 details.push(`Plan: ${serviceData.plan.value}`);
+              }
+            }
+
+            if (area.key === 'backHouse') {
+              const smallQty = readFieldValue(serviceData.smallMediumQuantity);
+              const smallRate = readFieldValue(serviceData.smallMediumRate);
+              const smallTotal = readFieldValue(serviceData.smallMediumTotal);
+              const largeQty = readFieldValue(serviceData.largeQuantity);
+              const largeRate = readFieldValue(serviceData.largeRate);
+              const largeTotal = readFieldValue(serviceData.largeTotal);
+
+              if (smallQty && smallRate) {
+                details.push(`Small/Med: ${smallQty} @ \\$${smallRate}${smallTotal ? ` = \\$${smallTotal}` : ""}`);
+              }
+              if (largeQty && largeRate) {
+                details.push(`Large: ${largeQty} @ \\$${largeRate}${largeTotal ? ` = \\$${largeTotal}` : ""}`);
+              }
+            }
+
+            if (!details.length) {
+              const presetQty = readFieldValue(serviceData.presetQuantity ?? serviceData.savedPresetQuantity);
+              const presetRate = readFieldValue(serviceData.presetRate ?? serviceData.savedPresetRate);
+              const presetTotal = readFieldValue(serviceData.total);
+              if (presetQty || presetRate) {
+                const parts = [];
+                if (presetQty) {
+                  parts.push(`${presetQty} pkg${presetQty !== 1 ? "s" : ""}`);
+                }
+                if (presetRate) {
+                  parts.push(`@ \\$${presetRate}`);
+                }
+                if (presetTotal) {
+                  parts.push(`= \\$${Number(presetTotal).toFixed(2)}`);
+                }
+                details.push(`Preset: ${parts.join(" ")}`);
               }
             }
 
