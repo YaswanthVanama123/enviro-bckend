@@ -13,7 +13,7 @@
 
 % ---- Colors ----
 \definecolor{emred}{RGB}{191, 0, 0}
-\definecolor{linegray}{RGB}{120,120,120} % ✅ DARKER gray for better visibility
+\definecolor{linegray}{RGB}{0,0,0} % ✅ CUSTOM fill-in blank color
 \definecolor{totalcolor}{RGB}{120,120,120} % dark gray for totals
 
 \pagestyle{empty}
@@ -328,9 +328,9 @@
   \vspace{1.2em} % ✅ Increased from 0.5em to 1.2em for more space
 
   \small % ✅ Changed from \footnotesize to \small for larger values
-  \renewcommand{\arraystretch}{1.20}%
+  \renewcommand{\arraystretch}{1.5}%
 
-  \begin{tabularx}{\linewidth}{@{}lX lX@{}}
+  \begin{tabularx}{\linewidth}{@{}lX@{\hspace{1.8cm}}lX@{}}
     {{#headerRows}}
       \textbf{\textcolor{emred}{ {{{labelLeft}}} }} &
         \filledline{ {{{valueLeft}}} } &
@@ -348,8 +348,9 @@
 \fcolorbox{black}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
-    {\bfseries\fontsize{1.1em}{1.9em}\selectfont\textcolor{white}{PRODUCTS}}% ✅ Changed from \footnotesize to \normalsize
-    \vspace{0.1em}%
+    \vspace{0.2em}%
+    {\bfseries\fontsize{1.2em}{3.8em}\selectfont\textcolor{white}{PRODUCTS}}% ✅ Changed from \footnotesize to \normalsize
+    \vspace{0.2em}%
   }%
 }%  
 \vspace{0.5em}%
