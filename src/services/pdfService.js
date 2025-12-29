@@ -844,7 +844,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         const hasTotal = item.total != null && item.total !== '';
 
         if (hasRate || hasTotal) {
-          rows.push({
+          pushRow(item, {
             type: 'atCharge',
             label: item.label || '',
             v1: String(item.qty || ''),
@@ -853,7 +853,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           });
         } else if (item.qty) {
           // Just show quantity if no rate/total available
-          rows.push({
+          pushRow(item, {
             type: 'line',
             label: item.label || '',
             value: `${item.qty} ${item.unit || 'item'}${item.qty !== 1 ? 's' : ''}`
@@ -867,7 +867,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       for (const window of data.windows) {
         if (!shouldDisplayField(window)) continue;
         if (window.qty > 0) {
-          rows.push({
+          pushRow(window, {
             type: 'atCharge',
             label: window.label || '',
             v1: String(window.qty || ''),
