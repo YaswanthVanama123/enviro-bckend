@@ -1307,11 +1307,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         if (!field || !shouldDisplayField(field) || field.amount == null) return;
         const label = field.label || options.label || "Total";
         const value = options.value ?? formatMoneyValue(field.amount);
+        const gap = field.gap ?? options.gap;
         pushRow(field, {
           type: "bold",
           label,
           value,
-          gap: options.gap,
+          gap,
         });
       };
 
