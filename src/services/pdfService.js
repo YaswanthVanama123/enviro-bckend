@@ -696,7 +696,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       for (const fixture of data.fixtureBreakdown) {
         if (!shouldDisplayField(fixture)) continue;
         if (fixture.qty > 0) {
-          rows.push({
+          pushRow(fixture, {
             type: 'atCharge',
             label: fixture.label || '',
             v1: String(fixture.qty || ''),
@@ -1012,12 +1012,51 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
+    // Add pdfExtras (Saniclean additional rows)
+    if (data.pdfExtras && Array.isArray(data.pdfExtras)) {
+      for (const field of data.pdfExtras) {
+        if (!shouldDisplayField(field)) continue;
+        const rowType = field.type === 'atCharge'
+          ? 'atCharge'
+          : field.type === 'bold'
+            ? 'bold'
+            : 'line';
+        let row = {
+          type: rowType,
+          label: field.label || '',
+          value: field.value || '',
+        };
+        if (rowType === 'atCharge') {
+          row.v1 = field.v1 ?? '';
+          row.v2 = field.v2 ?? '';
+          row.v3 = field.v3 ?? '';
+        }
+        pushRow(field, row);
+      }
+    }
+
     // Add metadata fields (pricing method, combined service, etc.)
     if (data.pricingMethod && shouldDisplayField(data.pricingMethod) && data.pricingMethod.value) {
       pushRow(data.pricingMethod, {
         type: 'line',
         label: data.pricingMethod.label || 'Pricing Method',
         value: data.pricingMethod.value
+      });
+    }
+
+    if (data.pricingMode && shouldDisplayField(data.pricingMode) && data.pricingMode.value) {
+      pushRow(data.pricingMode, {
+        type: 'line',
+        label: data.pricingMode.label || 'Pricing Mode',
+        value: data.pricingMode.value
+      });
+    }
+
+    if (data.soapType && shouldDisplayField(data.soapType) && data.soapType.value) {
+      pushRow(data.soapType, {
+        type: 'line',
+        label: data.soapType.label || 'Soap Type',
+        value: data.soapType.value
       });
     }
 
