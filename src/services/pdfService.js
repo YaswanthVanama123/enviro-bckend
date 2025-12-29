@@ -817,6 +817,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           if (hasRate || hasTotal) {
             rows.push({
               type: 'atCharge',
+              orderNo: drain.orderNo,
               label: drain.label || '',
               v1: String(drain.qty || ''),
               v2: typeof drain.rate === 'number' ? `$${drain.rate.toFixed(2)}` : String(drain.rate || ''),
@@ -826,6 +827,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             // Just show quantity if no rate/total available
             rows.push({
               type: 'line',
+              orderNo: drain.orderNo,
               label: drain.label || '',
               value: `${drain.qty} drain${drain.qty !== 1 ? 's' : ''}`
             });
@@ -909,6 +911,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       if (hasRate || hasTotal) {
         rows.push({
           type: 'atCharge',
+          orderNo: data.restroomFixtures.orderNo,
           label: data.restroomFixtures.label || 'Restroom Fixtures',
           v1: String(data.restroomFixtures.qty || ''),
           v2: typeof data.restroomFixtures.rate === 'number' ? `$${data.restroomFixtures.rate.toFixed(2)}` : String(data.restroomFixtures.rate || ''),
@@ -918,6 +921,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         // Fallback: show quantity only
         rows.push({
           type: 'line',
+          orderNo: data.restroomFixtures.orderNo,
           label: data.restroomFixtures.label || 'Restroom Fixtures',
           value: `${data.restroomFixtures.qty} fixture${data.restroomFixtures.qty !== 1 ? 's' : ''}`
         });
@@ -932,6 +936,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       if (hasRate || hasTotal) {
         rows.push({
           type: 'atCharge',
+          orderNo: data.nonBathroomArea.orderNo,
           label: data.nonBathroomArea.label || 'Non-Bathroom Area',
           v1: `${data.nonBathroomArea.qty || ''} ${data.nonBathroomArea.unit || ''}`,
           v2: typeof data.nonBathroomArea.rate === 'number' ? `$${data.nonBathroomArea.rate.toFixed(2)}` : String(data.nonBathroomArea.rate || ''),
@@ -941,6 +946,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         // Fallback: show quantity only
         rows.push({
           type: 'line',
+          orderNo: data.nonBathroomArea.orderNo,
           label: data.nonBathroomArea.label || 'Non-Bathroom Area',
           value: `${data.nonBathroomArea.qty} ${data.nonBathroomArea.unit || 'sq ft'}`
         });
