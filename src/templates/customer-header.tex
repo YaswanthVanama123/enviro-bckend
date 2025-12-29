@@ -16,6 +16,11 @@
 \definecolor{linegray}{RGB}{0,0,0} % ✅ CUSTOM fill-in blank color
 \definecolor{totalcolor}{RGB}{120,120,120} % dark gray for totals
 
+\newlength{\filledlineheight}%
+\setlength{\filledlineheight}{0.9pt} % thicker underline for fill-in blanks
+\newlength{\filledlineoffset}%
+\setlength{\filledlineoffset}{3pt} % lift text higher above blank
+
 \pagestyle{empty}
 
 % ====== GENERIC BLANK HELPERS =====================================
@@ -24,8 +29,8 @@
 \newcommand{\filledline}[1]{%
   \leavevmode
   \makebox[\linewidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\linewidth}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #1}}% ✅ Lift text above line
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\linewidth}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #1}}% ✅ Lift text above line
   }%
 }
 
@@ -44,8 +49,8 @@
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #1}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #1}}%
   }%
 }
 
@@ -64,8 +69,8 @@
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{\strut\small #1}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut\small #1}}%
   }%
 }
 
@@ -118,9 +123,9 @@
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
     % ✅ FIX: Lift value text slightly above the line
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -144,8 +149,8 @@
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -175,9 +180,9 @@
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
     % ✅ FIX: Lift value text slightly above the line
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -202,8 +207,8 @@
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -233,9 +238,9 @@
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
     % ✅ FIX: Lift value text slightly above the line
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -260,8 +265,8 @@
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
   \vspace{0.5em}%
@@ -301,8 +306,8 @@
 % short blanks in agreement paragraph (with optional value)
 \newcommand{\agreementBlank}[2][2.5cm]{%
   \makebox[#1][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{#1}{0.25pt}}}%
-    \makebox[0pt][c]{\raisebox{1pt}{#2}}% ✅ Lift text above line
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{#1}{\filledlineheight}}}%
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{#2}}% ✅ Lift text above line
   }%
 }
 
