@@ -84,7 +84,7 @@
 
 % tiny gap between label and value area (prevents overlap)
 \newlength{\serviceGap}
-\setlength{\serviceGap}{0.2em}
+\setlength{\serviceGap}{1.1em}
 
 \newcommand{\serviceSection}[1]{%
   {\bfseries\normalsize\textcolor{emred}{#1}\par}%
@@ -184,6 +184,19 @@
   }%
   \par
   \vspace{0.5em}%
+}
+
+% Alternate total style for blank/gap rows (fills in another gap under the label)
+\newcommand{\serviceGapLine}[2]{%
+  \vspace{0.6em}% ? Extra top padding for gap
+  \noindent\normalsize
+  \makebox[\serviceLabelWidth][l]{%
+    \textbf{\textcolor{totalcolor}{#1}}%
+  }%
+  \hspace{\serviceGap}%
+  \filledline{#2}%
+  \par
+  \vspace{1.1em}% ? Larger bottom padding for clearer separation
 }
 
 % MICROMAX / RPM / SANIPOD: label ____@____=$__

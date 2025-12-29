@@ -544,6 +544,8 @@ function buildServiceRows(rows = []) {
       }
     } else if (type === "atCharge") {
       out += `\\serviceAtCharge{${latexEscape(r.label || "")}}{${latexEscape(r.v1 || "")}}{${latexEscape(r.v2 || "")}}{${latexEscape(r.v3 || "")}}\n`;
+    } else if (type === "gap") {
+      out += `\\serviceGapLine{${latexEscape(r.label || "")}}{${latexEscape(r.value || "")}}\n`;
     }
   }
   return out;
@@ -1116,11 +1118,11 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add totals from new structured format
-    if (data.totals) {
-      if (data.totals.perVisit && shouldDisplayField(data.totals.perVisit) && data.totals.perVisit.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.perVisit.orderNo,
+  if (data.totals) {
+    if (data.totals.perVisit && shouldDisplayField(data.totals.perVisit) && data.totals.perVisit.amount != null) {
+      rows.push({
+        type: 'bold',
+        orderNo: data.totals.perVisit.orderNo,
           label: data.totals.perVisit.label || 'Per Visit Total',
           value: typeof data.totals.perVisit.amount === 'number' ? `$${data.totals.perVisit.amount.toFixed(2)}` : String(data.totals.perVisit.amount)
         });
@@ -1154,18 +1156,18 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
 
       if (data.totals.monthlyRecurring && shouldDisplayField(data.totals.monthlyRecurring) && data.totals.monthlyRecurring.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.monthlyRecurring.orderNo,
-          label: data.totals.monthlyRecurring.label || 'Monthly Recurring',
-          value: typeof data.totals.monthlyRecurring.amount === 'number' ? `$${data.totals.monthlyRecurring.amount.toFixed(2)}` : String(data.totals.monthlyRecurring.amount)
-        });
-      }
+      rows.push({
+        type: 'bold',
+        orderNo: data.totals.monthlyRecurring.orderNo,
+        label: data.totals.monthlyRecurring.label || 'Monthly Recurring',
+        value: typeof data.totals.monthlyRecurring.amount === 'number' ? `$${data.totals.monthlyRecurring.amount.toFixed(2)}` : String(data.totals.monthlyRecurring.amount)
+      });
+    }
 
-      if (data.totals.firstMonth && shouldDisplayField(data.totals.firstMonth) && data.totals.firstMonth.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.firstMonth.orderNo,
+    if (data.totals.firstMonth && shouldDisplayField(data.totals.firstMonth) && data.totals.firstMonth.amount != null) {
+      rows.push({
+        type: 'bold',
+        orderNo: data.totals.firstMonth.orderNo,
           label: data.totals.firstMonth.label || 'First Month Total',
           value: typeof data.totals.firstMonth.amount === 'number' ? `$${data.totals.firstMonth.amount.toFixed(2)}` : String(data.totals.firstMonth.amount)
         });
