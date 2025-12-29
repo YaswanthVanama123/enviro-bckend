@@ -614,6 +614,97 @@ function attachOrderNo(field, row) {
   return { ...row, orderNo: parsed };
 }
 
+const FREQUENCY_CANONICALS = new Map([
+  ["onetime", "oneTime"],
+  ["1time", "oneTime"],
+  ["weekly", "weekly"],
+  ["biweekly", "biweekly"],
+  ["twicepermonth", "twicePerMonth"],
+  ["2permonth", "twicePerMonth"],
+  ["2xmonth", "twicePerMonth"],
+  ["2month", "twicePerMonth"],
+  ["monthly", "monthly"],
+  ["bimonthly", "bimonthly"],
+  ["every2months", "bimonthly"],
+  ["quarterly", "quarterly"],
+  ["biannual", "biannual"],
+  ["annual", "annual"],
+]);
+
+const MONTHLY_FREQUENCY_KEYS = new Set(["weekly", "biweekly", "twicePerMonth", "monthly"]);
+const VISIT_FREQUENCY_KEYS = new Set(["oneTime", "bimonthly", "quarterly", "biannual", "annual"]);
+
+function normalizeFrequencyKey(raw) {
+  if (raw === undefined || raw === null) return undefined;
+  const str = String(raw).trim();
+  if (!str) return undefined;
+  const cleaned = str.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!cleaned) return undefined;
+  const canonical = FREQUENCY_CANONICALS.get(cleaned);
+  if (canonical) return canonical;
+  if (cleaned.includes("twicepermonth") || cleaned.includes("2permonth") || cleaned.includes("2xmonth") || cleaned.includes("2month")) {
+    return "twicePerMonth";
+  }
+  if (cleaned.includes("bimonth")) {
+    return "bimonthly";
+  }
+  if (cleaned.includes("quarter")) {
+    return "quarterly";
+  }
+  if (cleaned.includes("biannual")) {
+    return "biannual";
+  }
+  if (cleaned.includes("annual")) {
+    return "annual";
+  }
+  if (cleaned.includes("biweekly")) {
+    return "biweekly";
+  }
+  if (cleaned.includes("weekly")) {
+    return "weekly";
+  }
+  if (cleaned.includes("monthly")) {
+    return "monthly";
+  }
+  if (cleaned.includes("onetime") || cleaned.includes("1time")) {
+    return "oneTime";
+  }
+  return undefined;
+}
+
+function detectServiceFrequencyKey(data) {
+  if (!data) return undefined;
+  const candidates = [
+    data.frequency,
+    data.serviceFrequency,
+    data.mainServiceFrequency,
+    data.frequencyKey,
+    data.serviceFrequencyKey,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (typeof candidate === "string") {
+      const normalized = normalizeFrequencyKey(candidate);
+      if (normalized) return normalized;
+      continue;
+    }
+    if (typeof candidate === "object") {
+      const value = candidate.frequencyKey ?? candidate.value ?? candidate.label;
+      if (!value) continue;
+      const normalized = normalizeFrequencyKey(value);
+      if (normalized) return normalized;
+    }
+  }
+  return undefined;
+}
+
+function determineFrequencyGroup(key) {
+  if (!key) return undefined;
+  if (MONTHLY_FREQUENCY_KEYS.has(key)) return "monthly";
+  if (VISIT_FREQUENCY_KEYS.has(key)) return "visit";
+  return undefined;
+}
+
 /* ---------------- Service Transformation Helper ---------------- */
 function transformServicesToPdfFormat(usedServices) {
   const topRow = [];
@@ -1165,76 +1256,69 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add totals from new structured format
-  if (data.totals) {
-    if (data.totals.perVisit && shouldDisplayField(data.totals.perVisit) && data.totals.perVisit.amount != null) {
-      rows.push({
-        type: 'bold',
-        orderNo: data.totals.perVisit.orderNo,
-          label: data.totals.perVisit.label || 'Per Visit Total',
-          value: typeof data.totals.perVisit.amount === 'number' ? `$${data.totals.perVisit.amount.toFixed(2)}` : String(data.totals.perVisit.amount)
+    if (data.totals) {
+      const freqKey = detectServiceFrequencyKey(data);
+      const freqGroup = determineFrequencyGroup(freqKey);
+      const isMonthlyGroup = freqGroup === "monthly" || freqGroup === undefined;
+      const isVisitGroup = freqGroup === "visit";
+
+      const formatMoneyValue = (amount) => {
+        if (typeof amount === "number") {
+          return `$${amount.toFixed(2)}`;
+        }
+        if (amount === undefined || amount === null) {
+          return "";
+        }
+        return String(amount);
+      };
+
+      const addBoldTotal = (field, options = {}) => {
+        if (!field || !shouldDisplayField(field) || field.amount == null) return;
+        const label = field.label || options.label || "Total";
+        const value = options.value ?? formatMoneyValue(field.amount);
+        pushRow(field, {
+          type: "bold",
+          label,
+          value,
+          gap: options.gap,
         });
+      };
+
+      addBoldTotal(data.totals.perVisit);
+
+      if (isMonthlyGroup) {
+        addBoldTotal(data.totals.firstMonth || data.totals.monthly);
+        addBoldTotal(data.totals.monthlyRecurring, { gap: "wide" });
+      } else if (isVisitGroup) {
+        addBoldTotal(data.totals.firstVisit || data.totals.firstMonth);
+        addBoldTotal(data.totals.recurringVisit, { gap: "wide" });
       }
 
-      if (data.totals.recurringVisit && shouldDisplayField(data.totals.recurringVisit) && data.totals.recurringVisit.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.recurringVisit.orderNo,
-          label: data.totals.recurringVisit.label || 'Recurring Visit Total',
-          value: typeof data.totals.recurringVisit.amount === 'number' ? `$${data.totals.recurringVisit.amount.toFixed(2)}` : String(data.totals.recurringVisit.amount)
-        });
-      }
-
-      if (data.totals.weekly && shouldDisplayField(data.totals.weekly) && data.totals.weekly.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.weekly.orderNo,
-          label: data.totals.weekly.label || 'Weekly Total',
-          value: typeof data.totals.weekly.amount === 'number' ? `$${data.totals.weekly.amount.toFixed(2)}` : String(data.totals.weekly.amount)
-        });
-      }
-
-      if (data.totals.monthly && shouldDisplayField(data.totals.monthly) && data.totals.monthly.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.monthly.orderNo,
-          label: data.totals.monthly.label || 'Monthly Total',
-          value: typeof data.totals.monthly.amount === 'number' ? `$${data.totals.monthly.amount.toFixed(2)}` : String(data.totals.monthly.amount)
-        });
-      }
-
-      if (data.totals.monthlyRecurring && shouldDisplayField(data.totals.monthlyRecurring) && data.totals.monthlyRecurring.amount != null) {
-      rows.push({
-        type: 'bold',
-        orderNo: data.totals.monthlyRecurring.orderNo,
-        label: data.totals.monthlyRecurring.label || 'Monthly Recurring',
-        value: typeof data.totals.monthlyRecurring.amount === 'number' ? `$${data.totals.monthlyRecurring.amount.toFixed(2)}` : String(data.totals.monthlyRecurring.amount)
-      });
-    }
-
-    if (data.totals.firstMonth && shouldDisplayField(data.totals.firstMonth) && data.totals.firstMonth.amount != null) {
-      rows.push({
-        type: 'bold',
-        orderNo: data.totals.firstMonth.orderNo,
-          label: data.totals.firstMonth.label || 'First Month Total',
-          value: typeof data.totals.firstMonth.amount === 'number' ? `$${data.totals.firstMonth.amount.toFixed(2)}` : String(data.totals.firstMonth.amount)
-        });
-      }
+      addBoldTotal(data.totals.weekly);
 
       if (data.totals.contract && shouldDisplayField(data.totals.contract) && data.totals.contract.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.contract.orderNo,
-          label: data.totals.contract.label || 'Contract Total',
-          value: typeof data.totals.contract.amount === 'number' ? `$${data.totals.contract.amount.toFixed(2)} (${data.totals.contract.months || 12}mo)` : String(data.totals.contract.amount)
+        const formattedContract = formatMoneyValue(data.totals.contract.amount);
+        const contractValue =
+          typeof data.totals.contract.amount === "number"
+            ? `$${data.totals.contract.amount.toFixed(2)} (${data.totals.contract.months || 12}mo)`
+            : formattedContract;
+        pushRow(data.totals.contract, {
+          type: "bold",
+          label: data.totals.contract.label || "Contract Total",
+          value: contractValue,
         });
       }
 
       if (data.totals.annual && shouldDisplayField(data.totals.annual) && data.totals.annual.amount != null) {
-        rows.push({
-          type: 'bold',
-          orderNo: data.totals.annual.orderNo,
-          label: data.totals.annual.label || 'Annual Total',
-          value: typeof data.totals.annual.amount === 'number' ? `$${data.totals.annual.amount.toFixed(2)} (${data.totals.annual.months || 12}mo)` : String(data.totals.annual.amount)
+        const formattedAnnual = formatMoneyValue(data.totals.annual.amount);
+        const annualValue =
+          typeof data.totals.annual.amount === "number"
+            ? `$${data.totals.annual.amount.toFixed(2)} (${data.totals.annual.months || 12}mo)`
+            : formattedAnnual;
+        pushRow(data.totals.annual, {
+          type: "bold",
+          label: data.totals.annual.label || "Annual Total",
+          value: annualValue,
         });
       }
     }
