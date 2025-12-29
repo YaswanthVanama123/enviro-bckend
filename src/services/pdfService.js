@@ -566,15 +566,43 @@ function buildServiceColumn(col = {}) {
 
 function buildServicesRow(cols = []) {
   if (!cols || !cols.length) return "";
+
+  const sortedCols = cols.map((col) => {
+    if (!col || !Array.isArray(col.rows)) return col;
+    return {
+      ...col,
+      rows: [...col.rows].sort((a, b) => {
+        const ai = typeof a?.orderNo === "number" ? a.orderNo : Number.MAX_SAFE_INTEGER;
+        const bi = typeof b?.orderNo === "number" ? b.orderNo : Number.MAX_SAFE_INTEGER;
+        return ai - bi;
+      }),
+    };
+  });
+
   let rowLatex = "\\noindent\n";
-  cols.forEach((col, idx) => {
+  sortedCols.forEach((col, idx) => {
     rowLatex += "\\begin{minipage}[t]{0.48\\textwidth}\n";
     rowLatex += buildServiceColumn(col);
     rowLatex += "\\end{minipage}%\n";
-    if (idx !== cols.length - 1) rowLatex += "\\hfill\n";
+    if (idx !== sortedCols.length - 1) rowLatex += "\\hfill\n";
   });
   rowLatex += "\n";
   return rowLatex;
+}
+
+function shouldDisplayField(field) {
+  if (!field || typeof field !== "object") return true;
+  if (typeof field.isDisplay === "boolean") return field.isDisplay;
+  return true;
+}
+
+function attachOrderNo(field, row) {
+  if (!field || typeof field !== "object") return row;
+  const candidate = field.orderNo;
+  if (candidate === null || candidate === undefined) return row;
+  const parsed = typeof candidate === "number" ? candidate : Number(candidate);
+  if (!Number.isFinite(parsed)) return row;
+  return { ...row, orderNo: parsed };
 }
 
 /* ---------------- Service Transformation Helper ---------------- */
@@ -642,6 +670,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
   }
 
   const rows = [];
+  const pushRow = (field, row) => rows.push(attachOrderNo(field, row));
 
   // Extract formData if present (newer format)
   const data = serviceData.formData || serviceData;
@@ -663,6 +692,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     // Handle fixture breakdown (SaniClean)
     if (data.fixtureBreakdown && Array.isArray(data.fixtureBreakdown)) {
       for (const fixture of data.fixtureBreakdown) {
+        if (!shouldDisplayField(fixture)) continue;
         if (fixture.qty > 0) {
           rows.push({
             type: 'atCharge',
@@ -678,6 +708,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     // Handle drain breakdown (Foaming Drain)
     if (data.drainBreakdown && Array.isArray(data.drainBreakdown)) {
       for (const drain of data.drainBreakdown) {
+        if (!shouldDisplayField(drain)) continue;
         if (drain.qty > 0) {
           // Only add if we have meaningful data
           const hasRate = drain.rate != null && drain.rate !== '';
@@ -706,6 +737,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     // Handle service breakdown (Microfiber Mopping, etc.)
     if (data.serviceBreakdown && Array.isArray(data.serviceBreakdown)) {
       for (const item of data.serviceBreakdown) {
+        if (!shouldDisplayField(item)) continue;
         const hasRate = item.rate != null && item.rate !== '';
         const hasTotal = item.total != null && item.total !== '';
 
@@ -731,6 +763,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     // Handle windows (RPM Windows)
     if (data.windows && Array.isArray(data.windows)) {
       for (const window of data.windows) {
+        if (!shouldDisplayField(window)) continue;
         if (window.qty > 0) {
           rows.push({
             type: 'atCharge',
@@ -744,13 +777,14 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Handle single service item (Carpet Clean, Strip & Wax, etc.)
-    if (data.service) {
+    if (data.service && shouldDisplayField(data.service)) {
       const hasRate = data.service.rate != null && data.service.rate !== '';
       const hasTotal = data.service.total != null && data.service.total !== '';
 
       if (hasRate || hasTotal) {
         rows.push({
           type: 'atCharge',
+          orderNo: data.service.orderNo,
           label: data.service.label || '',
           v1: String(data.service.qty || ''),
           v2: typeof data.service.rate === 'number' ? `$${data.service.rate.toFixed(2)}` : String(data.service.rate || ''),
@@ -760,6 +794,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         // Just show quantity if no rate/total available
         rows.push({
           type: 'line',
+          orderNo: data.service.orderNo,
           label: data.service.label || '',
           value: `${data.service.qty} ${data.service.unit || 'item'}${data.service.qty !== 1 ? 's' : ''}`
         });
@@ -767,7 +802,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Handle restroom fixtures (Saniscrub)
-    if (data.restroomFixtures && data.restroomFixtures.qty) {
+    if (data.restroomFixtures && shouldDisplayField(data.restroomFixtures) && data.restroomFixtures.qty) {
       const hasRate = data.restroomFixtures.rate != null && data.restroomFixtures.rate !== '';
       const hasTotal = data.restroomFixtures.total != null && data.restroomFixtures.total !== '';
 
@@ -790,7 +825,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Handle non-bathroom area (Saniscrub)
-    if (data.nonBathroomArea && data.nonBathroomArea.qty) {
+    if (data.nonBathroomArea && shouldDisplayField(data.nonBathroomArea) && data.nonBathroomArea.qty) {
       const hasRate = data.nonBathroomArea.rate != null && data.nonBathroomArea.rate !== '';
       const hasTotal = data.nonBathroomArea.total != null && data.nonBathroomArea.total !== '';
 
@@ -814,9 +849,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
     // Handle Refresh Power Scrub area-based structure
     const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
-    for (const areaKey of refreshAreas) {
-      if (data[areaKey] && typeof data[areaKey] === 'object') {
-        const area = data[areaKey];
+      for (const areaKey of refreshAreas) {
+        if (data[areaKey] && typeof data[areaKey] === 'object') {
+          const area = data[areaKey];
+          if (!shouldDisplayField(area)) {
+            continue;
+          }
 
         if (serviceKey === 'refreshPowerScrub') {
           // console.log(`  └ Processing ${areaKey}:`, JSON.stringify(area, null, 2));
@@ -863,8 +901,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add service info for Refresh Power Scrub
-    if (data.serviceInfo && data.serviceInfo.value) {
-      rows.push({
+    if (data.serviceInfo && shouldDisplayField(data.serviceInfo) && data.serviceInfo.value) {
+      pushRow(data.serviceInfo, {
         type: 'line',
         label: data.serviceInfo.label || 'Service Info',
         value: data.serviceInfo.value
@@ -872,12 +910,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Handle extra bags (SaniPod)
-    if (data.extraBags && data.extraBags.qty > 0) {
+    if (data.extraBags && shouldDisplayField(data.extraBags) && data.extraBags.qty > 0) {
       const hasRate = data.extraBags.rate != null && data.extraBags.rate !== '';
       const hasTotal = data.extraBags.total != null && data.extraBags.total !== '';
 
       if (hasRate || hasTotal) {
-        rows.push({
+        pushRow(data.extraBags, {
           type: 'atCharge',
           label: data.extraBags.label || 'Extra Bags',
           v1: String(data.extraBags.qty || ''),
@@ -885,7 +923,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           v3: typeof data.extraBags.total === 'number' ? `$${data.extraBags.total.toFixed(2)}` : String(data.extraBags.total || '')
         });
       } else {
-        rows.push({
+        pushRow(data.extraBags, {
           type: 'line',
           label: data.extraBags.label || 'Extra Bags',
           value: `${data.extraBags.qty} bag${data.extraBags.qty !== 1 ? 's' : ''}`
@@ -894,12 +932,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Handle installation (structured format with qty/rate/total)
-    if (data.installation && data.installation.qty > 0) {
+    if (data.installation && shouldDisplayField(data.installation) && data.installation.qty > 0) {
       const hasRate = data.installation.rate != null && data.installation.rate !== '';
       const hasTotal = data.installation.total != null && data.installation.total !== '';
 
       if (hasRate || hasTotal) {
-        rows.push({
+        pushRow(data.installation, {
           type: 'atCharge',
           label: data.installation.label || 'Installation',
           v1: String(data.installation.qty || ''),
@@ -907,7 +945,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           v3: typeof data.installation.total === 'number' ? `$${data.installation.total.toFixed(2)}` : String(data.installation.total || '')
         });
       } else {
-        rows.push({
+        pushRow(data.installation, {
           type: 'line',
           label: data.installation.label || 'Installation',
           value: `${data.installation.qty} unit${data.installation.qty !== 1 ? 's' : ''}`
@@ -916,8 +954,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Legacy installationFee format (for backward compatibility)
-    if (data.installationFee && data.installationFee.amount) {
-      rows.push({
+    if (data.installationFee && shouldDisplayField(data.installationFee) && data.installationFee.amount) {
+      pushRow(data.installationFee, {
         type: 'line',
         label: data.installationFee.label || 'Installation Fee',
         value: typeof data.installationFee.amount === 'number' ? `$${data.installationFee.amount.toFixed(2)}` : String(data.installationFee.amount || '')
@@ -925,8 +963,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Handle trip charge (ElectrostaticSpray, Sani-Clean)
-    if (data.tripCharge && data.tripCharge.amount != null && data.tripCharge.amount > 0) {
-      rows.push({
+    if (data.tripCharge && shouldDisplayField(data.tripCharge) && data.tripCharge.amount != null && data.tripCharge.amount > 0) {
+      pushRow(data.tripCharge, {
         type: 'line',
         label: data.tripCharge.label || 'Trip Charge',
         value: typeof data.tripCharge.amount === 'number' ? `$${data.tripCharge.amount.toFixed(2)}` : String(data.tripCharge.amount || '')
@@ -934,12 +972,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add extras (warranty, luxury upgrades, etc.)
-    if (data.warranty && data.warranty.qty) {
+    if (data.warranty && shouldDisplayField(data.warranty) && data.warranty.qty) {
       const hasRate = data.warranty.rate != null && data.warranty.rate !== '';
       const hasTotal = data.warranty.total != null && data.warranty.total !== '';
 
       if (hasRate || hasTotal) {
-        rows.push({
+        pushRow(data.warranty, {
           type: 'atCharge',
           label: data.warranty.label || 'Warranty',
           v1: String(data.warranty.qty || ''),
@@ -948,7 +986,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         });
       } else {
         // Fallback: show quantity only
-        rows.push({
+        pushRow(data.warranty, {
           type: 'line',
           label: data.warranty.label || 'Warranty',
           value: `${data.warranty.qty} item${data.warranty.qty !== 1 ? 's' : ''}`
@@ -956,16 +994,16 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    if (data.luxuryUpgrade) {
-      rows.push({
+    if (data.luxuryUpgrade && shouldDisplayField(data.luxuryUpgrade)) {
+      pushRow(data.luxuryUpgrade, {
         type: 'line',
         label: data.luxuryUpgrade.label || 'Luxury Soap Upgrade',
         value: typeof data.luxuryUpgrade.total === 'number' ? `$${data.luxuryUpgrade.total.toFixed(2)}` : String(data.luxuryUpgrade.total || '')
       });
     }
 
-    if (data.extraSoap) {
-      rows.push({
+    if (data.extraSoap && shouldDisplayField(data.extraSoap)) {
+      pushRow(data.extraSoap, {
         type: 'line',
         label: data.extraSoap.label || 'Extra Soap',
         value: typeof data.extraSoap.total === 'number' ? `$${data.extraSoap.total.toFixed(2)}` : String(data.extraSoap.total || '')
@@ -973,16 +1011,16 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add metadata fields (pricing method, combined service, etc.)
-    if (data.pricingMethod && data.pricingMethod.value) {
-      rows.push({
+    if (data.pricingMethod && shouldDisplayField(data.pricingMethod) && data.pricingMethod.value) {
+      pushRow(data.pricingMethod, {
         type: 'line',
         label: data.pricingMethod.label || 'Pricing Method',
         value: data.pricingMethod.value
       });
     }
 
-    if (data.combinedService && data.combinedService.value) {
-      rows.push({
+    if (data.combinedService && shouldDisplayField(data.combinedService) && data.combinedService.value) {
+      pushRow(data.combinedService, {
         type: 'line',
         label: data.combinedService.label || 'Combined with',
         value: data.combinedService.value
@@ -990,64 +1028,87 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add frequency/location info
-    if (data.frequency && data.frequency.value) {
-      rows.push({
+    if (data.frequency && shouldDisplayField(data.frequency) && data.frequency.value) {
+      pushRow(data.frequency, {
         type: 'line',
         label: data.frequency.label || 'Frequency',
         value: data.frequency.value
       });
     }
 
-    if (data.location && data.location.value) {
-      rows.push({
+    const pdfVisibility = serviceData.pdfFieldVisibility || {};
+    const locationVisOverride = pdfVisibility.hasOwnProperty("location")
+      ? pdfVisibility.location
+      : undefined;
+    const primaryLocationField = data.location && typeof data.location === "object"
+      ? data.location
+      : null;
+    const fallbackLocationField = serviceData.location && typeof serviceData.location === "object"
+      ? serviceData.location
+      : null;
+    const locationFieldForOrder = primaryLocationField || fallbackLocationField;
+    const locationValue = primaryLocationField?.value ||
+      (typeof data.location === "string" && data.location.trim() !== "" ? data.location : "") ||
+      fallbackLocationField?.value ||
+      "";
+    const locationLabel = (locationFieldForOrder && (locationFieldForOrder.label || locationFieldForOrder.value)) ||
+      fallbackLocationField?.label ||
+      'Location';
+    const shouldRenderLocation =
+      Boolean(locationValue) &&
+      (!locationFieldForOrder || shouldDisplayField(locationFieldForOrder)) &&
+      (locationVisOverride !== false && locationVisOverride !== "false");
+
+    if (shouldRenderLocation) {
+      pushRow(locationFieldForOrder, {
         type: 'line',
-        label: data.location.label || 'Location',
-        value: data.location.value
+        label: locationLabel,
+        value: locationValue
       });
     }
 
     // Handle janitorial-specific text fields
-    if (data.serviceType && data.serviceType.type === 'text' && data.serviceType.value) {
-      rows.push({
+    if (data.serviceType && shouldDisplayField(data.serviceType) && data.serviceType.type === 'text' && data.serviceType.value) {
+      pushRow(data.serviceType, {
         type: 'line',
         label: data.serviceType.label || 'Service Type',
         value: data.serviceType.value
       });
     }
 
-    if (data.otherTasks && data.otherTasks.type === 'text' && data.otherTasks.value) {
-      rows.push({
+    if (data.otherTasks && shouldDisplayField(data.otherTasks) && data.otherTasks.type === 'text' && data.otherTasks.value) {
+      pushRow(data.otherTasks, {
         type: 'line',
         label: data.otherTasks.label || 'Other Tasks',
         value: data.otherTasks.value
       });
     }
 
-    if (data.vacuuming && data.vacuuming.type === 'text' && data.vacuuming.value) {
-      rows.push({
+    if (data.vacuuming && shouldDisplayField(data.vacuuming) && data.vacuuming.type === 'text' && data.vacuuming.value) {
+      pushRow(data.vacuuming, {
         type: 'line',
         label: data.vacuuming.label || 'Vacuuming',
         value: data.vacuuming.value
       });
     }
 
-    if (data.dusting && data.dusting.type === 'text' && data.dusting.value) {
-      rows.push({
+    if (data.dusting && shouldDisplayField(data.dusting) && data.dusting.type === 'text' && data.dusting.value) {
+      pushRow(data.dusting, {
         type: 'line',
         label: data.dusting.label || 'Dusting',
         value: data.dusting.value
       });
     }
 
-    if (data.visitsPerWeek && data.visitsPerWeek.type === 'text' && data.visitsPerWeek.value) {
-      rows.push({
+    if (data.visitsPerWeek && shouldDisplayField(data.visitsPerWeek) && data.visitsPerWeek.type === 'text' && data.visitsPerWeek.value) {
+      pushRow(data.visitsPerWeek, {
         type: 'line',
         label: data.visitsPerWeek.label || 'Visits per Week',
         value: data.visitsPerWeek.value
       });
     }
-    if (data.addonTime && data.addonTime.type === 'text' && data.addonTime.value) {
-      rows.push({
+    if (data.addonTime && shouldDisplayField(data.addonTime) && data.addonTime.type === 'text' && data.addonTime.value) {
+      pushRow(data.addonTime, {
         type: 'line',
         label: data.addonTime.label || 'Add-on Time',
         value: data.addonTime.value
@@ -1056,57 +1117,73 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
     // Add totals from new structured format
     if (data.totals) {
-      if (data.totals.perVisit && data.totals.perVisit.amount != null) {
+      if (data.totals.perVisit && shouldDisplayField(data.totals.perVisit) && data.totals.perVisit.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.perVisit.orderNo,
           label: data.totals.perVisit.label || 'Per Visit Total',
           value: typeof data.totals.perVisit.amount === 'number' ? `$${data.totals.perVisit.amount.toFixed(2)}` : String(data.totals.perVisit.amount)
         });
       }
 
-      if (data.totals.weekly && data.totals.weekly.amount != null) {
+      if (data.totals.recurringVisit && shouldDisplayField(data.totals.recurringVisit) && data.totals.recurringVisit.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.recurringVisit.orderNo,
+          label: data.totals.recurringVisit.label || 'Recurring Visit Total',
+          value: typeof data.totals.recurringVisit.amount === 'number' ? `$${data.totals.recurringVisit.amount.toFixed(2)}` : String(data.totals.recurringVisit.amount)
+        });
+      }
+
+      if (data.totals.weekly && shouldDisplayField(data.totals.weekly) && data.totals.weekly.amount != null) {
+        rows.push({
+          type: 'bold',
+          orderNo: data.totals.weekly.orderNo,
           label: data.totals.weekly.label || 'Weekly Total',
           value: typeof data.totals.weekly.amount === 'number' ? `$${data.totals.weekly.amount.toFixed(2)}` : String(data.totals.weekly.amount)
         });
       }
 
-      if (data.totals.monthly && data.totals.monthly.amount != null) {
+      if (data.totals.monthly && shouldDisplayField(data.totals.monthly) && data.totals.monthly.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.monthly.orderNo,
           label: data.totals.monthly.label || 'Monthly Total',
           value: typeof data.totals.monthly.amount === 'number' ? `$${data.totals.monthly.amount.toFixed(2)}` : String(data.totals.monthly.amount)
         });
       }
 
-      if (data.totals.monthlyRecurring && data.totals.monthlyRecurring.amount != null) {
+      if (data.totals.monthlyRecurring && shouldDisplayField(data.totals.monthlyRecurring) && data.totals.monthlyRecurring.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.monthlyRecurring.orderNo,
           label: data.totals.monthlyRecurring.label || 'Monthly Recurring',
           value: typeof data.totals.monthlyRecurring.amount === 'number' ? `$${data.totals.monthlyRecurring.amount.toFixed(2)}` : String(data.totals.monthlyRecurring.amount)
         });
       }
 
-      if (data.totals.firstMonth && data.totals.firstMonth.amount != null) {
+      if (data.totals.firstMonth && shouldDisplayField(data.totals.firstMonth) && data.totals.firstMonth.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.firstMonth.orderNo,
           label: data.totals.firstMonth.label || 'First Month Total',
           value: typeof data.totals.firstMonth.amount === 'number' ? `$${data.totals.firstMonth.amount.toFixed(2)}` : String(data.totals.firstMonth.amount)
         });
       }
 
-      if (data.totals.contract && data.totals.contract.amount != null) {
+      if (data.totals.contract && shouldDisplayField(data.totals.contract) && data.totals.contract.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.contract.orderNo,
           label: data.totals.contract.label || 'Contract Total',
           value: typeof data.totals.contract.amount === 'number' ? `$${data.totals.contract.amount.toFixed(2)} (${data.totals.contract.months || 12}mo)` : String(data.totals.contract.amount)
         });
       }
 
-      if (data.totals.annual && data.totals.annual.amount != null) {
+      if (data.totals.annual && shouldDisplayField(data.totals.annual) && data.totals.annual.amount != null) {
         rows.push({
           type: 'bold',
+          orderNo: data.totals.annual.orderNo,
           label: data.totals.annual.label || 'Annual Total',
           value: typeof data.totals.annual.amount === 'number' ? `$${data.totals.annual.amount.toFixed(2)} (${data.totals.annual.months || 12}mo)` : String(data.totals.annual.amount)
         });
@@ -1116,6 +1193,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     // Add custom fields from new format
     if (data.customFields && Array.isArray(data.customFields)) {
       for (const field of data.customFields) {
+        if (!shouldDisplayField(field)) continue;
         // Support both 'label' and 'name' properties
         const fieldLabel = field.label || field.name;
 
@@ -1125,7 +1203,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             // Handle calc fields with calcValues structure (left @ middle = right)
             if (field.calcValues &&
                 (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
-              rows.push({
+              pushRow(field, {
                 type: 'atCharge',
                 label: fieldLabel,
                 v1: String(field.calcValues.left || ''),
@@ -1137,7 +1215,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             else if (field.value && typeof field.value === 'object') {
               const calcValue = field.value;
               if (calcValue.qty != null && calcValue.rate != null && calcValue.total != null) {
-                rows.push({
+                pushRow(field, {
                   type: 'atCharge',
                   label: fieldLabel,
                   v1: String(calcValue.qty || ''),
@@ -1150,7 +1228,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             // Handle money/dollar fields
             if (field.value !== undefined && field.value !== '') {
               const amount = typeof field.value === 'number' ? field.value : parseFloat(field.value) || 0;
-              rows.push({
+              pushRow(field, {
                 type: 'line',
                 label: fieldLabel,
                 value: `$${amount.toFixed(2)}`
@@ -1278,6 +1356,7 @@ function transformCustomServiceToColumn(customService) {
   const fields = customService.fields || [];
 
   for (const field of fields) {
+    if (!shouldDisplayField(field)) continue;
     // Support both 'label' and 'name' properties
     const fieldLabel = field.label || field.name;
 
