@@ -528,6 +528,9 @@ function buildServiceRows(rows = []) {
       // バ. FIX: Remove space prefix before label for proper left alignment
       const lineCommand = "\\serviceLine";
       const command = gapSuffix ? `${lineCommand}${gapSuffix}` : lineCommand;
+      if (gapSuffix) {
+        console.debug(`[PDF gap] line ${command} ${label}`);
+      }
       out += `${command}{${latexEscape(label)}}{${latexEscape(value)}}\n`;
     } else if (type === "bold") {
       // Check if this is a total field and use appropriate command
@@ -542,6 +545,9 @@ function buildServiceRows(rows = []) {
 
       const baseCommand = isTotal ? "\\serviceTotalLine" : "\\serviceBoldLine";
       const command = gapSuffix ? `${baseCommand}Wide` : baseCommand;
+      if (gapSuffix) {
+        console.debug(`[PDF gap] bold ${command} ${label}`);
+      }
       out += `${command}{${latexEscape(label)}}{${latexEscape(value)}}\n`;
     } else if (type === "atCharge") {
       out += `\\serviceAtCharge{${latexEscape(r.label || "")}}{${latexEscape(r.v1 || "")}}{${latexEscape(r.v2 || "")}}{${latexEscape(r.v3 || "")}}\n`;
