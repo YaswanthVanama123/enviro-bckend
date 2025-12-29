@@ -350,10 +350,19 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   // ✅ FIX: Headers with breakable slashes and word breaks
   // latexEscapeHeader makes slashes breakable with \allowbreak
   // \hspace{0pt} allows hyphenation at any position for long words
-  const productsHeaderRowLatex =
-    headers
-      .map((h) => `\\textbf{\\hspace{0pt}${latexEscapeHeader(h)}}`)
-      .join(" & ") + " \\\\ \\hline\n";
+const productsHeaderRowLatex =
+  "\\arrayrulecolor{black}\n" +
+  "\\hline\n" +
+  "\\rowcolor[RGB]{218,233,247}\n" +
+  headers
+    .map((h) => `\\textbf{\\textcolor{emred}{\\hspace{0pt}${latexEscapeHeader(h)}}}`)
+    .join(" & ") +
+  " \\\\\n" +
+  "\\hline\n" +
+  "\\arrayrulecolor{black}\n";
+
+
+
 
   let productsBodyRowsLatex = "";
 
