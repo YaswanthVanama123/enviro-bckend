@@ -345,7 +345,7 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   // ✅ FIX: Add \raggedright\arraybackslash to COLUMN SPEC (not cell content)
   // This allows natural text wrapping without height restrictions
   // >{...} prefix applies formatting to entire column
-  const productsColSpecLatex = headers.map(() => `>{\\raggedright\\arraybackslash}p{${colWidth}}`).join("|");
+  const productsColSpecLatex = headers.map(() => `>{\\centering\\arraybackslash}m{${colWidth}}`).join("|");
 
   // ✅ FIX: Headers with breakable slashes and word breaks
   // latexEscapeHeader makes slashes breakable with \allowbreak
