@@ -521,27 +521,28 @@ function buildServiceRows(rows = []) {
   let out = "";
   for (const r of rows) {
     const type = r.type || "line";
+    const label = r.label || "";
+    const value = r.value || "";
+    const gapSuffix = r.gap === "wide" ? "Wide" : "";
     if (type === "line") {
-      // ✅ FIX: Remove space prefix before label for proper left alignment
-      out += `\\serviceLine{${latexEscape(r.label || "")}}{${latexEscape(r.value || "")}}\n`;
+      // バ. FIX: Remove space prefix before label for proper left alignment
+      const lineCommand = "\\serviceLine";
+      const command = gapSuffix ? `${lineCommand}${gapSuffix}` : lineCommand;
+      out += `${command}{${latexEscape(label)}}{${latexEscape(value)}}\n`;
     } else if (type === "bold") {
       // Check if this is a total field and use appropriate command
-      const label = r.label || "";
-      const isTotal = label.toLowerCase().includes('total') ||
-                     label.toLowerCase().includes('recurring') ||
-                     label.toLowerCase().includes('contract') ||
-                     label.toLowerCase().includes('monthly') ||
-                     label.toLowerCase().includes('weekly') ||
-                     label.toLowerCase().includes('annual') ||
-                     label.toLowerCase().includes('visit');
+      const lowerLabel = label.toLowerCase();
+      const isTotal = lowerLabel.includes('total') ||
+                     lowerLabel.includes('recurring') ||
+                     lowerLabel.includes('contract') ||
+                     lowerLabel.includes('monthly') ||
+                     lowerLabel.includes('weekly') ||
+                     lowerLabel.includes('annual') ||
+                     lowerLabel.includes('visit');
 
-      if (isTotal) {
-        // ✅ FIX: Remove space prefix before label for proper left alignment
-        out += `\\serviceTotalLine{${latexEscape(label)}}{${latexEscape(r.value || "")}}\n`;
-      } else {
-        // ✅ FIX: Remove space prefix before label for proper left alignment
-        out += `\\serviceBoldLine{${latexEscape(label)}}{${latexEscape(r.value || "")}}\n`;
-      }
+      const baseCommand = isTotal ? "\\serviceTotalLine" : "\\serviceBoldLine";
+      const command = gapSuffix ? `${baseCommand}Wide` : baseCommand;
+      out += `${command}{${latexEscape(label)}}{${latexEscape(value)}}\n`;
     } else if (type === "atCharge") {
       out += `\\serviceAtCharge{${latexEscape(r.label || "")}}{${latexEscape(r.v1 || "")}}{${latexEscape(r.v2 || "")}}{${latexEscape(r.v3 || "")}}\n`;
     } else if (type === "gap") {
@@ -1025,6 +1026,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           type: rowType,
           label: field.label || '',
           value: field.value || '',
+          gap: field.gap,
         };
         if (rowType === 'atCharge') {
           row.v1 = field.v1 ?? '';

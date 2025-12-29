@@ -126,6 +126,31 @@
   \vspace{0.5em}%
 }
 
+\newcommand{\serviceLineWide}[2]{%
+  \noindent\normalsize
+  % label
+  \makebox[\serviceLabelWidth][l]{#1}%
+  % wider gap after label
+  \hspace{\serviceGapWide}%
+  \leavevmode
+  \setbox0=\hbox{\strut #2}%
+  \ifdim\wd0>7cm%
+    \def\fieldwidth{7cm}% ƒo. Increased max from 4cm to 7cm (prevents overlap)
+  \else%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ƒo. Reduced min from 1.5cm to 0.8cm (less wasted space)
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ƒo. Reduced padding from 0.5cm to 0.3cm
+    \fi%
+  \fi%
+  \makebox[\fieldwidth][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+  }%
+  \par
+  \vspace{0.5em}%
+}
+
 % Red bold label + aligned blank (appropriate width) – value centered on the line
 \newcommand{\serviceBoldLine}[2]{%
   \noindent\normalsize
@@ -158,6 +183,32 @@
   \vspace{0.5em}%
 }
 
+\newcommand{\serviceBoldLineWide}[2]{%
+  \noindent\normalsize
+  \makebox[\serviceLabelWidth][l]{%
+    \textbf{\textcolor{emred}{#1}}%
+  }%
+  % wider gap after label
+  \hspace{\serviceGapWide}%
+  \leavevmode
+  \setbox0=\hbox{\strut #2}%
+  \ifdim\wd0>7cm%
+    \def\fieldwidth{7cm}% ƒo. Increased max from 4cm to 7cm
+  \else%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ƒo. Reduced min from 1.5cm to 0.8cm
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ƒo. Reduced padding from 0.5cm to 0.3cm
+    \fi%
+  \fi%
+  \makebox[\fieldwidth][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+  }%
+  \par
+  \vspace{0.5em}%
+}
+
 % Dark gray bold label for totals – different color to distinguish from headers
 \newcommand{\serviceTotalLine}[2]{%
   \noindent\normalsize
@@ -184,6 +235,32 @@
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
     % ✅ FIX: Lift value text slightly above the line
+    \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
+  }%
+  \par
+  \vspace{0.5em}%
+}
+
+\newcommand{\serviceTotalLineWide}[2]{%
+  \noindent\normalsize
+  \makebox[\serviceLabelWidth][l]{%
+    \textbf{\textcolor{totalcolor}{#1}}%
+  }%
+  % wider gap after label
+  \hspace{\serviceGapWide}%
+  \leavevmode
+  \setbox0=\hbox{\strut #2}%
+  \ifdim\wd0>7cm%
+    \def\fieldwidth{7cm}% ƒo. Increased max from 4cm to 7cm
+  \else%
+    \ifdim\wd0<0.8cm%
+      \def\fieldwidth{0.8cm}% ƒo. Reduced min from 1.5cm to 0.8cm
+    \else%
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ƒo. Reduced padding from 0.5cm to 0.3cm
+    \fi%
+  \fi%
+  \makebox[\fieldwidth][c]{%
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{0.25pt}}}%
     \makebox[0pt][c]{\raisebox{1pt}{\strut #2}}%
   }%
   \par
