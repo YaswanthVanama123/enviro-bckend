@@ -772,7 +772,14 @@ router.post("/:agreementId/first-time", async (req, res) => {
 router.post("/:agreementId/update", async (req, res) => {
   try {
     const { agreementId } = req.params;
-    const { noteText, dealId: providedDealId, skipNoteCreation, versionId, versionFileName } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads
+    const {
+      noteText,
+      dealId: providedDealId,
+      skipNoteCreation,
+      versionId,
+      versionFileName,
+      skipFileUpload = false
+    } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads + allow note-only updates
 
     console.log(`🔄 Starting update upload for agreement: ${agreementId}`,
                 providedDealId ? `(target dealId: ${providedDealId})` : '(using existing mapping)',
@@ -786,7 +793,7 @@ router.post("/:agreementId/update", async (req, res) => {
       });
     }
 
-    // Check if agreement exists and has PDF
+    // Check if agreement exists
     const agreement = await CustomerHeaderDoc.findById(agreementId);
     if (!agreement) {
       return res.status(404).json({
@@ -795,18 +802,23 @@ router.post("/:agreementId/update", async (req, res) => {
       });
     }
 
-    // ✅ FIX: Check for PDF in either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
-    const pdfData = await getPdfForAgreement(agreementId, { versionId, agreementDoc: agreement });
+    let pdfData = null;
+    if (!skipFileUpload) {
+      // ✅ FIX: Check for PDF in either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
+      pdfData = await getPdfForAgreement(agreementId, { versionId, agreementDoc: agreement });
 
-    if (!pdfData.pdfBuffer) {
-      console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
+      if (!pdfData.pdfBuffer) {
+        console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
 
-      return res.status(400).json({
-        success: false,
-        error: "Agreement has no PDF to upload",
-        details: pdfData.debugInfo?.message || "No valid PDF found in VersionPdf documents",
-        debugInfo: pdfData.debugInfo || {}
-      });
+        return res.status(400).json({
+          success: false,
+          error: "Agreement has no PDF to upload",
+          details: pdfData.debugInfo?.message || "No valid PDF found in VersionPdf documents",
+          debugInfo: pdfData.debugInfo || {}
+        });
+      }
+    } else {
+      console.log(`ℹ️ Skipping PDF lookup per request (skipFileUpload=true)`);
     }
 
     let dealId, dealName, nextVersion, mapping;
@@ -844,20 +856,38 @@ router.post("/:agreementId/update", async (req, res) => {
       console.log(`📝 [SINGLE] Adding version ${nextVersion} to existing deal: ${dealId}`);
     }
 
-    const fallbackVersionBase = `Version_${pdfData.version || nextVersion}`;
-    const incomingVersionFileName = versionFileName || pdfData.fileName || fallbackVersionBase;
-    const finalVersionFileName = buildNormalizedFileName(incomingVersionFileName, fallbackVersionBase);
-    if (versionFileName) {
-      console.log(`🔍 Using provided version filename override: ${versionFileName}`);
+    if (skipFileUpload && !mapping) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot perform note-only update without an existing Zoho mapping."
+      });
     }
+
+    const fallbackVersionBase = `Version_${skipFileUpload ? nextVersion : (pdfData?.version || nextVersion)}`;
+    let finalVersionFileName = null;
+
+    if (!skipFileUpload) {
+      const incomingVersionFileName = versionFileName || pdfData.fileName || fallbackVersionBase;
+      finalVersionFileName = buildNormalizedFileName(incomingVersionFileName, fallbackVersionBase);
+
+      if (versionFileName) {
+        console.log(`🔍 Using provided version filename override: ${versionFileName}`);
+      }
+    }
+
+    const sanitizedNoteText = noteText.trim();
 
     // Step 1: Create note (skip if this is a subsequent file in bulk upload)
     let note = null;
     if (!skipNoteCreation) {
-      const sanitizedNoteText = noteText?.trim() || "";
-      const noteContent = `${sanitizedNoteText}${sanitizedNoteText ? "\n\n" : ""}Uploaded File: ${finalVersionFileName}`;
+      let noteContent = sanitizedNoteText;
+      if (!skipFileUpload && finalVersionFileName) {
+        noteContent = `${sanitizedNoteText}${sanitizedNoteText ? "\n\n" : ""}Uploaded File: ${finalVersionFileName}`;
+      }
+
+      const noteTitle = finalVersionFileName || `Note update ${new Date().toISOString()}`;
       const noteResult = await createBiginNote(dealId, {
-        title: finalVersionFileName,
+        title: noteTitle,
         content: noteContent
       });
 
@@ -876,63 +906,72 @@ router.post("/:agreementId/update", async (req, res) => {
     }
 
     // Step 2: Upload the updated PDF
-    // ƒo. FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
-    const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
-    const fileResult = await uploadBiginFile(dealId, pdfBuffer, finalVersionFileName);
+    let file = null;
+    if (!skipFileUpload) {
+      // ƒo. FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
+      const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
+      const fileResult = await uploadBiginFile(dealId, pdfBuffer, finalVersionFileName);
 
-    if (!fileResult.success) {
-      console.error(`❌ Failed to upload file, noteId: ${note?.id || 'none'}`);
-      return res.status(500).json({
-        success: false,
-        error: `Note created but failed to upload file: ${fileResult.error?.message}`,
-        noteId: note?.id || null
-      });
+      if (!fileResult.success) {
+        console.error(`❌ Failed to upload file, noteId: ${note?.id || 'none'}`);
+        return res.status(500).json({
+          success: false,
+          error: `Note created but failed to upload file: ${fileResult.error?.message}`,
+          noteId: note?.id || null
+        });
+      }
+
+      file = fileResult.file;
+      console.log(`✅ File uploaded: ${file.id}`);
+    } else {
+      console.log(`ℹ️ Skipping PDF upload because skipFileUpload=true`);
     }
 
-    const file = fileResult.file;
-    console.log(`✅ File uploaded: ${file.id}`);
-
     // Step 3: Update or create mapping in MongoDB
-    if (mapping) {
-      // Update existing mapping
-      mapping.addUpload({
-        zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
-        zohoFileId: file.id,
-        noteText: noteText.trim(),
-        fileName: finalVersionFileName,
-        uploadedBy: 'system' // TODO: Add user context
-      });
-      await mapping.save();
-    } else {
-      // ✅ NEW: Create new mapping for bulk upload files
-      console.log(`📤 [BULK] Creating new ZohoMapping for agreement ${agreementId} in shared deal ${dealId}`);
-
-      // Get deal details from Zoho to create proper mapping
-      const dealDetails = await getBiginDealById(dealId);
-
-      mapping = new ZohoMapping({
-        agreementId: agreement._id,
-        companyId: dealDetails.Account_Name?.id || 'unknown',
-        companyName: dealDetails.Account_Name?.name || 'Unknown Company',
-        zohoDeal: {
-          id: dealId,
-          name: dealDetails.Deal_Name || dealName
-        },
-        pipelineName: dealDetails.Pipeline || 'Sales Pipeline',
-        stage: dealDetails.Stage || 'Proposal',
-        uploads: [{
-          version: 1,
+    if (!skipFileUpload) {
+      if (mapping) {
+        // Update existing mapping
+        mapping.addUpload({
           zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
           zohoFileId: file.id,
           noteText: noteText.trim(),
           fileName: finalVersionFileName,
-          uploadedAt: new Date(),
-          uploadedBy: 'system'
-        }]
-      });
+          uploadedBy: 'system' // TODO: Add user context
+        });
+        await mapping.save();
+      } else {
+        // ✅ NEW: Create new mapping for bulk upload files
+        console.log(`📤 [BULK] Creating new ZohoMapping for agreement ${agreementId} in shared deal ${dealId}`);
 
-      await mapping.save();
-      console.log(`✅ [BULK] Created new mapping: ${mapping._id}`);
+        // Get deal details from Zoho to create proper mapping
+        const dealDetails = await getBiginDealById(dealId);
+
+        mapping = new ZohoMapping({
+          agreementId: agreement._id,
+          companyId: dealDetails.Account_Name?.id || 'unknown',
+          companyName: dealDetails.Account_Name?.name || 'Unknown Company',
+          zohoDeal: {
+            id: dealId,
+            name: dealDetails.Deal_Name || dealName
+          },
+          pipelineName: dealDetails.Pipeline || 'Sales Pipeline',
+          stage: dealDetails.Stage || 'Proposal',
+          uploads: [{
+            version: 1,
+            zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
+            zohoFileId: file.id,
+            noteText: noteText.trim(),
+            fileName: finalVersionFileName,
+            uploadedAt: new Date(),
+            uploadedBy: 'system'
+          }]
+        });
+
+        await mapping.save();
+        console.log(`✅ [BULK] Created new mapping: ${mapping._id}`);
+      }
+    } else {
+      console.log(`ℹ️ Note-only update detected, skipping mapping upload entry`);
     }
 
     console.log(`✅ Update upload completed successfully!`);
@@ -942,12 +981,18 @@ router.post("/:agreementId/update", async (req, res) => {
     } else {
       console.log(`  ├ Note: Skipped (bulk upload)`);
     }
-    console.log(`  ├ File: ${finalVersionFileName} (${file.id})`);
+    if (!skipFileUpload && file) {
+      console.log(`  ├ File: ${finalVersionFileName} (${file.id})`);
+    } else {
+      console.log(`  ├ File: Skipped (note-only update)`);
+    }
     console.log(`  └ Version: ${nextVersion}`);
 
     res.json({
       success: true,
-      message: `Successfully uploaded version ${nextVersion} to existing Zoho deal`,
+      message: skipFileUpload
+        ? `Successfully added note to Zoho deal ${dealName}`
+        : `Successfully uploaded version ${nextVersion} to existing Zoho deal`,
       data: {
         deal: {
           id: dealId,
@@ -957,10 +1002,10 @@ router.post("/:agreementId/update", async (req, res) => {
           id: note.id,
           title: note.title
         } : null, // ✅ Handle case where note creation was skipped
-        file: {
+        file: file ? {
           id: file.id,
           fileName: finalVersionFileName
-        },
+        } : null,
         mapping: {
           id: mapping._id,
           version: nextVersion,
