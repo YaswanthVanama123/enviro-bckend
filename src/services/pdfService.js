@@ -351,15 +351,17 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   // ✅ FIX: Headers with breakable slashes and word breaks
   // latexEscapeHeader makes slashes breakable with \allowbreak
   // \hspace{0pt} allows hyphenation at any position for long words
+const headerCell = (header) =>
+  `\\cellcolor[RGB]{218,233,247}\\textbf{\\textcolor{emred}{\\hspace{0pt}${latexEscapeHeader(header)}}}`;
+
+const headerLinePattern = "|" + headers.map(() => "-|").join("");
+
 const productsHeaderRowLatex =
   "\\arrayrulecolor{black}\n" +
-  "\\hline\n" +
-  "\\rowcolor[RGB]{218,233,247}\n" +
-  headers
-    .map((h) => `\\textbf{\\textcolor{emred}{\\hspace{0pt}${latexEscapeHeader(h)}}}`)
-    .join(" & ") +
+  `\\hhline{${headerLinePattern}}\n` +
+  headers.map(headerCell).join(" & ") +
   " \\\\\n" +
-  "\\hline\n" +
+  `\\hhline{${headerLinePattern}}\n` +
   "\\arrayrulecolor{black}\n";
 
 
