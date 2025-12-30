@@ -8,6 +8,7 @@ import {
   PDF_TEMPLATE_PATH,
   PDF_HEADER_TEMPLATE_PATH,
 } from "../config/pdfConfig.js";
+import { cleanupTemporaryArtifacts } from "../utils/tmpCleanup.js";
 
 /* ---------------- HTTP helpers ---------------- */
 async function remotePostPdf(
@@ -73,6 +74,14 @@ async function remotePostMultipart(
     return Buffer.from(ab);
   } finally {
     clearTimeout(to);
+  }
+}
+
+async function tidyTempArtifacts(options = {}) {
+  try {
+    await cleanupTemporaryArtifacts(options);
+  } catch (err) {
+    console.warn("⚠️ [TMP CLEANUP] Failed to clean temporary artifacts:", err.message);
   }
 }
 
@@ -187,7 +196,7 @@ ${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \
 \\vspace{2em}
 
 \\begin{center}
-${escape(agreementData.pageNumberText || 'Page #2')}
+  ${escape(agreementData.pageNumberText || 'Page #2')}
 \\end{center}
 `;
 }
@@ -1841,7 +1850,7 @@ function buildServicesLatex(services = {}) {
         serviceNotesLatex += "\\vspace{0.35em}\n";
         for (let i = 0; i < lines; i++) {
           const content = textLines[i] ? latexEscape(textLines[i]) : "";
-          serviceNotesLatex += `\\filledline{ ${content} }\\\\[0.6em]\n`;
+          serviceNotesLatex += `\\filledlineleft{ ${content} }\\\\[0.6em]\n`;
         }
       }
     }
@@ -2302,7 +2311,7 @@ function buildServicesLatex(services = {}) {
       serviceNotesLatex += "\\vspace{0.35em}\n";
       for (let i = 0; i < lines; i++) {
         const content = textLines[i] ? latexEscape(textLines[i]) : "";
-        serviceNotesLatex += `\\filledline{ ${content} }\\\\[0.6em]\n`;
+        serviceNotesLatex += `\\filledlineleft{ ${content} }\\\\[0.6em]\n`;
       }
     }
   }
@@ -2347,6 +2356,7 @@ export async function compileRawTex(texString) {
     throw err;
   }
   const buffer = await remotePostPdf("pdf/compile", { template: texString });
+  await tidyTempArtifacts({ purgeAll: true });
   return { buffer, filename: "document.pdf" };
 }
 
@@ -2364,6 +2374,7 @@ export async function compileProposalTemplate() {
   const manifest = { "Envimaster.png": "images/Envimaster.png" };
 
   const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
+  await tidyTempArtifacts({ purgeAll: true });
   return { buffer, filename: "proposal.pdf" };
 }
 
@@ -2443,6 +2454,7 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   const manifest = { "Envimaster.png": "images/Envimaster.png" };
 
   const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
+  await tidyTempArtifacts({ purgeAll: true });
 
   // Extract customer name from body for dynamic filename
   const customerName = extractCustomerName(body.customerName, body.headerRows);
@@ -2502,6 +2514,7 @@ export async function proxyCompileFileToRemote(file, opts = {}) {
     },
   ];
   const buffer = await remotePostMultipart("pdf/compile-file", files, {}, opts);
+  await tidyTempArtifacts({ purgeAll: true });
   return { buffer, filename: "document.pdf" };
 }
 
@@ -2527,5 +2540,6 @@ export async function proxyCompileBundleToRemote(mainFile, assets = [], manifest
     })),
   ];
   const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest }, opts);
+  await tidyTempArtifacts({ purgeAll: true });
   return { buffer, filename: "document.pdf" };
 }

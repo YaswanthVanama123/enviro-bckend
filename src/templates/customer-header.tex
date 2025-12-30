@@ -41,6 +41,14 @@
   }%
 }
 
+\newcommand{\filledlineleft}[1]{%
+  \leavevmode
+  \makebox[\linewidth][l]{%
+    \makebox[0pt][l]{\textcolor{linegray}{\rule{\linewidth}{\filledlineheight}}}%
+    \makebox[0pt][l]{\raisebox{\filledlineoffset}{\strut #1}}%
+  }%
+}
+
 % medium underline with text centered on the line (generic inline field)
 \newcommand{\smallfilled}[1]{%
   \leavevmode
@@ -312,9 +320,9 @@
 
 % short blanks in agreement paragraph (with optional value)
 \newcommand{\agreementBlank}[2][2.5cm]{%
-  \makebox[#1][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{#1}{\filledlineheight}}}%
-    \makebox[0pt][c]{\raisebox{\filledlineoffset}{#2}}% ✅ Lift text above line
+  \makebox[#1][l]{%
+    \makebox[0pt][l]{\textcolor{linegray}{\rule{#1}{\filledlineheight}}}%
+    \makebox[0pt][l]{\raisebox{\filledlineoffset}{#2}}% ✅ Lift text above line
   }%
 }
 
@@ -405,7 +413,9 @@
 
 %==================== SERVICE NOTES =================================
 
+\begin{flushleft}
 {{{serviceNotesLatex}}}
+\end{flushleft}
 
 %==================== AGREEMENT PARAGRAPH + SIGNATURES ==============
 

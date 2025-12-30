@@ -158,7 +158,7 @@ const ServiceAgreementSchema = new mongoose.Schema(
     emFranchiseeLabel: { type: String, default: "EM Franchisee:" },
     emSignatureLabel: { type: String, default: "Signature:" },
     emDateLabel: { type: String, default: "Date:" },
-    pageNumberText: { type: String, default: "Page #2" },
+    // pageNumberText: { type: String, default: "Page #2" },
   },
   { _id: false }
 );
