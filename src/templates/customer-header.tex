@@ -8,6 +8,7 @@
 \usepackage{tabularx}
 \usepackage{longtable} % ✅ NEW: For tables that break across pages
 \usepackage{array}
+\usepackage{needspace}
 \usepackage{amssymb} % ✅ NEW: For checkbox symbols (\square, \checkmark)
 
 \renewcommand{\familydefault}{\sfdefault}
@@ -384,6 +385,7 @@
 
 \vspace{0.9em}
 
+\needspace{10\baselineskip}
 \noindent
 \fcolorbox{emred}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
