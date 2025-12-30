@@ -9,6 +9,7 @@
 \usepackage{longtable} % ✅ NEW: For tables that break across pages
 \usepackage{array}
 \usepackage{needspace}
+\usepackage[normalem]{ulem}
 \usepackage{amssymb} % ✅ NEW: For checkbox symbols (\square, \checkmark)
 
 \renewcommand{\familydefault}{\sfdefault}
@@ -22,6 +23,8 @@
 \setlength{\filledlineheight}{0.9pt} % thicker underline for fill-in blanks
 \newlength{\filledlineoffset}%
 \setlength{\filledlineoffset}{3pt} % lift text higher above blank
+
+\renewcommand{\ULthickness}{1.9pt} % slightly thicker underline for headings
 
 \pagestyle{empty}
 
@@ -385,17 +388,16 @@
 
 \vspace{0.9em}
 
-\needspace{10\baselineskip}
 \noindent
-\fcolorbox{emred}{emred}{%
+\fcolorbox{black}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
-    \bfseries\Large\textcolor{white}{SERVICES}% ✅ Changed from \footnotesize to \normalsize
-    \vspace{0.28em}%
+    \vspace{0.2em}%
+    {\bfseries\fontsize{1.2em}{3.8em}\selectfont\textcolor{white}{SERVICES}}% ✅ Changed from \footnotesize to \normalsize
+    \vspace{0.2em}%
   }%
-}
-
-\vspace{0.4em}
+}%  
+\vspace{1.5em}%
 
 %==================== SERVICES BLOCKS (2 ROWS) ======================
 
