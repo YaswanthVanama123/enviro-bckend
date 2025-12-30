@@ -28,7 +28,12 @@ const createTransporter = () => {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD,
     },
+    tls: {}
   };
+
+  if (process.env.EMAIL_TLS_REJECT_UNAUTHORIZED === 'false') {
+    config.tls.rejectUnauthorized = false;
+  }
 
   // If using a specific service like Gmail, add service property
   if (process.env.EMAIL_SERVICE) {
@@ -43,7 +48,7 @@ const createTransporter = () => {
     user: config.auth.user ? config.auth.user.substring(0, 3) + '***' : 'not set'
   });
 
-  return nodemailer.createTransporter(config);
+  return nodemailer.createTransport(config);
 };
 
 /**
