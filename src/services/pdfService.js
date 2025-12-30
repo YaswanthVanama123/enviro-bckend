@@ -607,7 +607,23 @@ function buildServicesRow(cols = []) {
   return rowLatex;
 }
 
-function buildServiceRowSequence(cols = []) {
+function buildServicesBanner() {
+  return (
+    "\\noindent\n" +
+    "\\fcolorbox{black}{emred}{%\n" +
+    "  \\parbox{\\dimexpr\\textwidth-2\\fboxsep\\relax}{%\n" +
+    "    \\centering\n" +
+    "    \\vspace{0.2em}%\n" +
+    "    {\\bfseries\\fontsize{1.2em}{1.6em}\\selectfont\\textcolor{white}{SERVICES}}%\n" +
+    "    \\vspace{0.2em}%\n" +
+    "  }%\n" +
+    "}%  \n" +
+    "\\vspace{0.9em}%\n" +
+    "\\par\n"
+  );
+}
+
+function buildServiceRowSequence(cols = [], includeBanner = false) {
   if (!cols || !cols.length) return "";
   const trimmedCols = [];
   for (let i = 0; i < cols.length; i += 2) {
@@ -625,8 +641,9 @@ function buildServiceRowSequence(cols = []) {
   if (!trimmedCols.length) return "";
   return trimmedCols
     .map((group, index) => {
-      const prefix = index > 0 ? "\\vspace{2.5em}\n" : "";
-      return prefix + buildServicesRow(group);
+      const gap = index > 0 ? "\\vspace{2.5em}\n" : "";
+      const banner = includeBanner && index === 0 ? buildServicesBanner() : "";
+      return banner + gap + buildServicesRow(group);
     })
     .join("");
 }
@@ -1764,8 +1781,8 @@ function buildServicesLatex(services = {}) {
     const filteredTopRowCols = filterServiceColumns(topRowCols);
     const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-    servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols);
-    servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols);
+    servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols, true);
+    servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols, false);
 
     // Refresh Power Scrub for this format (sec is already the "display" object)
     const sec = services.refreshPowerScrub;
@@ -1923,8 +1940,8 @@ function buildServicesLatex(services = {}) {
   }
 
   // Generate LaTeX for the service rows
-  servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols);
-  servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols);
+  servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols, true);
+  servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols, false);
 
   // Debug generated LaTeX only for Refresh Power Scrub
   if (refreshPowerScrubUsed || services.refreshPowerScrub) {
