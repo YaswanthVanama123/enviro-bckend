@@ -288,6 +288,7 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     // Fallback for non-numeric strings
     return `$${v}`;
   };
+  const grayCell = (value) => `\\cellcolor[RGB]{217,217,217}${value}`;
 
   // Helper: pick first non-null value from a list of keys
   const pick = (obj, keys) => {
@@ -491,25 +492,21 @@ const productsHeaderRowLatex =
     });
 
     const rowCells = [
-      // LEFT BLOCK: Products standard columns
-      latexEscape(leftName),
+      grayCell(latexEscape(leftName)),
       latexEscape(toStr(leftQty)),
       latexEscape(fmtDollar(leftAmount)),
       latexEscape(leftFreq),
       latexEscape(fmtDollar(leftTotal)),
 
-      // LEFT BLOCK: Products custom columns
       ...leftCustomValues,
 
-      // RIGHT BLOCK: Dispensers standard columns
-      latexEscape(rightName),
+      grayCell(latexEscape(rightName)),
       latexEscape(toStr(rightQty)),
       latexEscape(fmtDollar(rightWarranty)),
       latexEscape(fmtDollar(rightReplacement)),
       latexEscape(rightFreq),
       latexEscape(fmtDollar(rightTotal)),
 
-      // RIGHT BLOCK: Dispensers custom columns
       ...rightCustomValues,
     ];
 
