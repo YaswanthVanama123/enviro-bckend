@@ -2011,7 +2011,7 @@ function buildServicesLatex(services = {}) {
         // Build header row with area names (empty first cell for label column)
         const headerRow = "  & " +
           enabledAreas.slice(0, maxAreas)
-            .map(area => `\\textbf{${latexEscape(area.displayName)}}`)
+            .map(area => `\\textbf{\\textcolor{serviceHeaderBlue}{${latexEscape(area.displayName)}}}`)
             .join(" & ") +
           " \\\\";
 
@@ -2183,9 +2183,9 @@ function buildServicesLatex(services = {}) {
           enabledAreas.slice(0, maxAreas)
             .map(area => {
               if (refreshData.services) {
-                return `\\textbf{\\$${area.data.total.value.toFixed(2)}}`;
+                return `\\textbf{\\textcolor{linegray}{\\$${area.data.total.value.toFixed(2)}}}`;
               } else {
-                return `\\textbf{\\$${area.data.total.toFixed(2)}}`;
+                return `\\textbf{\\textcolor{linegray}{\\$${area.data.total.toFixed(2)}}}`;
               }
             })
             .join(" & ") +
@@ -2198,7 +2198,7 @@ function buildServicesLatex(services = {}) {
               if (refreshData.services && area.data.contract) {
                 const contractTotal = area.data.contract.total || 0;
                 const contractMonths = area.data.contract.quantity || 12;
-                return `\\textbf{\\$${contractTotal.toFixed(2)}} \\scriptsize{(${contractMonths}mo)}`;
+                return `\\textbf{\\textcolor{linegray}{\\$${contractTotal.toFixed(2)}}} \\scriptsize{(${contractMonths}mo)}`;
               } else {
                 return "\\textbf{TBD}";
               }
