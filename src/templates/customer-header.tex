@@ -414,16 +414,17 @@
 
 %==================== REFRESH POWER SCRUB TABLE =====================
 
-\vspace{1.5em}   % extra gap before the heading
+\needspace{4\baselineskip}
 {{{refreshSectionLatex}}}
 
 {{#summaryExists}}
-\vspace{1.1em}
+\vspace{1.7em}
 \serviceSection{AGREEMENT SUMMARY}
+\vspace{0.3em}
 \serviceTotalLine{Contract Months:}{\textcolor{totalcolor}{{{summaryContractMonthsDisplay}}}}
 \serviceTotalLine{Trip Charge:}{\textcolor{totalcolor}{{{summaryTripChargeLabel}}}}
 \serviceTotalLine{Parking Charge:}{\textcolor{totalcolor}{{{summaryParkingChargeLabel}}}}
-\serviceTotalLineWide{Service Agreement Total:}{\textcolor{totalcolor}{{{summaryServiceAgreementTotal}}}}
+\serviceTotalLine{Service Totals:}{\textcolor{totalcolor}{{{summaryServiceAgreementTotal}}}}
 \serviceTotalLine{Product Totals:}{\textcolor{totalcolor}{{{summaryProductTotalsLabel}}}}
 {{/summaryExists}}
 

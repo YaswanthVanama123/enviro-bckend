@@ -1974,9 +1974,8 @@ function buildServicesLatex(services = {}) {
               .map((l) => `\\scriptsize ${l} \\sblank`)
               .join(" & ") +
             " \\\\";
-          refreshSectionLatex += "\\vspace{0.9em}\n";
-          refreshSectionLatex += `\\serviceSection{${heading}}\n`;
-          refreshSectionLatex += "\\vspace{0.25em}\n";
+        refreshSectionLatex += "\\nopagebreak[4]\n";
+        refreshSectionLatex += `\\serviceSection{${heading}}\n`;
           refreshSectionLatex += "\\noindent\n";
           refreshSectionLatex += `\\begin{tabularx}{\\textwidth}{${colSpec}}\n`;
           refreshSectionLatex += "  \\hline\n" + labelRow + "\n";
@@ -2404,9 +2403,8 @@ function buildServicesLatex(services = {}) {
             " \\\\"
           : "";
 
-        refreshSectionLatex += "\\vspace{0.9em}\n";
+        refreshSectionLatex += "\\nopagebreak[4]\n";
         refreshSectionLatex += `\\serviceSection{REFRESH POWER SCRUB}\n`;
-        refreshSectionLatex += "\\vspace{0.25em}\n";
         refreshSectionLatex += "\\noindent\n";
         refreshSectionLatex += `\\begin{tabularx}{\\textwidth}{${colSpec}}\n`;
         refreshSectionLatex += "  \\hline\n" + headerRow + "\n";
@@ -2458,9 +2456,8 @@ function buildServicesLatex(services = {}) {
               .map((l) => `\\scriptsize ${l} \\sblank`)
               .join(" & ") +
             " \\\\";
-          refreshSectionLatex += "\\vspace{0.9em}\n";
+          refreshSectionLatex += "\\nopagebreak[4]\n";
           refreshSectionLatex += `\\serviceSection{${heading}}\n`;
-          refreshSectionLatex += "\\vspace{0.25em}\n";
           refreshSectionLatex += "\\noindent\n";
           refreshSectionLatex += `\\begin{tabularx}{\\textwidth}{${colSpec}}\n`;
           refreshSectionLatex += "  \\hline\n" + labelRow + "\n";
