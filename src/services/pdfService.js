@@ -2330,20 +2330,42 @@ function buildServicesLatex(services = {}) {
             .join(" & ") +
           " \\\\";
 
-        // ✅ NEW: Build contract row showing each area's contract total
-        const contractRow = "  Contract & " +
-          enabledAreas.slice(0, maxAreas)
-            .map(area => {
-              if (refreshData.services && area.data.contract) {
-                const contractTotal = area.data.contract.total || 0;
-                const contractMonths = area.data.contract.quantity || 12;
-                return `\\textbf{\\textcolor{linegray}{\\$${contractTotal.toFixed(2)}}} \\scriptsize{(${contractMonths}mo)}`;
-              } else {
+        const getAreaFrequencyLabel = (area) => {
+          if (refreshData.services) {
+            return (area.data.frequency?.value || "").toString();
+          }
+          const rawArea = refreshData[area.originalKey];
+          return (rawArea?.frequencyLabel || area.data.frequencyLabel || "").toString();
+        };
+
+        const isOneTimeFrequency = (label) => {
+          if (!label) return false;
+          const normalized = label.toLowerCase().replace(/-/g, " ");
+          return normalized.includes("one") && normalized.includes("time");
+        };
+
+        const areasToDisplay = enabledAreas.slice(0, maxAreas);
+        const shouldDisplayContractRow = areasToDisplay.some(
+          area => !isOneTimeFrequency(getAreaFrequencyLabel(area))
+        );
+
+        const contractRow = shouldDisplayContractRow
+          ? "  Contract & " +
+            areasToDisplay
+              .map(area => {
+                if (isOneTimeFrequency(getAreaFrequencyLabel(area))) {
+                  return "\\textbf{\\textcolor{linegray}{}}";
+                }
+                if (refreshData.services && area.data.contract) {
+                  const contractTotal = area.data.contract.total || 0;
+                  const contractMonths = area.data.contract.quantity || 12;
+                  return `\\textbf{\\textcolor{linegray}{\\$${contractTotal.toFixed(2)}}} \\scriptsize{(${contractMonths}mo)}`;
+                }
                 return "\\textbf{TBD}";
-              }
-            })
-            .join(" & ") +
-          " \\\\";
+              })
+              .join(" & ") +
+            " \\\\"
+          : "";
 
         refreshSectionLatex += "\\vspace{0.9em}\n";
         refreshSectionLatex += `\\serviceSection{REFRESH POWER SCRUB}\n`;
@@ -2355,7 +2377,9 @@ function buildServicesLatex(services = {}) {
         refreshSectionLatex += "  \\hline\n" + detailsRow + "\n";
         refreshSectionLatex += "  \\hline\n" + frequencyRow + "\n";
         refreshSectionLatex += "  \\hline\n" + totalRow + "\n";
-        refreshSectionLatex += "  \\hline\n" + contractRow + "\n";
+        if (contractRow) {
+          refreshSectionLatex += "  \\hline\n" + contractRow + "\n";
+        }
         refreshSectionLatex += "  \\hline\n";
         refreshSectionLatex += "\\end{tabularx}\n";
 
