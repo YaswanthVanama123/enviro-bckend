@@ -102,24 +102,23 @@ function buildServiceAgreementLatex(agreementData = {}) {
 
 % ====== SERVICE AGREEMENT PAGE ======================================
 
-\\begin{center}
-\\begin{minipage}[c]{0.20\\textwidth}
-  \\centering
-  % Enviro-Master logo
-  \\includegraphics[width=0.80\\linewidth]{images/Envimaster.png}
-\\end{minipage}%
-\\hfill
-\\begin{minipage}[c]{0.75\\textwidth}
-  \\centering
-  {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
-\\end{minipage}
-\\end{center}
+\\noindent
+\\begin{tabular}{@{}p{0.20\\textwidth}@{}p{0.60\\textwidth}@{}p{0.20\\textwidth}@{}}
+  \\begin{minipage}[c]{\\linewidth}
+    \\centering
+    % Enviro-Master logo
+    \\includegraphics[width=0.80\\linewidth]{images/Envimaster.png}
+  \\end{minipage} &
+  \\begin{minipage}[c]{\\linewidth}
+    \\centering
+    {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
+    \\vspace{0.5em}
 
-\\vspace{1em}
-
-\\begin{center}
-{\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
-\\end{center}
+    {\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
+  \\end{minipage} &
+  % empty spacer column
+  \\vspace{0pt}
+\\end{tabular}
 
 \\vspace{1em}
 
@@ -196,7 +195,6 @@ ${escape(agreementData.noteText || '')}
 \\vspace{2em}
 
 \\begin{center}
-  ${escape(agreementData.pageNumberText || 'Page #2')}
 \\end{center}
 `;
 }
