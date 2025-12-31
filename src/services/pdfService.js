@@ -265,6 +265,45 @@ function latexEscapeHeader(value = "") {
   return result;
 }
 
+function formatCurrency(value) {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return "";
+  return `$${num.toFixed(2)}`;
+}
+
+function getFrequencyLabel(freq) {
+  const normalized = Number(freq);
+  const labels = {
+    0: "One-time",
+    4: "Weekly",
+    2: "Bi-weekly",
+    1: "Monthly",
+    0.5: "Every 2 Months",
+    0.33: "Quarterly",
+    0.17: "Bi-annually",
+    0.08: "Annually",
+  };
+  if (Number.isFinite(normalized) && labels[normalized]) {
+    return labels[normalized];
+  }
+  if (Number.isFinite(normalized) && normalized > 0) {
+    return `${normalized}×/mo`;
+  }
+  return "";
+}
+
+function formatChargeLabel(amount, frequency) {
+  const num = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(num) || num <= 0) {
+    return "None";
+  }
+  const freqLabel = getFrequencyLabel(frequency) || "Monthly";
+  if (Number(frequency) === 0) {
+    return `$${num.toFixed(2)} (${freqLabel})`;
+  }
+  return `$${num.toFixed(2)} × ${freqLabel}`;
+}
+
 function buildProductsLatex(products = {}, customColumns = { products: [], dispensers: [] }) {
   // Handle BOTH payload formats:
   // 1. Original frontend format: { smallProducts: [...], dispensers: [...], bigProducts: [...] }
@@ -2519,11 +2558,49 @@ export async function compileProposalTemplate() {
 export async function compileCustomerHeader(body = {}, options = {}) {
   const { watermark = false } = options;
 
-  console.log('🔍 [PDF COMPILE] Starting compilation with options:', {
+  console.log('ÐY"? [PDF COMPILE] Starting compilation with options:', {
     templatePath: PDF_HEADER_TEMPLATE_PATH,
     watermark,
     status: body.status,
   });
+
+  const summaryData = body.summary || {};
+  const formatSummaryField = (value) => {
+    if (value === undefined || value === null) return "—";
+    const text = String(value).trim();
+    if (text === "" || text.toLowerCase() === "null" || text.toLowerCase() === "undefined") {
+      return "—";
+    }
+    return latexEscape(text);
+  };
+
+  const summaryContractMonthsRaw = formatSummaryField(summaryData.contractMonths);
+  const summaryContractMonthsDisplay =
+    summaryContractMonthsRaw === "—" ? summaryContractMonthsRaw : `${summaryContractMonthsRaw} mo`;
+  const summaryTripChargeLabel = latexEscape(formatChargeLabel(summaryData.tripCharge, summaryData.tripChargeFrequency));
+  const summaryParkingChargeLabel = latexEscape(formatChargeLabel(summaryData.parkingCharge, summaryData.parkingChargeFrequency));
+  const summaryServiceAgreementTotal =
+    latexEscape(formatCurrency(summaryData.serviceAgreementTotal) || "—");
+
+  const productMonthlyValue = summaryData.productMonthlyTotal;
+  const productContractValue = summaryData.productContractTotal;
+  const productMonthlyLabel = formatCurrency(productMonthlyValue);
+  const productContractLabel = formatCurrency(productContractValue);
+  const combinedProductTotals = [
+    productMonthlyLabel ? `Monthly ${productMonthlyLabel}` : "",
+    productContractLabel ? `Contract ${productContractLabel}` : ""
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const summaryProductTotalsLabel = latexEscape(combinedProductTotals || "—");
+
+  const summaryExists = [
+    summaryContractMonthsRaw,
+    summaryTripChargeLabel,
+    summaryParkingChargeLabel,
+    summaryServiceAgreementTotal,
+    summaryProductTotalsLabel
+  ].some((value) => value && value !== "—");
 
   const view = {
     headerTitle: latexEscape(body.headerTitle || ""),
@@ -2540,6 +2617,12 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     ...buildServicesLatex(body.services || {}),
     // ✅ NEW: Add watermark flag to view for template
     includeWatermark: watermark,
+    summaryContractMonthsDisplay,
+    summaryTripChargeLabel,
+    summaryParkingChargeLabel,
+    summaryServiceAgreementTotal,
+    summaryProductTotalsLabel,
+    summaryExists,
   };
 
   // console.log('🔍 [TEMPLATE DEBUG] Template view data generated:', {

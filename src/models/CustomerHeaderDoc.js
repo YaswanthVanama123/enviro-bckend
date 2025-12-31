@@ -173,6 +173,21 @@ const AgreementSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Global summary schema
+const GlobalSummarySchema = new mongoose.Schema(
+  {
+    contractMonths: { type: Number, default: null },
+    tripCharge: { type: Number, default: null },
+    tripChargeFrequency: { type: Number, default: null },
+    parkingCharge: { type: Number, default: null },
+    parkingChargeFrequency: { type: Number, default: null },
+    serviceAgreementTotal: { type: Number, default: null },
+    productMonthlyTotal: { type: Number, default: null },
+    productContractTotal: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
 // Header row schema
 const HeaderRowSchema = new mongoose.Schema(
   {
@@ -259,6 +274,7 @@ const PayloadSchema = new mongoose.Schema(
     agreement: { type: AgreementSchema, default: () => ({}) },
     // ✅ NEW: Service Agreement data
     serviceAgreement: { type: ServiceAgreementSchema, default: null },
+    summary: { type: GlobalSummarySchema, default: null },
   },
   { _id: false }
 );
