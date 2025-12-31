@@ -2565,22 +2565,24 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   });
 
   const summaryData = body.summary || {};
+  const SUMMARY_PLACEHOLDER = "—";
   const formatSummaryField = (value) => {
-    if (value === undefined || value === null) return "—";
+    if (value === undefined || value === null) return SUMMARY_PLACEHOLDER;
     const text = String(value).trim();
     if (text === "" || text.toLowerCase() === "null" || text.toLowerCase() === "undefined") {
-      return "—";
+      return SUMMARY_PLACEHOLDER;
     }
     return latexEscape(text);
   };
 
   const summaryContractMonthsRaw = formatSummaryField(summaryData.contractMonths);
   const summaryContractMonthsDisplay =
-    summaryContractMonthsRaw === "—" ? summaryContractMonthsRaw : `${summaryContractMonthsRaw} mo`;
+    summaryContractMonthsRaw === SUMMARY_PLACEHOLDER ? summaryContractMonthsRaw : `${summaryContractMonthsRaw} mo`;
   const summaryTripChargeLabel = latexEscape(formatChargeLabel(summaryData.tripCharge, summaryData.tripChargeFrequency));
   const summaryParkingChargeLabel = latexEscape(formatChargeLabel(summaryData.parkingCharge, summaryData.parkingChargeFrequency));
+  const formattedServiceAgreementTotal = formatCurrency(summaryData.serviceAgreementTotal);
   const summaryServiceAgreementTotal =
-    latexEscape(formatCurrency(summaryData.serviceAgreementTotal) || "—");
+    latexEscape(formattedServiceAgreementTotal || SUMMARY_PLACEHOLDER);
 
   const productMonthlyValue = summaryData.productMonthlyTotal;
   const productContractValue = summaryData.productContractTotal;
@@ -2592,7 +2594,7 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const summaryProductTotalsLabel = latexEscape(combinedProductTotals || "—");
+  const summaryProductTotalsLabel = latexEscape(combinedProductTotals || SUMMARY_PLACEHOLDER);
 
   const summaryExists = [
     summaryContractMonthsRaw,
@@ -2600,7 +2602,8 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     summaryParkingChargeLabel,
     summaryServiceAgreementTotal,
     summaryProductTotalsLabel
-  ].some((value) => value && value !== "—");
+  ].some((value) => value && value !== SUMMARY_PLACEHOLDER);
+
 
   const view = {
     headerTitle: latexEscape(body.headerTitle || ""),
@@ -2762,3 +2765,5 @@ export async function proxyCompileBundleToRemote(mainFile, assets = [], manifest
   await tidyTempArtifacts({ purgeAll: true });
   return { buffer, filename: "document.pdf" };
 }
+
+

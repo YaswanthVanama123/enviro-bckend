@@ -843,6 +843,7 @@ export async function getCustomerHeaderForEdit(req, res) {
         },
         services: convertedServices, // Use converted services instead of original
         serviceAgreement: doc.payload.serviceAgreement || undefined, // ✅ Explicitly include service agreement data for editing
+        summary: doc.payload.summary || undefined, // ✨ Include saved summary for edit mode
       },
       _editFormatMetadata: {
         originalStructure: {
