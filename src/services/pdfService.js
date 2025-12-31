@@ -156,9 +156,9 @@ ${escape(agreementData.noteText || '')}
 \\vspace{1em}
 
 % Representatives
-\\noindent
-${escape(agreementData.emSalesRepLabel || 'EM Sales Representative')}: \\underline{\\hspace{5cm} ${escape(agreementData.emSalesRepresentative || '')}} \\hspace{2em}
-${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \\underline{\\hspace{5cm} ${escape(agreementData.insideSalesRepresentative || '')}}
+  \\noindent
+  ${escape(agreementData.emSalesRepLabel || 'EM Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(agreementData.emSalesRepresentative || '')}} \\hspace{2em}
+  ${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(agreementData.insideSalesRepresentative || '')}}
 
 \\vspace{1em}
 
@@ -170,27 +170,27 @@ ${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \
 % Signatures
 \\noindent
 \\begin{minipage}[t]{0.48\\textwidth}
-  ${escape(agreementData.customerContactLabel || 'Customer Contact Name:')}: \\underline{\\hspace{6cm} ${escape(agreementData.customerContactName || '')}}
+  ${escape(agreementData.customerContactLabel || 'Customer Contact Name:')}: \\filledlineleftlim[5.5cm]{${escape(agreementData.customerContactName || '')}}
 
   \\vspace{1em}
 
-  ${escape(agreementData.customerSignatureLabel || 'Signature:')}: \\underline{\\hspace{6cm} ${escape(agreementData.customerSignature || '')}}
+  ${escape(agreementData.customerSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(agreementData.customerSignature || '')}}
 
   \\vspace{1em}
 
-  ${escape(agreementData.customerDateLabel || 'Date:')}: \\underline{\\hspace{3cm} ${escape(agreementData.customerSignatureDate || '')}}
+  ${escape(agreementData.customerDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.customerSignatureDate || '')}}
 \\end{minipage}%
 \\hfill
 \\begin{minipage}[t]{0.48\\textwidth}
-  ${escape(agreementData.emFranchiseeLabel || 'EM Franchisee:')}: \\underline{\\hspace{6cm} ${escape(agreementData.emFranchisee || '')}}
+  ${escape(agreementData.emFranchiseeLabel || 'EM Franchisee:')}: \\filledlineleftlim[5.5cm]{${escape(agreementData.emFranchisee || '')}}
 
   \\vspace{1em}
 
-  ${escape(agreementData.emSignatureLabel || 'Signature:')}: \\underline{\\hspace{6cm} ${escape(agreementData.emSignature || '')}}
+  ${escape(agreementData.emSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(agreementData.emSignature || '')}}
 
   \\vspace{1em}
 
-  ${escape(agreementData.emDateLabel || 'Date:')}: \\underline{\\hspace{3cm} ${escape(agreementData.emSignatureDate || '')}}
+  ${escape(agreementData.emDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.emSignatureDate || '')}}
 \\end{minipage}
 
 \\vspace{2em}

@@ -49,6 +49,14 @@
   }%
 }
 
+\newcommand{\filledlineleftlim}[2][5cm]{%
+  \leavevmode
+  \makebox[#1][l]{%
+    \makebox[0pt][l]{\textcolor{linegray}{\rule{#1}{\filledlineheight}}}%
+    \makebox[0pt][l]{\raisebox{\filledlineoffset}{\strut #2}}%
+  }%
+}
+
 % medium underline with text centered on the line (generic inline field)
 \newcommand{\smallfilled}[1]{%
   \leavevmode
@@ -413,11 +421,13 @@
 
 %==================== SERVICE NOTES =================================
 
-\begin{flushleft}
-\setlength{\parindent}{0pt}
-\raggedright
-{{{serviceNotesLatex}}}
-\end{flushleft}
+\begin{center}
+  \begin{minipage}{0.9\textwidth}
+    \setlength{\parindent}{0pt}
+    \raggedright
+    {{{serviceNotesLatex}}}
+  \end{minipage}
+\end{center}
 
 %==================== AGREEMENT PARAGRAPH + SIGNATURES ==============
 
