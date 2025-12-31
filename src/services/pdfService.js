@@ -689,6 +689,18 @@ const FREQUENCY_CANONICALS = new Map([
   ["annual", "annual"],
 ]);
 
+const FREQUENCY_DISPLAY_OVERRIDES = {
+  oneTime: "One Time",
+  twicePerMonth: "2× / Month",
+  weekly: "Weekly",
+  biweekly: "Bi-Weekly",
+  monthly: "Monthly",
+  bimonthly: "Every 2 Months",
+  quarterly: "Quarterly",
+  biannual: "Biannual",
+  annual: "Annual",
+};
+
 const MONTHLY_FREQUENCY_KEYS = new Set(["weekly", "biweekly", "twicePerMonth", "monthly"]);
 const VISIT_FREQUENCY_KEYS = new Set(["oneTime", "bimonthly", "quarterly", "biannual", "annual"]);
 
@@ -1233,12 +1245,73 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
 
     // Add frequency/location info
-    if (data.frequency && shouldDisplayField(data.frequency) && data.frequency.value) {
-      pushRow(data.frequency, {
-        type: 'line',
-        label: data.frequency.label || 'Frequency',
-        value: data.frequency.value
-      });
+    const formatFrequencyDisplayValue = (candidate) => {
+      if (!candidate) return null;
+      if (typeof candidate === "string") {
+        const normalized = normalizeFrequencyKey(candidate);
+        if (normalized && FREQUENCY_DISPLAY_OVERRIDES[normalized]) {
+          return FREQUENCY_DISPLAY_OVERRIDES[normalized];
+        }
+        return candidate;
+      }
+      if (typeof candidate === "object") {
+        const baseValue = candidate.value || candidate.label || candidate.frequencyKey;
+        if (!baseValue) return null;
+        const normalized = normalizeFrequencyKey(baseValue);
+        if (normalized && FREQUENCY_DISPLAY_OVERRIDES[normalized]) {
+          return FREQUENCY_DISPLAY_OVERRIDES[normalized];
+        }
+        return baseValue;
+      }
+      return null;
+    };
+
+    const resolveFrequencyRow = () => {
+      const candidateFields = [
+        data.frequency,
+        data.serviceFrequency,
+        data.mainServiceFrequency,
+        serviceData.frequency,
+        serviceData.serviceFrequency,
+        serviceData.mainServiceFrequency,
+      ];
+      for (const candidate of candidateFields) {
+        if (!candidate) continue;
+        const displayValue = formatFrequencyDisplayValue(candidate);
+        if (!displayValue) continue;
+        if (typeof candidate === "object" && !shouldDisplayField(candidate)) {
+          continue;
+        }
+        const labelValue =
+          typeof candidate === "object" ? candidate.label || "Frequency" : "Frequency";
+        return { field: candidate, label: labelValue, value: displayValue };
+      }
+      const candidateKeys = [
+        data.frequencyKey,
+        data.serviceFrequencyKey,
+        serviceData.frequencyKey,
+        serviceData.serviceFrequencyKey,
+      ];
+      for (const raw of candidateKeys) {
+        if (!raw) continue;
+        const displayValue = formatFrequencyDisplayValue(raw);
+        if (!displayValue) continue;
+        return { field: null, label: "Frequency", value: displayValue };
+      }
+      return null;
+    };
+
+    const freqRowDetail = resolveFrequencyRow();
+    if (freqRowDetail) {
+      const { field, label, value } = freqRowDetail;
+      const shouldRenderFreq = !field || shouldDisplayField(field);
+      if (shouldRenderFreq) {
+        pushRow(field, {
+          type: 'line',
+          label: label || 'Frequency',
+          value,
+        });
+      }
     }
 
     const pdfVisibility = serviceData.pdfFieldVisibility || {};
@@ -1326,6 +1399,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       const freqGroup = determineFrequencyGroup(freqKey);
       const isMonthlyGroup = freqGroup === "monthly" || freqGroup === undefined;
       const isVisitGroup = freqGroup === "visit";
+      const isOneTime = freqKey === "oneTime";
 
       const formatMoneyValue = (amount) => {
         if (typeof amount === "number") {
@@ -1350,19 +1424,59 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         });
       };
 
-      addBoldTotal(data.totals.perVisit);
+      const totalPriceFieldFromRoot = typeof data.totalPrice === "number"
+        ? { amount: data.totalPrice, label: "Total Price" }
+        : null;
 
-      if (isMonthlyGroup) {
-        addBoldTotal(data.totals.firstMonth || data.totals.monthly);
-        addBoldTotal(data.totals.monthlyRecurring, { gap: "wide" });
-      } else if (isVisitGroup) {
-        addBoldTotal(data.totals.firstVisit || data.totals.firstMonth);
-        addBoldTotal(data.totals.recurringVisit, { gap: "wide" });
+      const addPrimaryVisitTotal = () => {
+        const primaryCandidates = [
+          data.totals.totalPrice,
+          totalPriceFieldFromRoot,
+          data.totals.perVisit,
+          data.totals.firstVisit,
+          data.totals.firstMonth,
+          data.totals.monthly,
+          data.totals.monthlyRecurring,
+          data.totals.contract,
+          data.totals.weekly,
+          data.totals.recurringVisit,
+        ];
+        let fallbackRow = null;
+        for (const candidate of primaryCandidates) {
+          if (!candidate || !shouldDisplayField(candidate) || candidate.amount == null) continue;
+          const amount = Number(candidate.amount);
+          if (!isNaN(amount) && amount !== 0) {
+            addBoldTotal(candidate, { label: "Total Price" });
+            return true;
+          }
+          if (!fallbackRow) {
+            fallbackRow = candidate;
+          }
+        }
+        if (fallbackRow) {
+          addBoldTotal(fallbackRow, { label: "Total Price" });
+          return true;
+        }
+        return false;
+      };
+
+      if (isOneTime) {
+        addPrimaryVisitTotal();
+      } else {
+        addBoldTotal(data.totals.perVisit);
+
+        if (isMonthlyGroup) {
+          addBoldTotal(data.totals.firstMonth || data.totals.monthly);
+          addBoldTotal(data.totals.monthlyRecurring, { gap: "wide" });
+        } else if (isVisitGroup) {
+          addBoldTotal(data.totals.firstVisit || data.totals.firstMonth);
+          addBoldTotal(data.totals.recurringVisit, { gap: "wide" });
+        }
+
+        addBoldTotal(data.totals.weekly);
       }
 
-      addBoldTotal(data.totals.weekly);
-
-      if (data.totals.contract && shouldDisplayField(data.totals.contract) && data.totals.contract.amount != null) {
+      if (!isOneTime && data.totals.contract && shouldDisplayField(data.totals.contract) && data.totals.contract.amount != null) {
         const formattedContract = formatMoneyValue(data.totals.contract.amount);
         const contractValue =
           typeof data.totals.contract.amount === "number"
@@ -1375,7 +1489,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         });
       }
 
-      if (data.totals.annual && shouldDisplayField(data.totals.annual) && data.totals.annual.amount != null) {
+      if (!isOneTime && data.totals.annual && shouldDisplayField(data.totals.annual) && data.totals.annual.amount != null) {
         const formattedAnnual = formatMoneyValue(data.totals.annual.amount);
         const annualValue =
           typeof data.totals.annual.amount === "number"
