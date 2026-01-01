@@ -326,10 +326,16 @@ export const downloadVersionLog = async (req, res) => {
     }
 
     // Get log document
-    const logDoc = await Log.findOne({
-      _id: new mongoose.Types.ObjectId(logId),
-      isDeleted: { $ne: true }
-    });
+    const includeDeleted = req.query.includeDeleted === "true";
+
+    const filter = {
+      _id: new mongoose.Types.ObjectId(logId)
+    };
+    if (!includeDeleted) {
+      filter.isDeleted = { $ne: true };
+    }
+
+    const logDoc = await Log.findOne(filter);
 
     if (!logDoc) {
       return res.status(404).json({
