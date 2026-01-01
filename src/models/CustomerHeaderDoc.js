@@ -169,6 +169,11 @@ const AgreementSchema = new mongoose.Schema(
     enviroOf: { type: String, default: "" },
     customerExecutedOn: { type: String, default: "" },
     additionalMonths: { type: String, default: "" },
+    paymentOption: {
+      type: String,
+      enum: ["online", "cash", "others"],
+      default: "online"
+    }
   },
   { _id: false }
 );
