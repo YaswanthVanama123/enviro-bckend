@@ -3,6 +3,7 @@ import { sendEmail as sendEmailService, verifyEmailConfig } from '../services/em
 import CustomerHeaderDoc from '../models/CustomerHeaderDoc.js';
 import VersionPdf from '../models/VersionPdf.js';
 import ManualUploadDocument from '../models/ManualUploadDocument.js';
+import Log from '../models/Log.js';
 import { compileCustomerHeader } from '../services/pdfService.js';
 
 /**
@@ -50,35 +51,84 @@ export async function sendEmailWithPdf(req, res) {
       });
     }
 
+    const normalizedType = String(documentType || 'agreement').toLowerCase();
+    const typeVariants = [
+      { category: "version", keys: ["version", "version_pdf"] },
+      { category: "log", keys: ["version-log", "version_log", "log", "change-log"] },
+      { category: "manual", keys: ["manual-upload", "manual_upload", "manualupload", "attached-file", "attached_file", "attached", "attached_pdf"] },
+      { category: "agreement", keys: ["agreement", "main_pdf", "main-pdf"] },
+    ];
+    const resolveCategory = (candidate) => {
+      for (const variant of typeVariants) {
+        if (variant.keys.includes(candidate)) return variant.category;
+      }
+      return null;
+    };
+    const requestedCategory = resolveCategory(normalizedType) || "agreement";
+
+    console.log('ĐY"Z [EMAIL-CONTROLLER] Resolved document type:', normalizedType, '→ category:', requestedCategory);
+
     // Load and compile PDF based on document type
     let pdfBuffer;
     let fileName;
+    let attachmentContentType = "application/pdf";
 
-    if (documentType === 'version') {
+    if (requestedCategory === 'version') {
       // Load version PDF
       const version = await VersionPdf.findById(documentId);
+      let skipVersionCompile = false;
       if (!version) {
-        return res.status(404).json({
-          success: false,
-          error: 'Version not found',
-          detail: `No version found with ID: ${documentId}`
-        });
+        console.log(`ĐY"Z [EMAIL-CONTROLLER] Version not found, attempting fallback lookups for ID: ${documentId}`);
+        let fallbackHandled = false;
+        const manualUpload = await ManualUploadDocument.findById(documentId);
+        if (manualUpload && manualUpload.pdfBuffer) {
+          pdfBuffer = manualUpload.pdfBuffer;
+          fileName = manualUpload.fileName;
+          attachmentContentType = manualUpload.mimeType || "application/pdf";
+          fallbackHandled = true;
+          console.log(`ĐY"Z [EMAIL-CONTROLLER] Fallback found manual upload for ID: ${documentId}`);
+        }
+        if (!fallbackHandled) {
+          const logDoc = await Log.findById(documentId);
+          if (logDoc) {
+            const logContent = typeof logDoc.generateTextContent === 'function'
+              ? logDoc.generateTextContent()
+              : '';
+
+            pdfBuffer = Buffer.from(logContent || '', 'utf8');
+            fileName = logDoc.fileName || `Version_${logDoc.versionNumber}_Changes.txt`;
+            attachmentContentType = logDoc.contentType || 'text/plain';
+            fallbackHandled = true;
+            console.log(`ĐY"Z [EMAIL-CONTROLLER] Fallback found log file for ID: ${documentId}`);
+          }
+        }
+        if (fallbackHandled) {
+          skipVersionCompile = true;
+        } else {
+          return res.status(404).json({
+            success: false,
+            error: 'Version not found',
+            detail: `No version found with ID: ${documentId}`
+          });
+        }
       }
 
-      console.log(`📄 [EMAIL-CONTROLLER] Loading version PDF: ${version.versionLabel}`);
+      if (!skipVersionCompile) {
+        console.log(`📄 [EMAIL-CONTROLLER] Loading version PDF: ${version.versionLabel}`);
 
-      // Generate PDF on-demand with watermark option
-      const compiledPdf = await compileCustomerHeader(version.payloadSnapshot, { watermark });
-      if (!compiledPdf || !compiledPdf.buffer) {
-        throw new Error('Failed to compile version PDF');
+        // Generate PDF on-demand with watermark option
+        const compiledPdf = await compileCustomerHeader(version.payloadSnapshot, { watermark });
+        if (!compiledPdf || !compiledPdf.buffer) {
+          throw new Error('Failed to compile version PDF');
+        }
+
+        pdfBuffer = compiledPdf.buffer;
+        fileName = watermark
+          ? version.fileName.replace('.pdf', '_DRAFT.pdf')
+          : version.fileName;
       }
 
-      pdfBuffer = compiledPdf.buffer;
-      fileName = watermark
-        ? version.fileName.replace('.pdf', '_DRAFT.pdf')
-        : version.fileName;
-
-    } else if (documentType === 'manual-upload') {
+    } else if (requestedCategory === 'manual') {
       // Load manual upload file
       const manualUpload = await ManualUploadDocument.findById(documentId);
       if (!manualUpload) {
@@ -91,7 +141,8 @@ export async function sendEmailWithPdf(req, res) {
 
       console.log(`📄 [EMAIL-CONTROLLER] Loading manual upload: ${manualUpload.fileName}`);
 
-      if (!manualUpload.fileBuffer) {
+      console.log("ĐY\"Z [EMAIL-CONTROLLER] Manual upload buffer:", manualUpload.pdfBuffer ? manualUpload.pdfBuffer.length : manualUpload.pdfBuffer);
+      if (!manualUpload.pdfBuffer) {
         return res.status(404).json({
           success: false,
           error: 'File buffer not found',
@@ -99,10 +150,29 @@ export async function sendEmailWithPdf(req, res) {
         });
       }
 
-      pdfBuffer = manualUpload.fileBuffer;
+        pdfBuffer = manualUpload.pdfBuffer;
       fileName = manualUpload.fileName;
+      attachmentContentType = manualUpload.mimeType || "application/pdf";
 
-    } else if (documentType === 'agreement' || !documentType) {
+    } else if (requestedCategory === 'log') {
+      const logDoc = await Log.findById(documentId);
+      if (!logDoc) {
+        return res.status(404).json({
+          success: false,
+          error: 'Version log not found',
+          detail: `No log found with ID: ${documentId}`
+        });
+      }
+
+      const logContent = typeof logDoc.generateTextContent === 'function'
+        ? logDoc.generateTextContent()
+        : '';
+
+      pdfBuffer = Buffer.from(logContent || '', 'utf8');
+      fileName = logDoc.fileName || `Version_${logDoc.versionNumber}_Changes.txt`;
+      attachmentContentType = logDoc.contentType || 'text/plain';
+
+    } else if (requestedCategory === 'agreement') {
       // Load agreement PDF (default if no type specified)
       const agreement = await CustomerHeaderDoc.findById(documentId);
       if (!agreement) {
@@ -151,7 +221,21 @@ export async function sendEmailWithPdf(req, res) {
       return res.status(400).json({
         success: false,
         error: 'Invalid document type',
-        detail: 'documentType must be one of: agreement, version, manual-upload'
+      detail: 'documentType must be one of: agreement, version, manual-upload, attached-file, version-log'
+    });
+  }
+
+    if (!pdfBuffer) {
+      console.error("❌ [EMAIL-CONTROLLER] Missing file buffer before sending email", {
+        documentId,
+        documentType,
+        requestedCategory,
+        fileName
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'File buffer missing',
+        detail: 'Unable to load the document buffer for email attachment'
       });
     }
 
@@ -166,10 +250,11 @@ export async function sendEmailWithPdf(req, res) {
       from: process.env.EMAIL_FROM_ADDRESS || 'noreply@enviromasternva.com',
       subject,
       body: body || `Please find the attached document: ${fileName}`,
-      attachment: {
-        buffer: pdfBuffer,
-        filename: fileName
-      }
+        attachment: {
+          buffer: pdfBuffer,
+          filename: fileName,
+          contentType: attachmentContentType
+        }
     });
 
     if (emailResult.success) {
