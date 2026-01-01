@@ -389,6 +389,9 @@
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{1.5} % ✅ Changed from 1.15 to 1.5 for more top/bottom padding
 
+% ✅ NEW: Define custom column type for products table
+{{{productsColTypeDefinition}}}
+
 % ✅ NEW: Use longtable instead of tabularx for automatic page breaks
 \begin{longtable}{|{{{productsColSpecLatex}}}|}
   \hline

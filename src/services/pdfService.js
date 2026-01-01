@@ -237,8 +237,81 @@ function buildWatermarkLatex() {
 }
 
 /* ---------------- LaTeX helpers ---------------- */
+
+// ✅ NEW: Validate payload for corrupted data
+function validatePayloadData(body) {
+  const issues = [];
+
+  const checkValue = (path, value) => {
+    if (value == null) return;
+    const str = String(value);
+
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(str)) {
+      issues.push(`${path}: contains control characters`);
+    }
+    if (/\uFFFD/.test(str)) {
+      issues.push(`${path}: contains invalid UTF-8 (�)`);
+    }
+  };
+
+  // Check header data
+  if (body.headerTitle) checkValue('headerTitle', body.headerTitle);
+  if (body.headerRows) {
+    body.headerRows.forEach((row, i) => {
+      checkValue(`headerRows[${i}].labelLeft`, row.labelLeft);
+      checkValue(`headerRows[${i}].valueLeft`, row.valueLeft);
+      checkValue(`headerRows[${i}].labelRight`, row.labelRight);
+      checkValue(`headerRows[${i}].valueRight`, row.valueRight);
+    });
+  }
+
+  // Check service notes
+  if (body.services?.notes?.textLines) {
+    body.services.notes.textLines.forEach((line, i) => {
+      checkValue(`services.notes.textLines[${i}]`, line);
+    });
+  }
+
+  // Check service agreement
+  if (body.serviceAgreement) {
+    const sa = body.serviceAgreement;
+    Object.keys(sa).forEach(key => {
+      if (typeof sa[key] === 'string') {
+        checkValue(`serviceAgreement.${key}`, sa[key]);
+      }
+    });
+  }
+
+  if (issues.length > 0) {
+    console.warn('⚠️ [PAYLOAD VALIDATION] Found corrupted data in payload:');
+    issues.forEach(issue => console.warn(`  - ${issue}`));
+  }
+
+  return issues;
+}
+
 function latexEscape(value = "") {
-  return String(value)
+  // ✅ SECURITY FIX: Sanitize input to remove non-printable and invalid UTF-8 characters
+  // This prevents LaTeX compilation errors from corrupted/binary data
+  const original = String(value);
+
+  // Check for problematic characters and log warning
+  if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(original)) {
+    console.warn('⚠️ [LATEX-ESCAPE] Found control characters in input, sanitizing...');
+  }
+  if (/\uFFFD/.test(original)) {
+    console.warn('⚠️ [LATEX-ESCAPE] Found invalid UTF-8 replacement character (�), removing...');
+  }
+
+  let sanitized = original
+    // Remove null bytes and other control characters (except newlines, tabs, carriage returns)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    // Remove invalid UTF-8 sequences (replacement character �)
+    .replace(/\uFFFD/g, '')
+    // Normalize unicode to composed form
+    .normalize('NFC');
+
+  return sanitized
     .replace(/\\/g, "\\textbackslash{}")
     .replace(/([{}%&_#])/g, "\\$1")
     .replace(/\$/g, "\\$")
@@ -248,7 +321,13 @@ function latexEscape(value = "") {
 
 // ✅ NEW: Special escape for table headers - makes slashes breakable and allows word breaks
 function latexEscapeHeader(value = "") {
-  let result = String(value)
+  // ✅ SECURITY FIX: Sanitize input first (same as latexEscape)
+  let sanitized = String(value)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    .replace(/\uFFFD/g, '')
+    .normalize('NFC');
+
+  let result = sanitized
     .replace(/\\/g, "\\textbackslash{}")
     .replace(/([{}%&_#])/g, "\\$1")
     .replace(/\$/g, "\\$")
@@ -361,6 +440,7 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   if (rowCount === 0) {
     // ✅ FIX: Return proper longtable column spec (not "Y" which only works with tabularx)
     return {
+      productsColTypeDefinition: "",  // No column type needed for empty table
       productsColSpecLatex: "p{\\textwidth}",
       productsHeaderRowLatex: "",
       productsBodyRowsLatex: "",
@@ -389,10 +469,22 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   const numCols = headers.length;
   const colWidth = `\\dimexpr\\textwidth/${numCols}-2\\tabcolsep-1.5\\arrayrulewidth\\relax`;
 
-  // ✅ FIX: Add \raggedright\arraybackslash to COLUMN SPEC (not cell content)
-  // This allows natural text wrapping without height restrictions
-  // >{...} prefix applies formatting to entire column
-  const productsColSpecLatex = headers.map(() => `>{\\centering\\arraybackslash}m{${colWidth}}`).join("|");
+  // ✅ FIX: Define a custom column type to avoid repeating long specification
+  // LaTeX has trouble parsing very long column specs (989 chars causes "Illegal parameter number" error)
+  // Solution: Define column type once, reuse it
+  const productsColTypeDefinition = `\\newcolumntype{C}{>{\\centering\\arraybackslash}m{${colWidth}}}`;
+
+  // Use the custom column type instead of repeating the full specification
+  const productsColSpecLatex = headers.map(() => 'C').join("|");
+
+  // ✅ DEBUG: Log the column specification
+  console.log('🔍 [PRODUCTS-TABLE] Column specification:', {
+    numCols,
+    colWidthFormula: colWidth,
+    colTypeDefinition: productsColTypeDefinition,
+    fullColSpec: productsColSpecLatex,
+    colSpecLength: productsColSpecLatex.length
+  });
 
   // ✅ FIX: Headers with breakable slashes and word breaks
   // latexEscapeHeader makes slashes breakable with \allowbreak
@@ -562,6 +654,7 @@ const productsHeaderRowLatex =
   }
 
   return {
+    productsColTypeDefinition,  // ✅ NEW: Column type definition to insert before table
     productsColSpecLatex,
     productsHeaderRowLatex,
     productsBodyRowsLatex,
@@ -2561,6 +2654,9 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     status: body.status,
   });
 
+  // ✅ NEW: Validate payload for corrupted data before processing
+  validatePayloadData(body);
+
   const summaryData = body.summary || {};
   const SUMMARY_PLACEHOLDER = "—";
   const formatSummaryField = (value) => {
@@ -2635,6 +2731,15 @@ export async function compileCustomerHeader(body = {}, options = {}) {
 
   let tex = Mustache.render(template, view);
   console.log('🔍 [PDF COMPILE] After Mustache rendering, LaTeX length:', tex.length);
+
+  // ✅ DEBUG: Save generated LaTeX to temp file for inspection
+  try {
+    const debugPath = '/tmp/debug-latex-output.tex';
+    await fs.writeFile(debugPath, tex, 'utf8');
+    console.log(`🔍 [PDF DEBUG] Generated LaTeX saved to: ${debugPath}`);
+  } catch (err) {
+    console.warn('⚠️ Could not save debug LaTeX:', err.message);
+  }
 
   // ✅ NEW: Add watermark overlay if requested
   if (watermark) {
