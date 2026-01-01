@@ -2593,13 +2593,8 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     .join(" · ");
   const summaryProductTotalsLabel = latexEscape(combinedProductTotals || SUMMARY_PLACEHOLDER);
 
-  const summaryExists = [
-    summaryContractMonthsRaw,
-    summaryTripChargeLabel,
-    summaryParkingChargeLabel,
-    summaryServiceAgreementTotal,
-    summaryProductTotalsLabel
-  ].some((value) => value && value !== SUMMARY_PLACEHOLDER);
+  const hasSummaryData = summaryData && Object.keys(summaryData).length > 0;
+  const summaryExists = Boolean(hasSummaryData);
 
 
   const view = {
