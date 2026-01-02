@@ -4439,23 +4439,23 @@ export async function getDocumentStatusCounts(req, res) {
 
     console.log(`📊 [STATUS-COUNTS] Fetching document status counts (groupBy: ${groupBy}, startDate: ${startDate || 'all'}, endDate: ${endDate || 'all'})`);
 
-    // ✅ FIX: Build date filter with proper timezone handling
+    // ✅ FIXED: Build date filter with proper timezone handling
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.createdAt = {};
       if (startDate) {
-        // Parse YYYY-MM-DD format as start of day in local time
-        const startDateObj = new Date(startDate);
-        startDateObj.setHours(0, 0, 0, 0);
+        // ✅ FIXED: Parse YYYY-MM-DD format correctly in local time (avoid UTC parsing issues)
+        const [year, month, day] = startDate.split('-').map(Number);
+        const startDateObj = new Date(year, month - 1, day, 0, 0, 0, 0);
         dateFilter.createdAt.$gte = startDateObj;
-        console.log(`📊 [STATUS-COUNTS] Start date parsed: ${startDate} → ${startDateObj.toISOString()}`);
+        console.log(`📊 [STATUS-COUNTS] Start date parsed: ${startDate} → ${startDateObj.toISOString()} (local: ${startDateObj.toString()})`);
       }
       if (endDate) {
-        // Parse YYYY-MM-DD format as end of day in local time
-        const endDateObj = new Date(endDate);
-        endDateObj.setHours(23, 59, 59, 999);
+        // ✅ FIXED: Parse YYYY-MM-DD format correctly in local time (avoid UTC parsing issues)
+        const [year, month, day] = endDate.split('-').map(Number);
+        const endDateObj = new Date(year, month - 1, day, 23, 59, 59, 999);
         dateFilter.createdAt.$lte = endDateObj;
-        console.log(`📊 [STATUS-COUNTS] End date parsed: ${endDate} → ${endDateObj.toISOString()}`);
+        console.log(`📊 [STATUS-COUNTS] End date parsed: ${endDate} → ${endDateObj.toISOString()} (local: ${endDateObj.toString()})`);
       }
     }
 
@@ -4479,10 +4479,12 @@ export async function getDocumentStatusCounts(req, res) {
         break;
 
       case 'week':
-        // Group by year-week (e.g., 2026-W01)
+        // ✅ FIXED: Group by year-week using ISO week (1-53, never 0)
+        // Note: $isoWeek starts weeks on Monday and ranges from 1-53
+        // Week 1 is the week containing the first Thursday of the year
         groupByExpression = {
-          year: { $year: '$createdAt' },
-          week: { $week: '$createdAt' }
+          year: { $isoWeekYear: '$createdAt' },  // ✅ Use isoWeekYear instead of year to handle year boundaries
+          week: { $isoWeek: '$createdAt' }       // ✅ Use isoWeek instead of week (never returns 0)
         };
         sortByExpression = {
           '_id.year': 1,

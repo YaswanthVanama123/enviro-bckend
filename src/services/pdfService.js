@@ -1218,6 +1218,14 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     // console.log('  └ isActive:', data.isActive);
   }
 
+  // ✅ HELPER: Recalculate rate from total/qty to fix incorrect stored rates
+  const getCorrectRate = (item) => {
+    if (typeof item.total === 'number' && typeof item.qty === 'number' && item.qty > 0) {
+      return item.total / item.qty;
+    }
+    return item.rate;
+  };
+
   // Handle NEW structured format (with label/type/qty/rate/total objects)
   // Check if this is the new structured format
   if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service || data.restroomFixtures || data.nonBathroomArea ||
@@ -1232,11 +1240,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       for (const fixture of data.fixtureBreakdown) {
         if (!shouldDisplayField(fixture)) continue;
         if (fixture.qty > 0) {
+          const correctRate = getCorrectRate(fixture);
           pushRow(fixture, {
             type: 'atCharge',
             label: fixture.label || '',
             v1: String(fixture.qty || ''),
-            v2: typeof fixture.rate === 'number' ? `$${fixture.rate.toFixed(2)}` : String(fixture.rate || ''),
+            v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
             v3: typeof fixture.total === 'number' ? `$${fixture.total.toFixed(2)}` : String(fixture.total || '')
           });
         }
@@ -1253,12 +1262,13 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           const hasTotal = drain.total != null && drain.total !== '';
 
           if (hasRate || hasTotal) {
+            const correctRate = getCorrectRate(drain);
             rows.push({
               type: 'atCharge',
               orderNo: drain.orderNo,
               label: drain.label || '',
               v1: String(drain.qty || ''),
-              v2: typeof drain.rate === 'number' ? `$${drain.rate.toFixed(2)}` : String(drain.rate || ''),
+              v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
               v3: typeof drain.total === 'number' ? `$${drain.total.toFixed(2)}` : String(drain.total || '')
             });
           } else {
@@ -1322,12 +1332,18 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       const hasTotal = data.service.total != null && data.service.total !== '';
 
       if (hasRate || hasTotal) {
+        // ✅ FIX: Recalculate rate from total/qty if both available (fixes incorrect stored rates)
+        let displayRate = data.service.rate;
+        if (typeof data.service.total === 'number' && typeof data.service.qty === 'number' && data.service.qty > 0) {
+          displayRate = data.service.total / data.service.qty;
+        }
+
         rows.push({
           type: 'atCharge',
           orderNo: data.service.orderNo,
           label: data.service.label || '',
           v1: String(data.service.qty || ''),
-          v2: typeof data.service.rate === 'number' ? `$${data.service.rate.toFixed(2)}` : String(data.service.rate || ''),
+          v2: typeof displayRate === 'number' ? `$${displayRate.toFixed(2)}` : String(displayRate || ''),
           v3: typeof data.service.total === 'number' ? `$${data.service.total.toFixed(2)}` : String(data.service.total || '')
         });
       } else if (data.service.qty) {
@@ -1459,11 +1475,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       const hasTotal = data.extraBags.total != null && data.extraBags.total !== '';
 
       if (hasRate || hasTotal) {
+        const correctRate = getCorrectRate(data.extraBags);
         pushRow(data.extraBags, {
           type: 'atCharge',
           label: data.extraBags.label || 'Extra Bags',
           v1: String(data.extraBags.qty || ''),
-          v2: typeof data.extraBags.rate === 'number' ? `$${data.extraBags.rate.toFixed(2)}` : String(data.extraBags.rate || ''),
+          v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
           v3: typeof data.extraBags.total === 'number' ? `$${data.extraBags.total.toFixed(2)}` : String(data.extraBags.total || '')
         });
       } else {
@@ -1481,11 +1498,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       const hasTotal = data.installation.total != null && data.installation.total !== '';
 
       if (hasRate || hasTotal) {
+        const correctRate = getCorrectRate(data.installation);
         pushRow(data.installation, {
           type: 'atCharge',
           label: data.installation.label || 'Installation',
           v1: String(data.installation.qty || ''),
-          v2: typeof data.installation.rate === 'number' ? `$${data.installation.rate.toFixed(2)}` : String(data.installation.rate || ''),
+          v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
           v3: typeof data.installation.total === 'number' ? `$${data.installation.total.toFixed(2)}` : String(data.installation.total || '')
         });
       } else {

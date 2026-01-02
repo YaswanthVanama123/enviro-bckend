@@ -2119,21 +2119,35 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {})
     const accessToken = await getZohoAccessToken();
     const baseUrl = getBiginBaseUrl();
 
+    // Use filename as-is (extension already set correctly by caller)
+    const sanitizedFileName = fileName;
+
     const formData = new FormData();
     formData.append('file', pdfBuffer, {
-      filename: fileName,
-      contentType
+      filename: sanitizedFileName,
+      contentType,
+      knownLength: pdfBuffer.length  // ✅ ADDED: Explicitly set Content-Length
     });
 
     // ✅ V2 FIX: Upload to deal's attachments using Pipelines module (matches deal creation endpoint)
     const uploadUrl = `${baseUrl}/Pipelines/${dealId}/Attachments`;
     console.log(`🔍 [FILE UPLOAD] URL: ${uploadUrl}`);
+    console.log(`🔍 [FILE UPLOAD] File metadata:`, {
+      originalFileName: fileName,
+      sanitizedFileName,
+      bufferLength: pdfBuffer.length,
+      contentType,
+      isBuffer: Buffer.isBuffer(pdfBuffer)
+    });
 
     const response = await axios.post(uploadUrl, formData, {
       headers: {
         ...formData.getHeaders(),
-        'Authorization': `Zoho-oauthtoken ${accessToken}`
-      }
+        'Authorization': `Zoho-oauthtoken ${accessToken}`,
+        'Content-Type': formData.getHeaders()['content-type']  // ✅ ADDED: Explicit content-type
+      },
+      maxContentLength: Infinity,  // ✅ ADDED: Allow large files
+      maxBodyLength: Infinity
     });
 
     console.log(`🔍 [FILE UPLOAD] Full Zoho response:`, JSON.stringify(response.data, null, 2));

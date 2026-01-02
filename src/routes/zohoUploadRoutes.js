@@ -6,6 +6,7 @@ import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
 import Log from "../models/Log.js"; // ✅ NEW: For attached files
 import VersionPdf from "../models/VersionPdf.js"; // ✅ FIX: Import VersionPdf for PDF data
+import { compileCustomerHeader } from "../services/pdfService.js"; // ✅ FIX: Import PDF compiler for on-demand generation
 import {
   getBiginCompanies,
   searchBiginCompanies,
@@ -23,6 +24,79 @@ import {
 const router = Router();
 
 /**
+ * ⚠️ DEPRECATED: This function is not currently used
+ * Log files are kept as plain text files (.txt) and uploaded directly to Zoho
+ * They remain downloadable but not viewable in Zoho (expected behavior for text files)
+ *
+ * This function was created to convert plain text log content to PDF using remote LaTeX service
+ * but was reverted after clarification that logs should remain as text files
+ */
+async function convertTextLogToPdf(textContent, fileName = "log.txt") {
+  console.log(`📄 [TEXT-TO-PDF] Converting log text to PDF: ${fileName}`);
+
+  // Create simple LaTeX document with monospace font
+  // Note: Using \begin{verbatim} environment handles all special characters automatically
+  const latexContent = `\\documentclass[11pt]{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage[margin=1in]{geometry}
+\\usepackage{fancyhdr}
+\\usepackage{verbatim}
+
+\\pagestyle{fancy}
+\\fancyhf{}
+\\fancyhead[L]{\\textbf{${fileName.replace(/_/g, '\\_')}}}
+\\fancyfoot[C]{\\thepage}
+
+\\begin{document}
+\\section*{Log File: ${fileName.replace(/_/g, '\\_')}}
+
+\\begin{verbatim}
+${textContent}
+\\end{verbatim}
+
+\\end{document}`;
+
+  try {
+    // Use the remote PDF compilation service (same as compileCustomerHeader)
+    const PDF_REMOTE_BASE = process.env.PDF_REMOTE_BASE || "http://142.93.213.187:3000";
+    const timeoutMs = 30000; // 30 seconds for simple log conversion
+
+    console.log(`🌐 [TEXT-TO-PDF] Calling remote LaTeX service: ${PDF_REMOTE_BASE}`);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    // ✅ FIX: Use correct endpoint 'pdf/compile' with 'template' parameter
+    const response = await fetch(`${PDF_REMOTE_BASE}/pdf/compile`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/pdf"
+      },
+      body: JSON.stringify({ template: latexContent }),  // ✅ Use 'template' not 'latexContent'
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error(`❌ [TEXT-TO-PDF] Remote service error (${response.status}): ${errorText}`);
+      throw new Error(`Remote LaTeX service failed: ${response.status} ${errorText}`);
+    }
+
+    const pdfBuffer = Buffer.from(await response.arrayBuffer());
+    console.log(`✅ [TEXT-TO-PDF] Generated PDF: ${pdfBuffer.length} bytes`);
+
+    return pdfBuffer;
+
+  } catch (error) {
+    console.error(`❌ [TEXT-TO-PDF] Failed to convert log to PDF: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
  * ✅ Get PDF data for an agreement from VersionPdf collection
  * Current architecture: ALL PDFs (including v1) are stored in VersionPdf documents
  * CustomerHeaderDoc.pdf_meta.pdfBuffer is always null/empty
@@ -32,7 +106,8 @@ async function getPdfForAgreement(agreementId, options = {}) {
   const cachedAgreement = options?.agreementDoc || null;
   console.log(`ÐY"? [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}${requestedVersionId ? ` (versionId: ${requestedVersionId})` : ''}`);
 
-  const selectFields = '_id versionNumber pdf_meta.pdfBuffer pdf_meta.sizeBytes createdAt fileName';
+  // ✅ FIX: Remove .lean() to properly handle large PDF buffers
+  // Using .lean() with .select() on binary fields can cause buffer truncation
   let versionDoc = null;
 
   if (requestedVersionId) {
@@ -42,8 +117,7 @@ async function getPdfForAgreement(agreementId, options = {}) {
         agreementId: agreementId,
         status: { $ne: 'archived' }
       })
-      .select(selectFields)
-      .lean();
+      .select('_id versionNumber pdf_meta fileName createdAt');
 
       if (versionDoc) {
         console.log(`ÐY"? [PDF-LOOKUP] Found requested VersionPdf v${versionDoc.versionNumber} (ID: ${versionDoc._id})`);
@@ -56,19 +130,19 @@ async function getPdfForAgreement(agreementId, options = {}) {
   }
 
   if (!versionDoc) {
+    // ✅ FIX: Remove .lean() for proper buffer handling
     versionDoc = await VersionPdf.findOne({
       agreementId: agreementId,
       status: { $ne: 'archived' }
     })
     .sort({ versionNumber: -1 })
-    .select(selectFields)
-    .lean();
+    .select('_id versionNumber pdf_meta fileName createdAt');
 
     if (!versionDoc) {
       console.error(`ƒ?O [PDF-LOOKUP] No VersionPdf documents found for agreement: ${agreementId}`);
+      // ✅ FIX: Remove .lean() for proper buffer handling in fallback
       const customerDoc = cachedAgreement || await CustomerHeaderDoc.findById(agreementId)
-        .select('pdf_meta fileName currentVersionNumber')
-        .lean();
+        .select('pdf_meta fileName currentVersionNumber');
 
       if (customerDoc?.pdf_meta?.pdfBuffer) {
         const fallbackBuffer = Buffer.isBuffer(customerDoc.pdf_meta.pdfBuffer)
@@ -133,6 +207,16 @@ async function getPdfForAgreement(agreementId, options = {}) {
 
   const mongoBuffer = versionDoc.pdf_meta.pdfBuffer;
   const actualSize = mongoBuffer.length || mongoBuffer.buffer?.length || 0;
+
+  // ✅ ENHANCED: Log buffer retrieval for debugging Zoho upload issue
+  console.log(`📊 [PDF-BUFFER-INFO] Retrieved buffer from database:`, {
+    versionId: versionDoc._id,
+    versionNumber: versionDoc.versionNumber,
+    bufferType: Buffer.isBuffer(mongoBuffer) ? 'Node Buffer' : (mongoBuffer.buffer ? 'MongoDB Binary' : 'Unknown'),
+    actualSize: actualSize,
+    storedSizeBytes: versionDoc.pdf_meta.sizeBytes,
+    isMongooseDoc: !!(versionDoc.constructor.name === 'model')
+  });
 
   if (actualSize === 0) {
     console.error(`ƒ?O [PDF-LOOKUP] VersionPdf v${versionDoc.versionNumber} has empty pdfBuffer (0 bytes)`);
@@ -501,19 +585,70 @@ router.post("/:agreementId/first-time", async (req, res) => {
 
     console.log(`✅ Found CustomerHeaderDoc: ${agreement._id} (${agreement.payload?.headerTitle || 'No title'})`);
 
-    // ✅ FIX: Get PDF from either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
-    const pdfData = await getPdfForAgreement(agreementId, { agreementDoc: agreement });
+    // ✅ FIX: Recompile PDF on-demand (like download route) instead of using stored PDF
+    // For first-time upload, get the latest version (v1) or use main agreement payload
+    console.log(`🔄 [ZOHO-FIRST-TIME] Getting document for on-demand PDF compilation...`);
 
-    if (!pdfData.pdfBuffer) {
-      console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
+    let versionDoc = await VersionPdf.findOne({
+      agreementId: agreementId,
+      status: { $ne: 'archived' }
+    })
+    .sort({ versionNumber: -1 })
+    .select('_id versionNumber payloadSnapshot fileName');
 
+    let payloadForCompilation;
+    let versionNumber;
+    let fileName;
+
+    if (versionDoc && versionDoc.payloadSnapshot) {
+      // Use version's payloadSnapshot if available
+      payloadForCompilation = versionDoc.payloadSnapshot;
+      versionNumber = versionDoc.versionNumber;
+      fileName = versionDoc.fileName;
+      console.log(`📄 [ZOHO-FIRST-TIME] Using VersionPdf v${versionNumber} payloadSnapshot`);
+    } else {
+      // Fallback to main agreement payload
+      payloadForCompilation = agreement.payload;
+      versionNumber = agreement.currentVersionNumber || 1;
+      fileName = agreement.fileName;
+      console.log(`📄 [ZOHO-FIRST-TIME] Using CustomerHeaderDoc payload (no version found)`);
+    }
+
+    if (!payloadForCompilation) {
+      console.error(`❌ Agreement ${agreementId} has no payload for PDF compilation`);
       return res.status(400).json({
         success: false,
-        error: "Agreement has no PDF to upload",
-        details: pdfData.debugInfo?.message || "No valid PDF found in VersionPdf documents",
-        debugInfo: pdfData.debugInfo || {}
+        error: "Agreement has no payload data for PDF compilation"
       });
     }
+
+    console.log(`🔄 [ZOHO-FIRST-TIME] Recompiling PDF on-demand for version ${versionNumber}...`);
+
+    // Recompile PDF using the same method as download/view routes
+    const compiledPdf = await compileCustomerHeader(payloadForCompilation, {
+      watermark: false  // Zoho uploads should not have watermark
+    });
+
+    if (!compiledPdf || !compiledPdf.buffer) {
+      console.error(`❌ Failed to compile PDF for version ${versionNumber}`);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to compile PDF for upload"
+      });
+    }
+
+    console.log(`✅ [ZOHO-FIRST-TIME] PDF compiled successfully: ${compiledPdf.buffer.length} bytes`);
+
+    // Create pdfData object for compatibility with rest of the code
+    const pdfData = {
+      pdfBuffer: compiledPdf.buffer,
+      source: 'On-Demand Compilation',
+      version: versionNumber,
+      versionId: versionDoc?._id || null,
+      fileName: fileName || `agreement_v${versionNumber}.pdf`,
+      sizeBytes: compiledPdf.buffer.length,
+      bufferSize: compiledPdf.buffer.length
+    };
 
     console.log(`✅ Agreement has PDF from ${pdfData.source} v${pdfData.version}: ${pdfData.bufferSize} bytes`);
 
@@ -803,20 +938,65 @@ router.post("/:agreementId/update", async (req, res) => {
     }
 
     let pdfData = null;
+    let versionDoc = null;
+
     if (!skipFileUpload) {
-      // ✅ FIX: Check for PDF in either VersionPdf or CustomerHeaderDoc with enhanced fallback logic
-      pdfData = await getPdfForAgreement(agreementId, { versionId, agreementDoc: agreement });
+      // ✅ FIX: Recompile PDF on-demand (like download route) instead of using stored PDF
+      // Stored PDFs may be corrupted/incomplete, but recompilation always works
+      console.log(`🔄 [ZOHO-UPLOAD] Getting version document for on-demand PDF compilation...`);
 
-      if (!pdfData.pdfBuffer) {
-        console.error(`❌ Agreement ${agreementId} has no valid PDF in VersionPdf collection`);
+      // Get version document with payloadSnapshot for recompilation
+      if (versionId) {
+        versionDoc = await VersionPdf.findOne({
+          _id: versionId,
+          agreementId: agreementId,
+          status: { $ne: 'archived' }
+        }).select('_id versionNumber payloadSnapshot fileName');
+      } else {
+        versionDoc = await VersionPdf.findOne({
+          agreementId: agreementId,
+          status: { $ne: 'archived' }
+        })
+        .sort({ versionNumber: -1 })
+        .select('_id versionNumber payloadSnapshot fileName');
+      }
 
+      if (!versionDoc || !versionDoc.payloadSnapshot) {
+        console.error(`❌ Version document not found or missing payloadSnapshot for agreement: ${agreementId}`);
         return res.status(400).json({
           success: false,
-          error: "Agreement has no PDF to upload",
-          details: pdfData.debugInfo?.message || "No valid PDF found in VersionPdf documents",
-          debugInfo: pdfData.debugInfo || {}
+          error: "Version document not found or missing data for PDF compilation",
+          details: "Cannot compile PDF without payloadSnapshot data"
         });
       }
+
+      console.log(`🔄 [ZOHO-UPLOAD] Recompiling PDF on-demand for version ${versionDoc.versionNumber}...`);
+
+      // Recompile PDF using the same method as download/view routes
+      const compiledPdf = await compileCustomerHeader(versionDoc.payloadSnapshot, {
+        watermark: false  // Zoho uploads should not have watermark
+      });
+
+      if (!compiledPdf || !compiledPdf.buffer) {
+        console.error(`❌ Failed to compile PDF for version ${versionDoc.versionNumber}`);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to compile PDF for upload"
+        });
+      }
+
+      console.log(`✅ [ZOHO-UPLOAD] PDF compiled successfully: ${compiledPdf.buffer.length} bytes`);
+
+      // Create pdfData object matching the old format for compatibility
+      pdfData = {
+        pdfBuffer: compiledPdf.buffer,
+        source: 'On-Demand Compilation',
+        version: versionDoc.versionNumber,
+        versionId: versionDoc._id,
+        fileName: versionDoc.fileName || `version_${versionDoc.versionNumber}.pdf`,
+        sizeBytes: compiledPdf.buffer.length,
+        bufferSize: compiledPdf.buffer.length
+      };
     } else {
       console.log(`ℹ️ Skipping PDF lookup per request (skipFileUpload=true)`);
     }
@@ -908,8 +1088,37 @@ router.post("/:agreementId/update", async (req, res) => {
     // Step 2: Upload the updated PDF
     let file = null;
     if (!skipFileUpload) {
-      // ƒo. FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
+      // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
       const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
+
+      // ✅ ENHANCED: Validate PDF buffer before upload
+      if (!Buffer.isBuffer(pdfBuffer)) {
+        console.error(`❌ [VERSION-UPLOAD] PDF buffer is not a Buffer:`, {
+          type: typeof pdfBuffer,
+          constructor: pdfBuffer?.constructor?.name
+        });
+        return res.status(500).json({
+          success: false,
+          error: "Invalid PDF buffer format"
+        });
+      }
+
+      // ✅ ENHANCED: Validate PDF content (check for PDF magic number)
+      if (pdfBuffer.length > 0 && !pdfBuffer.slice(0, 4).toString('ascii').startsWith('%PDF')) {
+        console.error(`❌ [VERSION-UPLOAD] Buffer does not contain valid PDF data`);
+        return res.status(500).json({
+          success: false,
+          error: "PDF buffer contains invalid data"
+        });
+      }
+
+      console.log(`📎 [VERSION-UPLOAD] Uploading version PDF:`, {
+        fileName: finalVersionFileName,
+        bufferLength: pdfBuffer.length,
+        versionId: pdfData.versionId,
+        source: pdfData.source
+      });
+
       const fileResult = await uploadBiginFile(dealId, pdfBuffer, finalVersionFileName);
 
       if (!fileResult.success) {
@@ -1487,7 +1696,10 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
 
       originalFileName = logDoc.fileName || logDoc.documentTitle || originalFileName;
       const textContent = logDoc.generateTextContent();
+
+      // Keep log files as plain text (they'll be downloadable but not viewable in Zoho)
       pdfBuffer = Buffer.from(textContent, "utf8");
+      console.log(`📄 [ATTACHED-FILE] Log text buffer created: ${pdfBuffer.length} bytes`);
     } else {
       console.log(`[ATTACHED-FILE] Looking up ManualUploadDocument with ID: ${fileId}`);
       const manualDoc = await ManualUploadDocument.findById(fileId).select("fileName originalFileName pdfBuffer");
@@ -1541,7 +1753,8 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
       ? sanitizedFileNameBase.slice(0, sanitizedFileNameBase.length - extensionFromName.length)
       : sanitizedFileNameBase;
     const suffix = isLogAttachment ? "_log" : "_attached";
-    const finalExtension = isLogAttachment ? (extensionFromName || ".txt") : ".pdf";
+    // Log files remain as .txt, manual uploads are .pdf
+    const finalExtension = isLogAttachment ? ".txt" : ".pdf";
     const zohoFileName = `${baseName || "file"}${suffix}${finalExtension}`;
 
     console.log(`[ATTACHED-FILE] Processing ${normalizedFileType}: ${originalFileName} -> ${zohoFileName}`);
