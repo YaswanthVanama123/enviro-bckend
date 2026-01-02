@@ -82,15 +82,15 @@ const VersionChangeLogSchema = new mongoose.Schema(
     agreementId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CustomerHeaderDoc',
-      required: [true, 'Agreement ID is required'],
-      index: true
+      required: [true, 'Agreement ID is required']
+      // Note: Index defined explicitly below with compound indexes
     },
 
     versionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'VersionPdf',
-      required: [true, 'Version ID is required'],
-      index: true
+      required: [true, 'Version ID is required']
+      // Note: Index defined explicitly below with unique constraint
     },
 
     versionNumber: {
@@ -101,8 +101,8 @@ const VersionChangeLogSchema = new mongoose.Schema(
     // User information
     salespersonId: {
       type: String,
-      required: [true, 'Salesperson ID is required'],
-      index: true
+      required: [true, 'Salesperson ID is required']
+      // Note: Index defined explicitly below with compound index
     },
 
     salespersonName: {

@@ -169,8 +169,8 @@ const LogSchema = new mongoose.Schema(
     // Soft delete
     isDeleted: {
       type: Boolean,
-      default: false,
-      index: true
+      default: false
+      // Note: Index defined explicitly below
     },
 
     deletedAt: {
