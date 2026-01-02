@@ -547,17 +547,30 @@ const productsHeaderRowLatex =
 
   let productsBodyRowsLatex = "";
 
+  // ✅ FIX: Helper function to sanitize string values (remove control chars & binary data)
+  const sanitizeString = (val) => {
+    if (val === undefined || val === null || val === "") return "";
+    const str = String(val);
+    // Remove ALL control characters, DEL, and high-bit characters that cause ^^X errors
+    return str
+      .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars (0x00-0x1F) & non-ASCII (0x7F-0xFF)
+      .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8 replacement character �
+      .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII (space to ~)
+      .trim();
+  };
+
   for (let i = 0; i < rowCount; i++) {
     const mp = mergedProducts[i] || {}; // merged product (small or big)
     const dp = dispensers[i] || {};
 
     // ----- LEFT BLOCK: merged products (Products / Qty / Unit Price or Amount / Frequency / Total)
-    const leftName =
+    const leftNameRaw =
       mp.customName ||
       mp.displayName ||
       mp.productName ||
       mp.productKey ||
       "";
+    const leftName = sanitizeString(leftNameRaw);  // ✅ Sanitize product name
 
     const leftQty = pick(mp, ["qty", "quantity"]);
 
@@ -569,11 +582,12 @@ const productsHeaderRowLatex =
       "amountPerUnit",
     ]);
 
-    const leftFreq = pick(mp, [
+    const leftFreqRaw = pick(mp, [
       "frequency",
       "frequencyOfService",
       "frequencyLabel",
     ]) || "";
+    const leftFreq = sanitizeString(leftFreqRaw);  // ✅ Sanitize frequency
 
     const leftTotal = pick(mp, [
       "total",
@@ -583,12 +597,13 @@ const productsHeaderRowLatex =
     ]);
 
     // ----- RIGHT BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Frequency / Total)
-    const rightName =
+    const rightNameRaw =
       dp.customName ||
       dp.displayName ||
       dp.productName ||
       dp.productKey ||
       "";
+    const rightName = sanitizeString(rightNameRaw);  // ✅ Sanitize dispenser name
 
     const rightQty = pick(dp, ["qty", "quantity"]);
 
@@ -604,11 +619,12 @@ const productsHeaderRowLatex =
       "replacement",
     ]);
 
-    const rightFreq = pick(dp, [
+    const rightFreqRaw = pick(dp, [
       "frequency",
       "frequencyOfService",
       "frequencyLabel",
     ]) || "";
+    const rightFreq = sanitizeString(rightFreqRaw);  // ✅ Sanitize dispenser frequency
 
     const rightTotal = pick(dp, [
       "total",
@@ -621,8 +637,22 @@ const productsHeaderRowLatex =
     const leftCustomValues = (customColumns.products || []).map(col => {
       const value = mp.customFields?.[col.id];
 
+      // ✅ FIX: Extra sanitization to remove binary/corrupted data BEFORE processing
+      const sanitizeValue = (val) => {
+        if (val === undefined || val === null || val === "") return "";
+        const str = String(val);
+        // Remove ALL control characters, DEL, and high-bit characters
+        return str
+          .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars & non-ASCII
+          .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8 replacement char
+          .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII
+          .trim();
+      };
+
+      const sanitized = sanitizeValue(value);
+
       // Handle different value types and empty values
-      if (value === undefined || value === null || value === "") {
+      if (sanitized === "") {
         return latexEscape("");
       }
 
@@ -633,23 +663,37 @@ const productsHeaderRowLatex =
 
       // For string values, check if it's a numeric string
       if (typeof value === "string") {
-        const numValue = parseFloat(value);
+        const numValue = parseFloat(sanitized);
         if (!isNaN(numValue)) {
           return latexEscape(fmtDollar(numValue));
         }
         // Non-numeric string, return as-is
-        return latexEscape(value);
+        return latexEscape(sanitized);  // ✅ Use sanitized value
       }
 
-      return latexEscape(String(value));
+      return latexEscape(sanitized);  // ✅ Use sanitized value
     });
 
     // Extract custom field values for dispensers
     const rightCustomValues = (customColumns.dispensers || []).map(col => {
       const value = dp.customFields?.[col.id];
 
+      // ✅ FIX: Extra sanitization to remove binary/corrupted data BEFORE processing
+      const sanitizeValue = (val) => {
+        if (val === undefined || val === null || val === "") return "";
+        const str = String(val);
+        // Remove ALL control characters, DEL, and high-bit characters
+        return str
+          .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars & non-ASCII
+          .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8 replacement char
+          .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII
+          .trim();
+      };
+
+      const sanitized = sanitizeValue(value);
+
       // Handle different value types and empty values
-      if (value === undefined || value === null || value === "") {
+      if (sanitized === "") {
         return latexEscape("");
       }
 
@@ -660,15 +704,15 @@ const productsHeaderRowLatex =
 
       // For string values, check if it's a numeric string
       if (typeof value === "string") {
-        const numValue = parseFloat(value);
+        const numValue = parseFloat(sanitized);
         if (!isNaN(numValue)) {
           return latexEscape(fmtDollar(numValue));
         }
         // Non-numeric string, return as-is
-        return latexEscape(value);
+        return latexEscape(sanitized);  // ✅ Use sanitized value
       }
 
-      return latexEscape(String(value));
+      return latexEscape(sanitized);  // ✅ Use sanitized value
     });
 
     const rowCells = [

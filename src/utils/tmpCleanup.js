@@ -4,7 +4,8 @@ import { fileURLToPath } from "url";
 import { PDF_OUTPUT_DIR } from "../config/storagePaths.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TMP_ROOT = path.join(__dirname, "..", "..", "tmp");
+// ✅ FIX: Correct path to src/tmp where LaTeX compilation creates temp files
+const TMP_ROOT = path.join(__dirname, "..", "tmp");  // Changed from "..", "..", "tmp"
 const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 async function cleanupDirectory(dirPath, options) {
