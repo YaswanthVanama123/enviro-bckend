@@ -292,17 +292,82 @@ function validatePayloadData(body) {
 
 // ✅ NEW: Deep sanitization function to clean ALL string values in an object recursively
 // ✅ FIXED: Now handles circular references to prevent stack overflow
-function deepSanitizeObject(obj, visited = new WeakSet()) {
+function deepSanitizeObject(obj, visited = new WeakSet(), path = '') {
   if (obj === null || obj === undefined) return obj;
 
   // Primitives: strings, numbers, booleans
   if (typeof obj !== 'object') {
     if (typeof obj === 'string') {
-      return obj
-        .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars & non-ASCII
-        .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8
-        .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII
+      // ✅ ENHANCED: Check for problematic characters BEFORE sanitization
+      const hasProblems = /[\x00-\x1F\x7F-\xFF\uFFFD]/.test(obj);
+      if (hasProblems) {
+        console.warn(`⚠️ [SANITIZE] Corrupted data found at path: "${path}"`, {
+          originalLength: obj.length,
+          preview: obj.slice(0, 50).replace(/[\x00-\x1F\x7F-\xFF]/g, '?'),
+          hexDump: Array.from(obj.slice(0, 20)).map(c =>
+            c.charCodeAt(0).toString(16).padStart(2, '0')
+          ).join(' ')
+        });
+      }
+
+      // ✅ FIXED: REPLACE problematic characters instead of REMOVING them
+      // This prevents data corruption (e.g., "Silver" becoming "ver" if it contains 0xD7)
+      const cleaned = obj
+        // Step 1: Replace smart quotes with regular quotes
+        .replace(/[\u201C\u201D]/g, '"')    // " " → "
+        .replace(/[\u2018\u2019]/g, "'")    // ' ' → '
+        // Step 2: Replace special dashes with regular hyphen
+        .replace(/[\u2013\u2014\u2212]/g, '-')  // – — − → -
+        // Step 3: Replace special bullets/symbols with safe alternatives
+        .replace(/\u2022/g, '*')            // • → *
+        .replace(/\u2023/g, '*')            // ‣ → *
+        .replace(/\u25E6/g, '*')            // ◦ → *
+        .replace(/\u00B7/g, '*')            // · (middle dot) → *
+        .replace(/\u2219/g, '*')            // ∙ → *
+        // Step 4: Replace math symbols with ASCII equivalents
+        .replace(/\u00D7/g, 'x')            // × (multiplication) → x
+        .replace(/\u00F7/g, '/')            // ÷ (division) → /
+        .replace(/\u2260/g, '!=')           // ≠ → !=
+        // Step 5: Replace special punctuation
+        .replace(/\u2026/g, '...')          // … (ellipsis) → ...
+        .replace(/\u00A9/g, '(c)')          // © → (c)
+        .replace(/\u00AE/g, '(R)')          // ® → (R)
+        .replace(/\u2122/g, '(TM)')         // ™ → (TM)
+        // Step 6: Remove emojis (LaTeX cannot handle them)
+        .replace(/[\u{1F600}-\u{1F64F}]/gu, '')  // Emoticons
+        .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')  // Misc Symbols and Pictographs
+        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')  // Transport and Map
+        .replace(/[\u{1F700}-\u{1F77F}]/gu, '')  // Alchemical Symbols
+        .replace(/[\u{1F780}-\u{1F7FF}]/gu, '')  // Geometric Shapes Extended
+        .replace(/[\u{1F800}-\u{1F8FF}]/gu, '')  // Supplemental Arrows-C
+        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')  // Supplemental Symbols and Pictographs
+        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '')  // Chess Symbols
+        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '')  // Symbols and Pictographs Extended-A
+        .replace(/[\u{2600}-\u{26FF}]/gu, '')    // Misc symbols
+        .replace(/[\u{2700}-\u{27BF}]/gu, '')    // Dingbats
+        // Step 7: Remove control characters (0x00-0x1F)
+        .replace(/[\x00-\x1F]/g, '')
+        // Step 8: Remove invalid UTF-8 replacement character
+        .replace(/\uFFFD/g, '')
+        // Step 9: Remove zero-width characters
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        // Step 10: Remove any remaining high-bit characters that weren't caught above
+        .replace(/[\x7F-\xFF]/g, (char) => {
+          // Log unhandled characters for future improvement
+          const code = char.charCodeAt(0).toString(16).padStart(2, '0');
+          console.warn(`⚠️ [SANITIZE] Unhandled high-bit character at "${path}": 0x${code}`);
+          return '';  // Remove if not specifically handled above
+        })
+        // Step 11: Final cleanup - keep only printable ASCII + newlines/tabs
+        .replace(/[^\x20-\x7E\n\r\t]/g, '')
         .trim();
+
+      // ✅ ENHANCED: Warn if sanitization removed all content
+      if (cleaned.length === 0 && obj.length > 0) {
+        console.warn(`⚠️ [SANITIZE] Field completely removed (was corrupted): "${path}" (original: ${obj.length} chars)`);
+      }
+
+      return cleaned;
     }
     return obj; // Numbers, booleans, etc.
   }
@@ -315,13 +380,14 @@ function deepSanitizeObject(obj, visited = new WeakSet()) {
 
   // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.map(item => deepSanitizeObject(item, visited));
+    return obj.map((item, index) => deepSanitizeObject(item, visited, `${path}[${index}]`));
   }
 
   // Handle objects
   const sanitized = {};
   for (const [key, value] of Object.entries(obj)) {
-    sanitized[key] = deepSanitizeObject(value, visited);
+    const newPath = path ? `${path}.${key}` : key;
+    sanitized[key] = deepSanitizeObject(value, visited, newPath);
   }
   return sanitized;
 }
@@ -352,19 +418,48 @@ function latexEscape(value = "") {
     });
   }
 
-  // ✅ ENHANCED: More aggressive sanitization
+  // ✅ FIXED: REPLACE problematic characters instead of removing (matches deepSanitizeObject)
   let sanitized = original
-    // Remove ALL control characters (0x00-0x1F) - these cause ^^X errors in LaTeX
+    // Step 1: Replace smart quotes
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    // Step 2: Replace dashes
+    .replace(/[\u2013\u2014\u2212]/g, '-')
+    // Step 3: Replace bullets/symbols
+    .replace(/\u2022/g, '*')
+    .replace(/\u2023/g, '*')
+    .replace(/\u25E6/g, '*')
+    .replace(/\u00B7/g, '*')  // Middle dot
+    .replace(/\u2219/g, '*')
+    // Step 4: Replace math symbols
+    .replace(/\u00D7/g, 'x')  // Multiplication
+    .replace(/\u00F7/g, '/')  // Division
+    // Step 5: Replace special punctuation
+    .replace(/\u2026/g, '...')
+    .replace(/\u00A9/g, '(c)')
+    .replace(/\u00AE/g, '(R)')
+    .replace(/\u2122/g, '(TM)')
+    // Step 6: Remove emojis
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+    // Step 7: Remove control characters
     .replace(/[\x00-\x1F]/g, '')
-    // Remove DEL and high-bit characters (0x7F-0xFF) that aren't valid ASCII
-    .replace(/[\x7F-\xFF]/g, '')
-    // Remove invalid UTF-8 sequences (replacement character �)
+    // Step 8: Remove invalid UTF-8
     .replace(/\uFFFD/g, '')
-    // Remove any remaining non-ASCII characters that might cause issues
+    // Step 9: Remove zero-width characters
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Step 10: Remove any remaining high-bit chars with warning
+    .replace(/[\x7F-\xFF]/g, (char) => {
+      const code = char.charCodeAt(0).toString(16).padStart(2, '0');
+      console.warn(`⚠️ [LATEX-ESCAPE] Unhandled high-bit character: 0x${code}`);
+      return '';
+    })
+    // Step 11: Final cleanup
     .replace(/[^\x20-\x7E\n\r\t]/g, '')
-    // Normalize unicode to composed form
     .normalize('NFC')
-    // Trim whitespace
     .trim();
 
   // ✅ ENHANCED: If sanitization removed everything, return empty string
@@ -388,16 +483,38 @@ function latexEscape(value = "") {
 
 // ✅ NEW: Special escape for table headers - makes slashes breakable and allows word breaks
 function latexEscapeHeader(value = "") {
-  // ✅ ENHANCED: Use same aggressive sanitization as latexEscape
+  // ✅ FIXED: Use same REPLACE strategy as latexEscape (not removal)
   let sanitized = String(value)
-    // Remove ALL control characters (0x00-0x1F)
+    // Step 1: Replace smart quotes
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    // Step 2: Replace dashes
+    .replace(/[\u2013\u2014\u2212]/g, '-')
+    // Step 3: Replace bullets/symbols
+    .replace(/\u2022/g, '*')
+    .replace(/\u00B7/g, '*')  // Middle dot
+    // Step 4: Replace math symbols
+    .replace(/\u00D7/g, 'x')  // Multiplication
+    .replace(/\u00F7/g, '/')  // Division
+    // Step 5: Replace special punctuation
+    .replace(/\u2026/g, '...')
+    .replace(/\u00A9/g, '(c)')
+    .replace(/\u00AE/g, '(R)')
+    .replace(/\u2122/g, '(TM)')
+    // Step 6: Remove emojis
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+    // Step 7: Remove control characters
     .replace(/[\x00-\x1F]/g, '')
-    // Remove DEL and high-bit characters (0x7F-0xFF)
-    .replace(/[\x7F-\xFF]/g, '')
-    // Remove invalid UTF-8 sequences
+    // Step 8: Remove invalid UTF-8
     .replace(/\uFFFD/g, '')
-    // Remove any remaining non-ASCII characters
-    .replace(/[^\x20-\x7E\n\r\t]/g, '')
+    // Step 9: Remove zero-width characters
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Step 10: Remove remaining high-bit chars
+    .replace(/[\x7F-\xFF]/g, '')
     .normalize('NFC')
     .trim();
 
@@ -2854,7 +2971,7 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     productContractLabel ? `Contract ${productContractLabel}` : ""
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" - ");  // ✅ FIXED: Use regular hyphen instead of middle dot (0xB7)
   const summaryProductTotalsLabel = latexEscape(combinedProductTotals || SUMMARY_PLACEHOLDER);
 
   const hasSummaryData = summaryData && Object.keys(summaryData).length > 0;
@@ -2929,6 +3046,31 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     tex = tex.replace(/\\end\{document\}/, serviceAgreementLatex + '\n\\end{document}');
   } else {
     console.log('📄 [SERVICE AGREEMENT] Service Agreement not included (checkbox not checked or data missing)');
+  }
+
+  // ✅ DEBUG: Validate brace balance before compilation
+  const openBraces = (tex.match(/\{/g) || []).length;
+  const closeBraces = (tex.match(/\}/g) || []).length;
+  if (openBraces !== closeBraces) {
+    console.error(`❌ [LATEX-VALIDATION] Brace mismatch! Opening: ${openBraces}, Closing: ${closeBraces}, Difference: ${openBraces - closeBraces}`);
+
+    // Save final LaTeX for debugging
+    try {
+      const finalDebugPath = '/tmp/debug-latex-final-with-errors.tex';
+      await fs.writeFile(finalDebugPath, tex, 'utf8');
+      console.log(`🔍 [PDF DEBUG] Final LaTeX with errors saved to: ${finalDebugPath}`);
+    } catch (err) {
+      console.warn('⚠️ Could not save final debug LaTeX:', err.message);
+    }
+  }
+
+  // ✅ DEBUG: Save FINAL LaTeX after all modifications
+  try {
+    const finalDebugPath = '/tmp/debug-latex-final.tex';
+    await fs.writeFile(finalDebugPath, tex, 'utf8');
+    console.log(`🔍 [PDF DEBUG] Final LaTeX (after all modifications) saved to: ${finalDebugPath}`);
+  } catch (err) {
+    console.warn('⚠️ Could not save final debug LaTeX:', err.message);
   }
 
   const headerDir = path.dirname(PDF_HEADER_TEMPLATE_PATH);

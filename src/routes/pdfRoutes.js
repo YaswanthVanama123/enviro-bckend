@@ -1,6 +1,7 @@
 // src/routes/pdfRoutes.js
 import { Router } from "express";
 import multer from "multer";
+import { requireAdminAuth } from "../middleware/adminAuth.js";
 import {
   pdfHealth,
   testZohoAccessEndpoint,
@@ -121,12 +122,14 @@ router.get("/document-status-counts", getDocumentStatusCounts); // ✅ NEW: Get 
 router.get("/approval-documents/grouped", getApprovalDocumentsGrouped); // ✅ NEW: Get all approval documents grouped by agreement
 
 /* ---- NEW: delete and restore API ---- */
-router.patch("/agreements/:agreementId/restore", restoreAgreement); // Restore agreement from trash
-router.patch("/files/:fileId/restore", restoreFile); // Restore file from trash
-router.patch("/agreements/:agreementId/delete", deleteAgreement); // Soft delete agreement (move to trash)
-router.patch("/files/:fileId/delete", deleteFile); // Soft delete file (move to trash)
-router.delete("/agreements/:agreementId/permanent-delete", permanentlyDeleteAgreement); // Permanent delete agreement with cascade
-router.delete("/files/:fileId/permanent-delete", permanentlyDeleteFile); // Permanent delete file with cleanup
+// ✅ SECURE: All trash operations require admin authentication
+router.patch("/agreements/:agreementId/restore", requireAdminAuth, restoreAgreement); // Restore agreement from trash
+router.patch("/files/:fileId/restore", requireAdminAuth, restoreFile); // Restore file from trash
+router.patch("/agreements/:agreementId/delete", requireAdminAuth, deleteAgreement); // Soft delete agreement (move to trash)
+router.patch("/files/:fileId/delete", requireAdminAuth, deleteFile); // Soft delete file (move to trash)
+// ✅ SECURE: Permanent delete operations require admin authentication (CRITICAL - IRREVERSIBLE)
+router.delete("/agreements/:agreementId/permanent-delete", requireAdminAuth, permanentlyDeleteAgreement); // Permanent delete agreement with cascade
+router.delete("/files/:fileId/permanent-delete", requireAdminAuth, permanentlyDeleteFile); // Permanent delete file with cleanup
 
 /* ---- NEW: price override logging API ---- */
 router.post("/price-overrides/log", logPriceOverride); // Log a price override

@@ -3552,6 +3552,10 @@ export async function permanentlyDeleteAgreement(req, res) {
   try {
     const { agreementId } = req.params;
 
+    // ✅ SECURITY: Log admin who performed this irreversible action
+    const adminUser = req.admin ? `${req.admin.username} (ID: ${req.admin.id})` : 'Unknown';
+    console.log(`🔒 [SECURITY] Permanent delete requested by admin: ${adminUser}`);
+
     if (!mongoose.isValidObjectId(agreementId)) {
       return res.status(400).json({
         success: false,
@@ -3580,6 +3584,7 @@ export async function permanentlyDeleteAgreement(req, res) {
     let deletedVersions = 0;
 
     console.log(`💥 [PERMANENT DELETE] Starting cascade deletion for agreement: ${agreementTitle} (ID: ${agreementId})`);
+    console.log(`💥 [PERMANENT DELETE] Authorized by: ${adminUser}`);
 
     // 1. Delete all attached files from ManualUploadDocument collection
     if (agreement.attachedFiles && agreement.attachedFiles.length > 0) {
@@ -3662,6 +3667,10 @@ export async function permanentlyDeleteAgreement(req, res) {
 export async function permanentlyDeleteFile(req, res) {
   try {
     const { fileId } = req.params;
+
+    // ✅ SECURITY: Log admin who performed this irreversible action
+    const adminUser = req.admin ? `${req.admin.username} (ID: ${req.admin.id})` : 'Unknown';
+    console.log(`🔒 [SECURITY] Permanent delete file requested by admin: ${adminUser}`);
 
     if (!mongoose.isValidObjectId(fileId)) {
       return res.status(400).json({
@@ -3819,6 +3828,7 @@ export async function permanentlyDeleteFile(req, res) {
     }
 
     console.log(`💥 [PERMANENT DELETE] File permanently deleted: ${fileName}`);
+    console.log(`💥 [PERMANENT DELETE] Authorized by: ${adminUser}`);
     console.log(`💥 [CLEANUP SUMMARY] Cleaned ${cleanedReferences} references`);
 
     res.json({
