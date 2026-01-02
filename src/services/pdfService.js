@@ -313,6 +313,11 @@ function deepSanitizeObject(obj, visited = new WeakSet(), path = '') {
       // ✅ FIXED: REPLACE problematic characters instead of REMOVING them
       // This prevents data corruption (e.g., "Silver" becoming "ver" if it contains 0xD7)
       const cleaned = obj
+        // Step 0: Fix Latin-1/Windows-1252 encoded characters (MUST BE FIRST)
+        .replace(/\xd7/g, 'x')    // Multiplication sign (0xd7 in Latin-1)
+        .replace(/\xf7/g, '/')    // Division sign (0xf7 in Latin-1)
+        .replace(/\xd0/g, '-')    // Em dash variants
+        .replace(/\xa0/g, ' ')    // Non-breaking space
         // Step 1: Replace smart quotes with regular quotes
         .replace(/[\u201C\u201D]/g, '"')    // " " → "
         .replace(/[\u2018\u2019]/g, "'")    // ' ' → '
@@ -324,9 +329,9 @@ function deepSanitizeObject(obj, visited = new WeakSet(), path = '') {
         .replace(/\u25E6/g, '*')            // ◦ → *
         .replace(/\u00B7/g, '*')            // · (middle dot) → *
         .replace(/\u2219/g, '*')            // ∙ → *
-        // Step 4: Replace math symbols with ASCII equivalents
-        .replace(/\u00D7/g, 'x')            // × (multiplication) → x
-        .replace(/\u00F7/g, '/')            // ÷ (division) → /
+        // Step 4: Replace math symbols with ASCII equivalents (Unicode versions)
+        .replace(/\u00D7/g, 'x')            // × (multiplication Unicode) → x
+        .replace(/\u00F7/g, '/')            // ÷ (division Unicode) → /
         .replace(/\u2260/g, '!=')           // ≠ → !=
         // Step 5: Replace special punctuation
         .replace(/\u2026/g, '...')          // … (ellipsis) → ...
@@ -420,6 +425,11 @@ function latexEscape(value = "") {
 
   // ✅ FIXED: REPLACE problematic characters instead of removing (matches deepSanitizeObject)
   let sanitized = original
+    // Step 0: Fix Latin-1/Windows-1252 encoded characters (MUST BE FIRST)
+    .replace(/\xd7/g, 'x')    // Multiplication sign (0xd7 in Latin-1)
+    .replace(/\xf7/g, '/')    // Division sign (0xf7 in Latin-1)
+    .replace(/\xd0/g, '-')    // Em dash variants
+    .replace(/\xa0/g, ' ')    // Non-breaking space
     // Step 1: Replace smart quotes
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
@@ -431,9 +441,9 @@ function latexEscape(value = "") {
     .replace(/\u25E6/g, '*')
     .replace(/\u00B7/g, '*')  // Middle dot
     .replace(/\u2219/g, '*')
-    // Step 4: Replace math symbols
-    .replace(/\u00D7/g, 'x')  // Multiplication
-    .replace(/\u00F7/g, '/')  // Division
+    // Step 4: Replace math symbols (Unicode versions)
+    .replace(/\u00D7/g, 'x')  // Multiplication (Unicode)
+    .replace(/\u00F7/g, '/')  // Division (Unicode)
     // Step 5: Replace special punctuation
     .replace(/\u2026/g, '...')
     .replace(/\u00A9/g, '(c)')
@@ -485,6 +495,11 @@ function latexEscape(value = "") {
 function latexEscapeHeader(value = "") {
   // ✅ FIXED: Use same REPLACE strategy as latexEscape (not removal)
   let sanitized = String(value)
+    // Step 0: Fix Latin-1/Windows-1252 encoded characters (MUST BE FIRST)
+    .replace(/\xd7/g, 'x')    // Multiplication sign (0xd7 in Latin-1)
+    .replace(/\xf7/g, '/')    // Division sign (0xf7 in Latin-1)
+    .replace(/\xd0/g, '-')    // Em dash variants
+    .replace(/\xa0/g, ' ')    // Non-breaking space
     // Step 1: Replace smart quotes
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
@@ -493,9 +508,9 @@ function latexEscapeHeader(value = "") {
     // Step 3: Replace bullets/symbols
     .replace(/\u2022/g, '*')
     .replace(/\u00B7/g, '*')  // Middle dot
-    // Step 4: Replace math symbols
-    .replace(/\u00D7/g, 'x')  // Multiplication
-    .replace(/\u00F7/g, '/')  // Division
+    // Step 4: Replace math symbols (Unicode versions)
+    .replace(/\u00D7/g, 'x')  // Multiplication (Unicode)
+    .replace(/\u00F7/g, '/')  // Division (Unicode)
     // Step 5: Replace special punctuation
     .replace(/\u2026/g, '...')
     .replace(/\u00A9/g, '(c)')
