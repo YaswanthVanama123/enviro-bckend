@@ -290,6 +290,42 @@ function validatePayloadData(body) {
   return issues;
 }
 
+// ✅ NEW: Deep sanitization function to clean ALL string values in an object recursively
+// ✅ FIXED: Now handles circular references to prevent stack overflow
+function deepSanitizeObject(obj, visited = new WeakSet()) {
+  if (obj === null || obj === undefined) return obj;
+
+  // Primitives: strings, numbers, booleans
+  if (typeof obj !== 'object') {
+    if (typeof obj === 'string') {
+      return obj
+        .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars & non-ASCII
+        .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8
+        .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII
+        .trim();
+    }
+    return obj; // Numbers, booleans, etc.
+  }
+
+  // ✅ FIX: Check for circular references
+  if (visited.has(obj)) {
+    return obj; // Already processed, return as-is to avoid infinite loop
+  }
+  visited.add(obj);
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => deepSanitizeObject(item, visited));
+  }
+
+  // Handle objects
+  const sanitized = {};
+  for (const [key, value] of Object.entries(obj)) {
+    sanitized[key] = deepSanitizeObject(value, visited);
+  }
+  return sanitized;
+}
+
 function latexEscape(value = "") {
   // ✅ SECURITY FIX: Aggressive sanitization to remove ALL non-printable and invalid characters
   // This prevents LaTeX compilation errors from corrupted/binary data
@@ -2740,6 +2776,11 @@ export async function compileCustomerHeader(body = {}, options = {}) {
 
   // ✅ NEW: Validate payload for corrupted data before processing
   validatePayloadData(body);
+
+  // ✅ NEW: Deep sanitize ALL string values in the payload to prevent LaTeX errors
+  console.log('🧹 [PDF COMPILE] Deep sanitizing payload to remove corrupted characters...');
+  body = deepSanitizeObject(body);
+  console.log('✅ [PDF COMPILE] Payload sanitization complete');
 
   // ✅ ENHANCED: Deep validation of products data (where the error is happening)
   if (body.products) {

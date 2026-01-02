@@ -308,9 +308,22 @@ export async function downloadVersionPdf(req, res) {
 
   } catch (error) {
     console.error("❌ Failed to download version:", error.message);
+
+    // ✅ ENHANCED: Log detailed LaTeX compilation errors for debugging
+    if (error.detail) {
+      try {
+        const errorDetail = typeof error.detail === 'string' ? JSON.parse(error.detail) : error.detail;
+        console.error("📄 LaTeX Compilation Error Details:", JSON.stringify(errorDetail, null, 2));
+      } catch (parseErr) {
+        console.error("📄 LaTeX Compilation Error Details (raw):", error.detail);
+      }
+    }
+
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      // Include compilation details in response for frontend debugging (in development)
+      ...(process.env.NODE_ENV !== 'production' && error.detail && { detail: error.detail })
     });
   }
 }
@@ -642,10 +655,17 @@ export async function createVersion(req, res) {
 
   } catch (error) {
     console.error("❌ Failed to create version:", error.message);
-    // ✅ Log detailed LaTeX error if available
+
+    // ✅ ENHANCED: Log detailed LaTeX compilation errors for debugging
     if (error.detail) {
-      console.error("📄 LaTeX Compilation Error Details:", error.detail);
+      try {
+        const errorDetail = typeof error.detail === 'string' ? JSON.parse(error.detail) : error.detail;
+        console.error("📄 LaTeX Compilation Error Details:", JSON.stringify(errorDetail, null, 2));
+      } catch (parseErr) {
+        console.error("📄 LaTeX Compilation Error Details (raw):", error.detail);
+      }
     }
+
     res.status(500).json({
       success: false,
       error: error.message,
