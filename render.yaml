@@ -1,0 +1,150 @@
+# ============================================================================
+# Render Deployment Configuration
+# ============================================================================
+# This file configures automatic deployment on Render
+# Learn more: https://render.com/docs/blueprint-spec
+
+services:
+  # Backend API Service
+  - type: web
+    name: enviromaster-backend
+    env: node
+    region: oregon  # Choose your preferred region
+    plan: free  # Free tier for testing (can upgrade to starter/standard later)
+
+    # Build settings
+    buildCommand: npm install
+    startCommand: npm start
+
+    # Health check endpoint
+    healthCheckPath: /health
+
+    # Environment variables (configure these in Render Dashboard)
+    envVars:
+      # ===== APPLICATION =====
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 5000
+
+      # SERVER_URL will be auto-populated by Render with your service URL
+      - key: SERVER_URL
+        sync: false  # Set manually in dashboard after deployment
+
+      # ===== DATABASE =====
+      - key: MONGO_URI
+        sync: false  # Set in Render Dashboard (use MongoDB Atlas connection string)
+
+      - key: MONGO_DB
+        value: enviro_master
+
+      # ===== PDF SERVICE =====
+      - key: PDF_REMOTE_BASE
+        value: http://142.93.213.187:3000/pdf
+
+      - key: PDF_MAX_BODY_MB
+        value: 5
+
+      - key: PDF_REMOTE_TIMEOUT_MS
+        value: 90000
+
+      # ===== ZOHO BIGIN =====
+      - key: ZOHO_CLIENT_ID
+        sync: false  # Set in Render Dashboard
+
+      - key: ZOHO_CLIENT_SECRET
+        sync: false  # Set in Render Dashboard
+
+      - key: ZOHO_ACCOUNTS_URL
+        value: https://accounts.zoho.in
+
+      - key: ZOHO_BIGIN_API_URL
+        value: https://www.zohoapis.in/bigin/v2
+
+      - key: ZOHO_CRM_API_URL
+        value: https://www.zohoapis.in/crm/v3
+
+      # ZOHO_REDIRECT_URI will be set after deployment (https://your-app.onrender.com/oauth/callback)
+      - key: ZOHO_REDIRECT_URI
+        sync: false  # Set in Render Dashboard after deployment
+
+      - key: ZOHO_REFRESH_TOKEN
+        sync: false  # Will be generated after OAuth flow
+
+      # ===== EMAIL =====
+      - key: EMAIL_HOST
+        value: enviromasternva.com
+
+      - key: EMAIL_PORT
+        value: 465
+
+      - key: EMAIL_SECURE
+        value: true
+
+      - key: EMAIL_USER
+        sync: false  # Set in Render Dashboard
+
+      - key: EMAIL_PASSWORD
+        sync: false  # Set in Render Dashboard
+
+      - key: EMAIL_FROM_NAME
+        value: EnviroMaster NVA
+
+      - key: EMAIL_FROM_ADDRESS
+        sync: false  # Set in Render Dashboard
+
+      # ===== SECURITY =====
+      # Generate JWT secret: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+      - key: JWT_SECRET
+        generateValue: true  # Render will auto-generate a secure random string
+
+      - key: JWT_EXPIRES_IN
+        value: 7d
+
+      # ===== CORS =====
+      # Set to your frontend URL(s), comma-separated
+      - key: ALLOWED_ORIGINS
+        sync: false  # Set in Render Dashboard (e.g., https://your-frontend.com)
+
+      # ===== LOGGING =====
+      - key: LOG_LEVEL
+        value: info
+
+# ============================================================================
+# Deployment Instructions:
+# ============================================================================
+#
+# 1. Push your code to GitHub
+#
+# 2. Connect to Render:
+#    - Go to https://dashboard.render.com/
+#    - Click "New +" → "Blueprint"
+#    - Connect your GitHub repository
+#    - Render will detect this render.yaml file
+#
+# 3. Configure Environment Variables (in Render Dashboard):
+#    - MONGO_URI: Your MongoDB Atlas connection string
+#    - SERVER_URL: https://your-app-name.onrender.com (after deployment)
+#    - ZOHO_CLIENT_ID: From Zoho API Console
+#    - ZOHO_CLIENT_SECRET: From Zoho API Console
+#    - ZOHO_REDIRECT_URI: https://your-app-name.onrender.com/oauth/callback
+#    - EMAIL_USER: your_email@enviromasternva.com
+#    - EMAIL_PASSWORD: Your email password
+#    - EMAIL_FROM_ADDRESS: your_email@enviromasternva.com
+#    - ALLOWED_ORIGINS: Your frontend URL(s)
+#
+# 4. Configure MongoDB Atlas:
+#    - Go to Network Access → Add IP Address
+#    - Allow access from anywhere (0.0.0.0/0) for Render
+#
+# 5. Complete Zoho OAuth:
+#    - Update ZOHO_REDIRECT_URI in Zoho API Console
+#    - Visit https://your-app-name.onrender.com/oauth/zoho/auth
+#    - Complete OAuth flow to generate refresh token
+#
+# 6. Monitor Deployment:
+#    - Check logs in Render Dashboard
+#    - Test health endpoint: https://your-app-name.onrender.com/health
+#
+# ============================================================================

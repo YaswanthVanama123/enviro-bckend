@@ -3,13 +3,29 @@ import mongoose from 'mongoose';
 
 const connectDB = async () => {
   try {
-    const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mydatabase';
-    await mongoose.connect(uri, { dbName: process.env.MONGO_DB || 'enviro_master' });
+    // ✅ PRODUCTION: Require MONGO_URI environment variable
+    const uri = process.env.MONGO_URI;
+
+    if (!uri) {
+      throw new Error('MONGO_URI environment variable is not defined. Please check your .env file.');
+    }
+
+    await mongoose.connect(uri, {
+      dbName: process.env.MONGO_DB || 'enviro_master'
+    });
+
     console.log('✅ MongoDB connected successfully');
+    console.log(`📊 Database: ${process.env.MONGO_DB || 'enviro_master'}`);
   } catch (err) {
     console.error('❌ MongoDB connection failed:', err.message);
-    console.log('⚠️  Server will continue without MongoDB for testing Zoho functionality');
-    // process.exit(1); // ✅ COMMENTED: Allow server to start without MongoDB for Zoho testing
+
+    // In production, exit if database connection fails
+    if (process.env.NODE_ENV === 'production') {
+      console.error('⚠️  Cannot start server without database in production mode');
+      process.exit(1);
+    } else {
+      console.log('⚠️  Server will continue without MongoDB for testing purposes (development only)');
+    }
   }
 };
 

@@ -202,12 +202,13 @@ router.get("/debug", async (req, res) => {
   try {
     const clientId = process.env.ZOHO_CLIENT_ID;
     const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    const redirectUri = process.env.ZOHO_REDIRECT_URI || "http://localhost:5000/oauth/callback";
+    // ✅ PRODUCTION: Require ZOHO_REDIRECT_URI environment variable
+    const redirectUri = process.env.ZOHO_REDIRECT_URI;
 
     console.log("🔍 [DEBUG] OAuth Configuration Check");
     console.log("  ├ Client ID:", clientId ? `${clientId.substring(0, 20)}...` : "MISSING");
     console.log("  ├ Client Secret:", clientSecret ? `${clientSecret.substring(0, 10)}...` : "MISSING");
-    console.log("  └ Redirect URI:", redirectUri);
+    console.log("  └ Redirect URI:", redirectUri || "MISSING");
 
     res.send(`
       <html>
@@ -236,7 +237,7 @@ router.get("/debug", async (req, res) => {
           <div style="background: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0;">
             <h3>🔑 Required App Settings in Zoho:</h3>
             <p><strong>Client Type:</strong> Server-based Applications</p>
-            <p><strong>Redirect URI:</strong> <code>http://localhost:5000/oauth/callback</code></p>
+            <p><strong>Redirect URI:</strong> <code>${redirectUri || 'NOT CONFIGURED'}</code></p>
             <p><strong>Scopes:</strong> ZohoBigin.modules.ALL, ZohoBigin.modules.attachments.ALL, ZohoBigin.settings.ALL</p>
             <p style="margin-top: 10px; padding: 10px; background: #ffc107; border-radius: 3px;">
               <strong>⚠️ Important:</strong> Make sure your Zoho app has these exact scopes enabled.

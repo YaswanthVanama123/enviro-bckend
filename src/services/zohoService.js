@@ -18,7 +18,8 @@ const ZOHO_ACCOUNTS_URL =
  */
 export function generateZohoAuthUrl() {
   const clientId = process.env.ZOHO_CLIENT_ID;
-  const redirectUri = process.env.ZOHO_REDIRECT_URI || "http://localhost:5000/oauth/callback";
+  // ✅ PRODUCTION: Require ZOHO_REDIRECT_URI environment variable
+  const redirectUri = process.env.ZOHO_REDIRECT_URI;
 
   if (!clientId) {
     throw new Error("ZOHO_CLIENT_ID environment variable is required");
@@ -51,9 +52,10 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
   try {
     const clientId = process.env.ZOHO_CLIENT_ID;
     const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    const redirectUri = process.env.ZOHO_REDIRECT_URI || "http://localhost:5000/oauth/callback";
+    // ✅ PRODUCTION: Require ZOHO_REDIRECT_URI environment variable
+    const redirectUri = process.env.ZOHO_REDIRECT_URI;
 
-    console.log("ÐY\"? [TOKEN-CREATE] Step 1 - environment values");
+    console.log("🔒 [TOKEN-CREATE] Step 1 - environment values");
     console.log(`  ƒ\"o Client ID present: ${!!clientId}`);
     console.log(`  ƒ\"o Client Secret present: ${!!clientSecret}`);
     console.log(`  ƒ\"o Redirect URI: ${redirectUri}`);
@@ -908,7 +910,9 @@ export async function getZohoAccessToken() {
 
   // No credentials available - admin needs to set up OAuth
   console.error("❌ No Zoho credentials configured");
-  console.error("💡 Admin setup required: Visit http://localhost:5000/oauth/zoho/auth to configure Zoho integration");
+  // ✅ PRODUCTION: Use SERVER_URL from environment variable
+  const serverUrl = process.env.SERVER_URL || "http://localhost:5000";
+  console.error(`💡 Admin setup required: Visit ${serverUrl}/oauth/zoho/auth to configure Zoho integration`);
 
   throw new Error("Zoho integration not configured. Administrator needs to set up OAuth credentials.");
 }
