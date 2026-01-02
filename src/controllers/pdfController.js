@@ -4418,6 +4418,7 @@ export async function getPendingVersionChanges(req, res) {
 /* ------------ OPTIMIZED COUNT API FOR HOME PAGE BAR GRAPH ------------ */
 
 // GET /api/pdf/document-status-counts - Get counts of documents by status (optimized for bar graph)
+// ✅ ENHANCED: Now returns grouped time-series data for accurate bar graph visualization
 export async function getDocumentStatusCounts(req, res) {
   try {
     const {
@@ -4428,20 +4429,76 @@ export async function getDocumentStatusCounts(req, res) {
 
     console.log(`📊 [STATUS-COUNTS] Fetching document status counts (groupBy: ${groupBy}, startDate: ${startDate || 'all'}, endDate: ${endDate || 'all'})`);
 
-    // Build date filter if provided
+    // ✅ FIX: Build date filter with proper timezone handling
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.createdAt = {};
       if (startDate) {
-        dateFilter.createdAt.$gte = new Date(startDate);
+        // Parse YYYY-MM-DD format as start of day in local time
+        const startDateObj = new Date(startDate);
+        startDateObj.setHours(0, 0, 0, 0);
+        dateFilter.createdAt.$gte = startDateObj;
+        console.log(`📊 [STATUS-COUNTS] Start date parsed: ${startDate} → ${startDateObj.toISOString()}`);
       }
       if (endDate) {
-        dateFilter.createdAt.$lte = new Date(endDate);
+        // Parse YYYY-MM-DD format as end of day in local time
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        dateFilter.createdAt.$lte = endDateObj;
+        console.log(`📊 [STATUS-COUNTS] End date parsed: ${endDate} → ${endDateObj.toISOString()}`);
       }
     }
 
-    // ✅ OPTIMIZED: Use MongoDB aggregation for efficient counting
-    // Only count documents, don't load full data
+    // ✅ NEW: Aggregation pipeline with proper grouping by time period
+    let groupByExpression;
+    let sortByExpression;
+
+    switch (groupBy) {
+      case 'day':
+        // Group by year-month-day (e.g., 2026-01-02)
+        groupByExpression = {
+          year: { $year: '$createdAt' },
+          month: { $month: '$createdAt' },
+          day: { $dayOfMonth: '$createdAt' }
+        };
+        sortByExpression = {
+          '_id.year': 1,
+          '_id.month': 1,
+          '_id.day': 1
+        };
+        break;
+
+      case 'week':
+        // Group by year-week (e.g., 2026-W01)
+        groupByExpression = {
+          year: { $year: '$createdAt' },
+          week: { $week: '$createdAt' }
+        };
+        sortByExpression = {
+          '_id.year': 1,
+          '_id.week': 1
+        };
+        break;
+
+      case 'month':
+        // Group by year-month (e.g., 2026-01)
+        groupByExpression = {
+          year: { $year: '$createdAt' },
+          month: { $month: '$createdAt' }
+        };
+        sortByExpression = {
+          '_id.year': 1,
+          '_id.month': 1
+        };
+        break;
+
+      default:
+        // Fallback: no grouping, just count all
+        groupByExpression = null;
+        sortByExpression = null;
+    }
+
+    // ✅ OPTIMIZED: Use MongoDB aggregation for efficient counting with time-series grouping
     const pipeline = [
       // Filter by date range if provided
       ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
@@ -4449,58 +4506,131 @@ export async function getDocumentStatusCounts(req, res) {
       // Filter out deleted documents
       { $match: { isDeleted: { $ne: true } } },
 
-      // Group by status and count
+      // Group by time period and status
       {
         $group: {
-          _id: '$status',
+          _id: groupByExpression ? {
+            ...groupByExpression,
+            status: '$status'
+          } : '$status',
           count: { $sum: 1 }
         }
-      }
+      },
+
+      // Sort by time period
+      ...(sortByExpression ? [{ $sort: sortByExpression }] : [])
     ];
 
     const results = await CustomerHeaderDoc.aggregate(pipeline);
 
-    // Transform results into a convenient format
-    const counts = {
-      done: 0,           // approved_admin
-      pending: 0,        // pending_approval + approved_salesman
-      saved: 0,          // saved
-      drafts: 0,         // draft
-      total: 0
-    };
+    // ✅ NEW: Transform results into time-series format
+    if (groupByExpression) {
+      // Group results by time period
+      const timeSeriesMap = new Map();
 
-    results.forEach(item => {
-      const status = item._id;
-      const count = item.count;
+      results.forEach(item => {
+        let periodKey;
+        if (groupBy === 'day') {
+          periodKey = `${item._id.year}-${String(item._id.month).padStart(2, '0')}-${String(item._id.day).padStart(2, '0')}`;
+        } else if (groupBy === 'week') {
+          periodKey = `${item._id.year}-W${String(item._id.week).padStart(2, '0')}`;
+        } else if (groupBy === 'month') {
+          periodKey = `${item._id.year}-${String(item._id.month).padStart(2, '0')}`;
+        }
 
-      if (status === 'approved_admin') {
-        counts.done += count;
-      } else if (status === 'pending_approval' || status === 'approved_salesman') {
-        counts.pending += count;
-      } else if (status === 'saved') {
-        counts.saved += count;
-      } else if (status === 'draft') {
-        counts.drafts += count;
-      }
+        if (!timeSeriesMap.has(periodKey)) {
+          timeSeriesMap.set(periodKey, {
+            period: periodKey,
+            done: 0,
+            pending: 0,
+            saved: 0,
+            drafts: 0,
+            total: 0
+          });
+        }
 
-      counts.total += count;
-    });
+        const periodData = timeSeriesMap.get(periodKey);
+        const status = item._id.status;
+        const count = item.count;
 
-    console.log(`📊 [STATUS-COUNTS] Results:`, counts);
+        if (status === 'approved_admin') {
+          periodData.done += count;
+        } else if (status === 'pending_approval' || status === 'approved_salesman') {
+          periodData.pending += count;
+        } else if (status === 'saved') {
+          periodData.saved += count;
+        } else if (status === 'draft') {
+          periodData.drafts += count;
+        }
 
-    res.json({
-      success: true,
-      counts,
-      _metadata: {
-        queryType: 'status_counts_optimized',
+        periodData.total += count;
+      });
+
+      // Convert map to sorted array
+      const timeSeries = Array.from(timeSeriesMap.values()).sort((a, b) =>
+        a.period.localeCompare(b.period)
+      );
+
+      console.log(`📊 [STATUS-COUNTS] Time series results (${groupBy}):`, timeSeries);
+
+      res.json({
+        success: true,
         groupBy,
-        dateRange: {
-          startDate: startDate || null,
-          endDate: endDate || null
-        },
-        performance: 'aggregation_pipeline'
-      }
-    });
+        timeSeries, // ✅ NEW: Array of {period, done, pending, saved, drafts, total}
+        _metadata: {
+          queryType: 'status_counts_time_series',
+          groupBy,
+          dateRange: {
+            startDate: startDate || null,
+            endDate: endDate || null
+          },
+          performance: 'aggregation_pipeline'
+        }
+      });
+
+    } else {
+      // No grouping, return total counts (legacy format)
+      const counts = {
+        done: 0,
+        pending: 0,
+        saved: 0,
+        drafts: 0,
+        total: 0
+      };
+
+      results.forEach(item => {
+        const status = item._id;
+        const count = item.count;
+
+        if (status === 'approved_admin') {
+          counts.done += count;
+        } else if (status === 'pending_approval' || status === 'approved_salesman') {
+          counts.pending += count;
+        } else if (status === 'saved') {
+          counts.saved += count;
+        } else if (status === 'draft') {
+          counts.drafts += count;
+        }
+
+        counts.total += count;
+      });
+
+      console.log(`📊 [STATUS-COUNTS] Total counts:`, counts);
+
+      res.json({
+        success: true,
+        counts,
+        _metadata: {
+          queryType: 'status_counts_total',
+          groupBy: 'none',
+          dateRange: {
+            startDate: startDate || null,
+            endDate: endDate || null
+          },
+          performance: 'aggregation_pipeline'
+        }
+      });
+    }
 
   } catch (err) {
     console.error("getDocumentStatusCounts error:", err);
