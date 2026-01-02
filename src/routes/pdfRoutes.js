@@ -55,7 +55,9 @@ import {
   // ✅ NEW: Debug endpoint
   debugGetAllFiles,
   // ✅ NEW: Trash workflow verification endpoint
-  verifyTrashWorkflow
+  verifyTrashWorkflow,
+  // ✅ NEW: Optimized count API for Home page bar graph
+  getDocumentStatusCounts
 } from "../controllers/pdfController.js";
 
 // ✅ NEW: Version log controller (MongoDB-based log files)
@@ -111,6 +113,9 @@ router.get("/saved-files/grouped", getSavedFilesGrouped); // Grouped by agreemen
 router.get("/saved-files/:id/details", getSavedFileDetails); // Full payload on-demand
 router.post("/saved-files/:agreementId/add-files", addFileToAgreement); // ✅ NEW: Add files to agreement
 router.get("/attached-files/:fileId/download", downloadAttachedFile); // ✅ NEW: Download attached files
+
+/* ---- NEW: optimized count API for Home page bar graph ---- */
+router.get("/document-status-counts", getDocumentStatusCounts); // ✅ NEW: Get document counts by status (optimized)
 
 /* ---- NEW: approval documents API ---- */
 router.get("/approval-documents/grouped", getApprovalDocumentsGrouped); // ✅ NEW: Get all approval documents grouped by agreement

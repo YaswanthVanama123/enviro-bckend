@@ -365,19 +365,21 @@ function latexEscapeHeader(value = "") {
     .normalize('NFC')
     .trim();
 
+  // ✅ FIX: Do word breaks FIRST, before any escaping
   let result = sanitized
+    .replace(/Replacement/g, "Replace-ment")  // Use regular hyphen, not LaTeX \-
+    .replace(/Warranty/g, "War-ranty")
+    .replace(/Frequency/g, "Fre-quency")
+    .replace(/Install/g, "In-stall");
+
+  // Then do standard LaTeX escaping
+  result = result
     .replace(/\\/g, "\\textbackslash{}")
     .replace(/([{}%&_#])/g, "\\$1")
     .replace(/\$/g, "\\$")
     .replace(/\^/g, "\\textasciicircum{}")
     .replace(/~/g, "\\textasciitilde{}")
     .replace(/\//g, "/\\allowbreak{}"); // ✅ Allow line breaks after slashes
-
-  // ✅ Allow word breaks in long words (10+ chars) by inserting \- at natural syllable breaks
-  result = result.replace(/Replacement/g, "Replace\\-ment");
-  result = result.replace(/Warranty/g, "War\\-ranty");
-  result = result.replace(/Frequency/g, "Fre\\-quency");
-  result = result.replace(/Install/g, "In\\-stall");
 
   return result;
 }

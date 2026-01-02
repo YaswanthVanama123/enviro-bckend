@@ -1849,6 +1849,8 @@ export async function getSavedFilesGrouped(req, res) {
         createdBy: 1,
         updatedBy: 1,
         'payload.headerTitle': 1,
+        'payload.agreement.startDate': 1, // ✅ NEW: For timeline tracking
+        'payload.summary.contractMonths': 1, // ✅ NEW: For timeline tracking
         'pdf_meta.sizeBytes': 1,
         'pdf_meta.storedAt': 1,
         // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
@@ -2163,6 +2165,9 @@ export async function getSavedFilesGrouped(req, res) {
         deletedAt: agreement.deletedAt, // ✅ ADDED: Include deletion timestamp
         deletedBy: agreement.deletedBy, // ✅ ADDED: Include who deleted it
         hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId),
+        // ✅ NEW: Agreement timeline fields for expiry tracking
+        startDate: agreement.payload?.agreement?.startDate || null,
+        contractMonths: agreement.payload?.summary?.contractMonths || null,
         files: allFiles
       };
     });
@@ -4405,6 +4410,103 @@ export async function getPendingVersionChanges(req, res) {
     res.status(500).json({
       success: false,
       error: "Failed to retrieve pending version changes",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+/* ------------ OPTIMIZED COUNT API FOR HOME PAGE BAR GRAPH ------------ */
+
+// GET /api/pdf/document-status-counts - Get counts of documents by status (optimized for bar graph)
+export async function getDocumentStatusCounts(req, res) {
+  try {
+    const {
+      startDate,
+      endDate,
+      groupBy = 'day' // day, week, month, year
+    } = req.query;
+
+    console.log(`📊 [STATUS-COUNTS] Fetching document status counts (groupBy: ${groupBy}, startDate: ${startDate || 'all'}, endDate: ${endDate || 'all'})`);
+
+    // Build date filter if provided
+    const dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.createdAt = {};
+      if (startDate) {
+        dateFilter.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        dateFilter.createdAt.$lte = new Date(endDate);
+      }
+    }
+
+    // ✅ OPTIMIZED: Use MongoDB aggregation for efficient counting
+    // Only count documents, don't load full data
+    const pipeline = [
+      // Filter by date range if provided
+      ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
+
+      // Filter out deleted documents
+      { $match: { isDeleted: { $ne: true } } },
+
+      // Group by status and count
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ];
+
+    const results = await CustomerHeaderDoc.aggregate(pipeline);
+
+    // Transform results into a convenient format
+    const counts = {
+      done: 0,           // approved_admin
+      pending: 0,        // pending_approval + approved_salesman
+      saved: 0,          // saved
+      drafts: 0,         // draft
+      total: 0
+    };
+
+    results.forEach(item => {
+      const status = item._id;
+      const count = item.count;
+
+      if (status === 'approved_admin') {
+        counts.done += count;
+      } else if (status === 'pending_approval' || status === 'approved_salesman') {
+        counts.pending += count;
+      } else if (status === 'saved') {
+        counts.saved += count;
+      } else if (status === 'draft') {
+        counts.drafts += count;
+      }
+
+      counts.total += count;
+    });
+
+    console.log(`📊 [STATUS-COUNTS] Results:`, counts);
+
+    res.json({
+      success: true,
+      counts,
+      _metadata: {
+        queryType: 'status_counts_optimized',
+        groupBy,
+        dateRange: {
+          startDate: startDate || null,
+          endDate: endDate || null
+        },
+        performance: 'aggregation_pipeline'
+      }
+    });
+
+  } catch (err) {
+    console.error("getDocumentStatusCounts error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve document status counts",
       detail: err?.message || String(err)
     });
   }

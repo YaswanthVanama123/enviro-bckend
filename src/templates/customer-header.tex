@@ -7,17 +7,17 @@
 \usepackage{hhline}
 \usepackage{helvet}
 \usepackage{tabularx}
-\usepackage{longtable} % ✅ NEW: For tables that break across pages
+\usepackage{longtable} % NEW: For tables that break across pages
 \usepackage{array}
 \usepackage{needspace}
 \usepackage[normalem]{ulem}
-\usepackage{amssymb} % ✅ NEW: For checkbox symbols (\square, \checkmark)
+\usepackage{amssymb} % NEW: For checkbox symbols (\square, \checkmark)
 
 \renewcommand{\familydefault}{\sfdefault}
 
 % ---- Colors ----
 \definecolor{emred}{RGB}{191, 0, 0}
-\definecolor{linegray}{RGB}{0,0,0} % ✅ CUSTOM fill-in blank color
+\definecolor{linegray}{RGB}{0,0,0} % CUSTOM fill-in blank color
 \definecolor{totalcolor}{RGB}{120,120,120} % dark gray for totals
 \definecolor{serviceHeaderBlue}{RGB}{37,99,235}
 
@@ -33,20 +33,20 @@
 % ====== GENERIC BLANK HELPERS =====================================
 
 % full-width underline with text centered on the line (used in header + notes)
-\newcommand{\filledline}[1]{%
+\newcommand{\filledline}[1]{
   \leavevmode
-  \makebox[\linewidth][c]{%
-    \makebox[0pt][c]{\textcolor{linegray}{\rule{\linewidth}{\filledlineheight}}}%
-    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #1}}% ✅ Lift text above line
-  }%
+  \makebox[\linewidth][c]{
+    \makebox[0pt][c]{\textcolor{linegray}{\rule{\linewidth}{\filledlineheight}}}
+    \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #1}}
+  }
 }
 
-\newcommand{\filledlineleft}[1]{%
+\newcommand{\filledlineleft}[1]{
   \leavevmode
-  \makebox[\linewidth][l]{%
-    \makebox[0pt][l]{\textcolor{linegray}{\rule{\linewidth}{\filledlineheight}}}%
-    \makebox[0pt][l]{\raisebox{\filledlineoffset}{\strut #1}}%
-  }%
+  \makebox[\linewidth][l]{
+    \makebox[0pt][l]{\textcolor{linegray}{\rule{\linewidth}{\filledlineheight}}}
+    \makebox[0pt][l]{\raisebox{\filledlineoffset}{\strut #1}}
+  }
 }
 
 \newcommand{\filledlineleftlim}[2][5cm]{%
@@ -60,15 +60,15 @@
 % medium underline with text centered on the line (generic inline field)
 \newcommand{\smallfilled}[1]{%
   \leavevmode
-  % ✅ IMPROVED: Calculate width dynamically based on content
+  % IMPROVED: Calculate width dynamically based on content
   \setbox0=\hbox{\strut #1}%
   \ifdim\wd0>5cm%
-    \def\fieldwidth{5cm}% ✅ Max width
+    \def\fieldwidth{5cm}% Max width
   \else%
     \ifdim\wd0<0.8cm%
-      \def\fieldwidth{0.8cm}% ✅ Min width
+      \def\fieldwidth{0.8cm}% Min width
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Actual width + padding
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% Actual width + padding
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
@@ -80,15 +80,15 @@
 % short blank for calc fields – dynamic width based on content
 \newcommand{\smallfilledshort}[1]{%
   \leavevmode
-  % ✅ IMPROVED: Calculate width dynamically based on content
+  % IMPROVED: Calculate width dynamically based on content
   \setbox0=\hbox{\strut\small #1}%
   \ifdim\wd0>5cm%
-    \def\fieldwidth{5cm}% ✅ Max width for calc fields
+    \def\fieldwidth{5cm}% Max width for calc fields
   \else%
     \ifdim\wd0<0.8cm%
-      \def\fieldwidth{0.8cm}% ✅ Min width for calc fields
+      \def\fieldwidth{0.8cm}% Min width for calc fields
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Actual width + padding
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% Actual width + padding
     \fi%
   \fi%
   \makebox[\fieldwidth][c]{%
@@ -131,23 +131,23 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % ✅ IMPROVED: Calculate width based on content with better limits
+  % IMPROVED: Calculate width based on content with better limits
   % Removed minimum, increased maximum to prevent overlapping
   \setbox0=\hbox{\strut #2}%
   \ifdim\wd0>7cm%
-    \def\fieldwidth{7cm}% ✅ Increased max from 4cm to 7cm (prevents overlap)
+    \def\fieldwidth{7cm}% Increased max from 4cm to 7cm (prevents overlap)
   \else%
     \ifdim\wd0<0.8cm%
-      \def\fieldwidth{0.8cm}% ✅ Reduced min from 1.5cm to 0.8cm (less wasted space)
+      \def\fieldwidth{0.8cm}% Reduced min from 1.5cm to 0.8cm (less wasted space)
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Reduced padding from 0.5cm to 0.3cm
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% Reduced padding from 0.5cm to 0.3cm
     \fi%
   \fi%
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
-    % ✅ FIX: Lift value text slightly above the line
+    % FIX: Lift value text slightly above the line
     \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
@@ -189,22 +189,22 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % ✅ IMPROVED: Calculate width based on content with better limits
+  % IMPROVED: Calculate width based on content with better limits
   \setbox0=\hbox{\strut #2}%
   \ifdim\wd0>7cm%
-    \def\fieldwidth{7cm}% ✅ Increased max from 4cm to 7cm
+    \def\fieldwidth{7cm}% Increased max from 4cm to 7cm
   \else%
     \ifdim\wd0<0.8cm%
-      \def\fieldwidth{0.8cm}% ✅ Reduced min from 1.5cm to 0.8cm
+      \def\fieldwidth{0.8cm}% Reduced min from 1.5cm to 0.8cm
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Reduced padding from 0.5cm to 0.3cm
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% Reduced padding from 0.5cm to 0.3cm
     \fi%
   \fi%
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
-    % ✅ FIX: Lift value text slightly above the line
+    % FIX: Lift value text slightly above the line
     \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
@@ -247,22 +247,22 @@
   % small gap after label
   \hspace{\serviceGap}%
   \leavevmode
-  % ✅ IMPROVED: Calculate width based on content with better limits
+  % IMPROVED: Calculate width based on content with better limits
   \setbox0=\hbox{\strut #2}%
   \ifdim\wd0>7cm%
-    \def\fieldwidth{7cm}% ✅ Increased max from 4cm to 7cm
+    \def\fieldwidth{7cm}% Increased max from 4cm to 7cm
   \else%
     \ifdim\wd0<0.8cm%
-      \def\fieldwidth{0.8cm}% ✅ Reduced min from 1.5cm to 0.8cm
+      \def\fieldwidth{0.8cm}% Reduced min from 1.5cm to 0.8cm
     \else%
-      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% ✅ Reduced padding from 0.5cm to 0.3cm
+      \def\fieldwidth{\dimexpr\wd0+0.3cm\relax}% Reduced padding from 0.5cm to 0.3cm
     \fi%
   \fi%
   % Create container with calculated width
   \makebox[\fieldwidth][c]{%
     % gray line positioned at zero width
     \makebox[0pt][c]{\textcolor{linegray}{\rule{\fieldwidth}{\filledlineheight}}}%
-    % ✅ FIX: Lift value text slightly above the line
+    % FIX: Lift value text slightly above the line
     \makebox[0pt][c]{\raisebox{\filledlineoffset}{\strut #2}}%
   }%
   \par
@@ -330,7 +330,7 @@
 \newcommand{\agreementBlank}[2][2.5cm]{%
   \makebox[#1][l]{%
     \makebox[0pt][l]{\textcolor{linegray}{\rule{#1}{\filledlineheight}}}%
-    \makebox[0pt][l]{\raisebox{\filledlineoffset}{#2}}% ✅ Lift text above line
+    \makebox[0pt][l]{\raisebox{\filledlineoffset}{#2}}% Lift text above line
   }%
 }
 
@@ -353,9 +353,9 @@
   \centering
   {\bfseries\normalsize\textcolor{emred}{CUSTOMER UPDATE ADDENDUM}\par}
 
-  \vspace{1.2em} % ✅ Increased from 0.5em to 1.2em for more space
+  \vspace{1.2em} % Increased from 0.5em to 1.2em for more space
 
-  \small % ✅ Changed from \footnotesize to \small for larger values
+  \small % Changed from \footnotesize to \small for larger values
   \renewcommand{\arraystretch}{1.5}%
 
   \begin{tabularx}{\linewidth}{@{}lX@{\hspace{1.8cm}}lX@{}}
@@ -377,7 +377,7 @@
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
     \centering
     \vspace{0.2em}%
-    {\bfseries\fontsize{1.2em}{1.6em}\selectfont\textcolor{white}{PRODUCTS}}% ✅ Changed from \footnotesize to \normalsize
+    {\bfseries\fontsize{1.2em}{1.6em}\selectfont\textcolor{white}{PRODUCTS}}% Changed from \footnotesize to \normalsize
     \vspace{0.2em}%
   }%
 }%  
@@ -385,22 +385,22 @@
 %==================== PRODUCTS TABLE (dynamic, wrapping) ============
 
 \setlength{\LTpre}{0pt}%
-\small % ✅ Changed from \scriptsize to \small for better readability
+\small % Changed from \scriptsize to \small for better readability
 \setlength{\tabcolsep}{2pt}
-\renewcommand{\arraystretch}{1.5} % ✅ Changed from 1.15 to 1.5 for more top/bottom padding
+\renewcommand{\arraystretch}{1.5} % Changed from 1.15 to 1.5 for more top/bottom padding
 
-% ✅ NEW: Define custom column type for products table
+% NEW: Define custom column type for products table
 {{{productsColTypeDefinition}}}
 
-% ✅ NEW: Use longtable instead of tabularx for automatic page breaks
+% NEW: Use longtable instead of tabularx for automatic page breaks
 \begin{longtable}{|{{{productsColSpecLatex}}}|}
   \hline
   {{{productsHeaderRowLatex}}}
-  \endfirsthead % ✅ End of header for first page
+  \endfirsthead % End of header for first page
 
   \hline
   {{{productsHeaderRowLatex}}}
-  \endhead % ✅ Repeat header on subsequent pages
+  \endhead % Repeat header on subsequent pages
 
   {{{productsBodyRowsLatex}}}
 \end{longtable}
