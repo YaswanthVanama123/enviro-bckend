@@ -291,25 +291,56 @@ function validatePayloadData(body) {
 }
 
 function latexEscape(value = "") {
-  // ✅ SECURITY FIX: Sanitize input to remove non-printable and invalid UTF-8 characters
+  // ✅ SECURITY FIX: Aggressive sanitization to remove ALL non-printable and invalid characters
   // This prevents LaTeX compilation errors from corrupted/binary data
   const original = String(value);
 
-  // Check for problematic characters and log warning
-  if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(original)) {
-    console.warn('⚠️ [LATEX-ESCAPE] Found control characters in input, sanitizing...');
-  }
-  if (/\uFFFD/.test(original)) {
-    console.warn('⚠️ [LATEX-ESCAPE] Found invalid UTF-8 replacement character (�), removing...');
+  // ✅ ENHANCED: More aggressive detection of problematic characters
+  const hasControlChars = /[\x00-\x1F\x7F-\xFF]/.test(original);
+  const hasInvalidUTF8 = /\uFFFD/.test(original);
+  const hasBinaryData = /[\x00-\x08\x0E-\x1F]/.test(original);
+
+  // Log detailed warnings with actual problematic data
+  if (hasControlChars || hasInvalidUTF8 || hasBinaryData) {
+    console.warn('⚠️ [LATEX-ESCAPE] PROBLEMATIC INPUT DETECTED:', {
+      hasControlChars,
+      hasInvalidUTF8,
+      hasBinaryData,
+      originalLength: original.length,
+      // Show hex representation of problematic characters
+      hexDump: Array.from(original.slice(0, 50)).map(c =>
+        c.charCodeAt(0).toString(16).padStart(2, '0')
+      ).join(' '),
+      // Show first 100 chars for debugging
+      preview: original.slice(0, 100).replace(/[\x00-\x1F\x7F-\xFF]/g, '?')
+    });
   }
 
+  // ✅ ENHANCED: More aggressive sanitization
   let sanitized = original
-    // Remove null bytes and other control characters (except newlines, tabs, carriage returns)
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    // Remove ALL control characters (0x00-0x1F) - these cause ^^X errors in LaTeX
+    .replace(/[\x00-\x1F]/g, '')
+    // Remove DEL and high-bit characters (0x7F-0xFF) that aren't valid ASCII
+    .replace(/[\x7F-\xFF]/g, '')
     // Remove invalid UTF-8 sequences (replacement character �)
     .replace(/\uFFFD/g, '')
+    // Remove any remaining non-ASCII characters that might cause issues
+    .replace(/[^\x20-\x7E\n\r\t]/g, '')
     // Normalize unicode to composed form
-    .normalize('NFC');
+    .normalize('NFC')
+    // Trim whitespace
+    .trim();
+
+  // ✅ ENHANCED: If sanitization removed everything, return empty string
+  if (sanitized.length === 0 && original.length > 0) {
+    console.warn('⚠️ [LATEX-ESCAPE] Sanitization removed all content! Original had:', original.length, 'chars');
+    return '';
+  }
+
+  // ✅ ENHANCED: If sanitization removed significant content, log warning
+  if (sanitized.length < original.length * 0.5 && original.length > 10) {
+    console.warn('⚠️ [LATEX-ESCAPE] Sanitization removed', original.length - sanitized.length, 'characters');
+  }
 
   return sanitized
     .replace(/\\/g, "\\textbackslash{}")
@@ -321,11 +352,18 @@ function latexEscape(value = "") {
 
 // ✅ NEW: Special escape for table headers - makes slashes breakable and allows word breaks
 function latexEscapeHeader(value = "") {
-  // ✅ SECURITY FIX: Sanitize input first (same as latexEscape)
+  // ✅ ENHANCED: Use same aggressive sanitization as latexEscape
   let sanitized = String(value)
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    // Remove ALL control characters (0x00-0x1F)
+    .replace(/[\x00-\x1F]/g, '')
+    // Remove DEL and high-bit characters (0x7F-0xFF)
+    .replace(/[\x7F-\xFF]/g, '')
+    // Remove invalid UTF-8 sequences
     .replace(/\uFFFD/g, '')
-    .normalize('NFC');
+    // Remove any remaining non-ASCII characters
+    .replace(/[^\x20-\x7E\n\r\t]/g, '')
+    .normalize('NFC')
+    .trim();
 
   let result = sanitized
     .replace(/\\/g, "\\textbackslash{}")
@@ -2656,6 +2694,49 @@ export async function compileCustomerHeader(body = {}, options = {}) {
 
   // ✅ NEW: Validate payload for corrupted data before processing
   validatePayloadData(body);
+
+  // ✅ ENHANCED: Deep validation of products data (where the error is happening)
+  if (body.products) {
+    console.log('🔍 [PRODUCTS VALIDATION] Checking products data for corrupted fields...');
+
+    const checkProductData = (product, index, type) => {
+      const fields = ['displayName', 'customName', 'productName', 'productKey', 'frequency', 'qty', 'unitPrice', 'amount', 'total'];
+      for (const field of fields) {
+        if (product[field] !== undefined && product[field] !== null) {
+          const value = String(product[field]);
+          const hasBadChars = /[\x00-\x1F\x7F-\xFF]/.test(value);
+          if (hasBadChars) {
+            console.error(`❌ [PRODUCTS VALIDATION] Found corrupted data in ${type}[${index}].${field}:`, {
+              field,
+              value,
+              valueLength: value.length,
+              hexDump: Array.from(value.slice(0, 50)).map(c =>
+                c.charCodeAt(0).toString(16).padStart(2, '0')
+              ).join(' ')
+            });
+          }
+        }
+      }
+    };
+
+    // Check merged products array
+    if (Array.isArray(body.products.products)) {
+      body.products.products.forEach((p, i) => checkProductData(p, i, 'products'));
+    }
+
+    // Check dispensers array
+    if (Array.isArray(body.products.dispensers)) {
+      body.products.dispensers.forEach((d, i) => checkProductData(d, i, 'dispensers'));
+    }
+
+    // Check legacy arrays
+    if (Array.isArray(body.products.smallProducts)) {
+      body.products.smallProducts.forEach((p, i) => checkProductData(p, i, 'smallProducts'));
+    }
+    if (Array.isArray(body.products.bigProducts)) {
+      body.products.bigProducts.forEach((p, i) => checkProductData(p, i, 'bigProducts'));
+    }
+  }
 
   const summaryData = body.summary || {};
   const SUMMARY_PLACEHOLDER = "—";
