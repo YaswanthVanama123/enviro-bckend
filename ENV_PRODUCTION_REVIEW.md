@@ -43,10 +43,11 @@ JWT_SECRET=ecb3d1020938632c45709d08c96f478f9887e93e42395e1fd9be81c0eac72d00e00c0
 
 ### 5. **PDF Service** ✅
 ```
-PDF_REMOTE_BASE=http://142.93.213.187:3000/pdf
+PDF_REMOTE_BASE=http://142.93.213.187:3000
 ```
 - **Status**: Production-ready
 - **Action Required**: None - Remote LaTeX service configured
+- **⚠️ IMPORTANT**: Do NOT include /pdf at the end! The code adds it automatically.
 
 ---
 
@@ -171,7 +172,7 @@ NODE_ENV=production
 PORT=5000
 MONGO_URI=mongodb+srv://vanamayaswanth1_db_user:NzvLPS9c2KO02tDz@cluster0.f1kzy9b.mongodb.net/enviro_master?retryWrites=true&w=majority
 MONGO_DB=enviro_master
-PDF_REMOTE_BASE=http://142.93.213.187:3000/pdf
+PDF_REMOTE_BASE=http://142.93.213.187:3000
 PDF_MAX_BODY_MB=5
 PDF_REMOTE_TIMEOUT_MS=90000
 ZOHO_CLIENT_ID=1000.1EZQQI578R0FF0D892H8LFWROMYNQV
