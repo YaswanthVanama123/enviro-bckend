@@ -49,6 +49,8 @@ async function remotePostMultipart(
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    console.log(`📡 [REMOTE PDF] Calling remote PDF service: ${url}`);
+
     const fd = new FormData();
     // simple fields (e.g., assetsManifest)
     for (const [k, v] of Object.entries(extraFields || {})) {
@@ -66,12 +68,42 @@ async function remotePostMultipart(
     const resp = await fetch(url, { method: "POST", body: fd, signal: controller.signal });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
-      const err = new Error(`Remote compile failed (${resp.status})`);
+      console.error(`❌ [REMOTE PDF] Remote compile failed with status ${resp.status}:`, txt.slice(0, 500));
+
+      // ✅ ENHANCED: Create detailed error for frontend
+      const err = new Error(`Remote PDF service failed: ${resp.status} ${resp.statusText}`);
       err.detail = txt;
+      err.httpStatus = resp.status;
+      err.url = url;
+      err.errorType = 'REMOTE_PDF_SERVICE_ERROR';
       throw err;
     }
     const ab = await resp.arrayBuffer();
+    console.log(`✅ [REMOTE PDF] Successfully compiled PDF, size: ${ab.byteLength} bytes`);
     return Buffer.from(ab);
+  } catch (error) {
+    clearTimeout(to);
+
+    // ✅ ENHANCED: Catch ALL errors (network, timeout, abort, etc.) and send details to frontend
+    console.error(`❌ [REMOTE PDF] Error during PDF compilation:`, {
+      name: error.name,
+      message: error.message,
+      url,
+      timeout: timeoutMs
+    });
+
+    // Create comprehensive error object
+    const enhancedError = new Error(error.message || 'PDF compilation failed');
+    enhancedError.originalError = error.message;
+    enhancedError.errorName = error.name;
+    enhancedError.url = url;
+    enhancedError.timeout = timeoutMs;
+    enhancedError.detail = error.detail || null;
+    enhancedError.httpStatus = error.httpStatus || null;
+    enhancedError.errorType = error.errorType || (error.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK_ERROR');
+    enhancedError.stack = error.stack;
+
+    throw enhancedError;
   } finally {
     clearTimeout(to);
   }
@@ -461,16 +493,27 @@ function latexEscape(value = "") {
     .replace(/\uFFFD/g, '')
     // Step 9: Remove zero-width characters
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    // Step 10: Remove any remaining high-bit chars with warning
+    // Step 10: Remove any remaining high-bit chars (BUT this should NOT catch 0xD7 anymore!)
     .replace(/[\x7F-\xFF]/g, (char) => {
       const code = char.charCodeAt(0).toString(16).padStart(2, '0');
-      console.warn(`⚠️ [LATEX-ESCAPE] Unhandled high-bit character: 0x${code}`);
+      // Only warn if it's NOT one we already handled
+      if (code !== 'd7' && code !== 'f7' && code !== 'd0' && code !== 'a0') {
+        console.warn(`⚠️ [LATEX-ESCAPE] Unhandled high-bit character: 0x${code}`);
+      }
       return '';
     })
     // Step 11: Final cleanup
     .replace(/[^\x20-\x7E\n\r\t]/g, '')
     .normalize('NFC')
     .trim();
+
+  // ✅ DEBUG: Log the sanitization result to verify replacement worked
+  if (original !== sanitized && original.includes('\xd7')) {
+    console.log('✅ [LATEX-ESCAPE] Sanitization replaced multiplication sign:', {
+      before: original,
+      after: sanitized
+    });
+  }
 
   // ✅ ENHANCED: If sanitization removed everything, return empty string
   if (sanitized.length === 0 && original.length > 0) {
@@ -3115,14 +3158,48 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   ];
   const manifest = { "Envimaster.png": "images/Envimaster.png" };
 
-  const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
-  await tidyTempArtifacts({ purgeAll: true });
+  try {
+    const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
+    await tidyTempArtifacts({ purgeAll: true });
 
-  // Extract customer name from body for dynamic filename
-  const customerName = extractCustomerName(body.customerName, body.headerRows);
-  const filename = `${customerName}.pdf`;
+    // Extract customer name from body for dynamic filename
+    const customerName = extractCustomerName(body.customerName, body.headerRows);
+    const filename = `${customerName}.pdf`;
 
-  return { buffer, filename };
+    return { buffer, filename };
+  } catch (error) {
+    // ✅ ENHANCED: Catch and re-throw with ALL error details for frontend debugging
+    console.error('❌ [PDF COMPILE] PDF compilation failed:', {
+      errorType: error.errorType,
+      message: error.message,
+      url: error.url,
+      httpStatus: error.httpStatus,
+      timeout: error.timeout
+    });
+
+    // Create comprehensive error object with ALL details
+    const comprehensiveError = new Error(error.message || 'PDF compilation failed');
+
+    // ✅ Pass ALL error properties to frontend
+    comprehensiveError.errorType = error.errorType;
+    comprehensiveError.originalError = error.originalError || error.message;
+    comprehensiveError.errorName = error.errorName || error.name;
+    comprehensiveError.url = error.url;
+    comprehensiveError.httpStatus = error.httpStatus;
+    comprehensiveError.timeout = error.timeout;
+    comprehensiveError.detail = error.detail;
+    comprehensiveError.stack = error.stack;
+
+    // ✅ Add LaTeX compilation context
+    comprehensiveError.latexError = {
+      templatePath: PDF_HEADER_TEMPLATE_PATH,
+      texLength: tex.length,
+      watermark: watermark,
+      hasServiceAgreement: !!(body.serviceAgreement && body.serviceAgreement.includeInPdf)
+    };
+
+    throw comprehensiveError;
+  }
 }
 
 // Helper function to extract customer name from headerRows or customerName field

@@ -319,12 +319,27 @@ export async function downloadVersionPdf(req, res) {
       }
     }
 
-    res.status(500).json({
+    // ✅ ENHANCED: Send ALL error details to frontend for complete debugging
+    const errorResponse = {
       success: false,
-      error: error.message,
-      // Include compilation details in response for frontend debugging (in development)
-      ...(process.env.NODE_ENV !== 'production' && error.detail && { detail: error.detail })
-    });
+      message: error.message || "Failed to download PDF",
+      error: error.message || "Failed to download PDF",
+      codeVersion: 'v3_2025_full_error_details',  // ✅ VERSION MARKER to confirm updated code is running
+      timestamp: new Date().toISOString(),
+
+      // ✅ Send ALL error properties for frontend debugging
+      errorType: error.errorType || 'UNKNOWN',
+      errorName: error.errorName || error.name || 'Error',
+      originalError: error.originalError,
+      url: error.url,
+      httpStatus: error.httpStatus,
+      timeout: error.timeout,
+      detail: error.detail,
+      latexError: error.latexError,
+      stack: error.stack  // Include full stack trace for debugging
+    };
+
+    res.status(500).json(errorResponse);
   }
 }
 
@@ -879,10 +894,28 @@ export async function viewVersionPdf(req, res) {
 
   } catch (error) {
     console.error("❌ Failed to view version:", error.message);
-    res.status(500).json({
+
+    // ✅ ENHANCED: Send ALL error details to frontend for complete debugging
+    const errorResponse = {
       success: false,
-      error: error.message
-    });
+      message: error.message || "Failed to view PDF",
+      error: error.message || "Failed to view PDF",
+      codeVersion: 'v3_2025_full_error_details',  // ✅ VERSION MARKER to confirm updated code is running
+      timestamp: new Date().toISOString(),
+
+      // ✅ Send ALL error properties for frontend debugging
+      errorType: error.errorType || 'UNKNOWN',
+      errorName: error.errorName || error.name || 'Error',
+      originalError: error.originalError,
+      url: error.url,
+      httpStatus: error.httpStatus,
+      timeout: error.timeout,
+      detail: error.detail,
+      latexError: error.latexError,
+      stack: error.stack  // Include full stack trace for debugging
+    };
+
+    res.status(500).json(errorResponse);
   }
 }
 
