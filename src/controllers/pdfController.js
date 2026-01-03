@@ -3242,74 +3242,131 @@ export async function deleteFile(req, res) {
       });
     }
 
-    let file = null;
-    let fileType = null;
-    let fileName = "Unknown File";
-
+    const userId = req.user?.id || req.admin?.id || 'system';
     const fileTypeHint = String(req.query.fileType || "").trim().toLowerCase();
-    const lookupOrderBase = ['attached_pdf', 'version_pdf', 'version_log', 'main_pdf'];
-    const lookupOrder = fileTypeHint && lookupOrderBase.includes(fileTypeHint)
-      ? [fileTypeHint, ...lookupOrderBase.filter(type => type !== fileTypeHint)]
-      : lookupOrderBase;
 
-    const loadManualFile = async () => ManualUploadDocument.findOne({
-      _id: fileId,
-      isDeleted: { $ne: true }
-    });
+    // ⚡ ULTRA-OPTIMIZED: Use fileType hint to query directly with atomic update
+    // This replaces: find → modify → save (3 operations) with a single atomic update
+    let result = null;
+    let fileType = null;
 
-    const loadVersionFile = async () => VersionPdf.findOne({
-      _id: fileId,
-      isDeleted: { $ne: true }
-    });
-
-    const loadLogFile = async () => Log.findOne({
-      _id: fileId,
-      isDeleted: { $ne: true }
-    });
-
-    const loadMainAgreement = async () => CustomerHeaderDoc.findOne({
-      _id: fileId,
-      isDeleted: { $ne: true }
-    });
-
-    for (const type of lookupOrder) {
-      if (file) break;
-      if (type === 'attached_pdf') {
-        const doc = await loadManualFile();
-        if (doc) {
-          file = doc;
-          fileType = "attached_file";
-          fileName = doc.fileName || doc.originalFileName;
-          break;
-        }
-      } else if (type === 'version_pdf') {
-        const doc = await loadVersionFile();
-        if (doc) {
-          file = doc;
-          fileType = "version_pdf";
-          fileName = doc.fileName || `Version ${doc.versionNumber}`;
-          break;
-        }
-      } else if (type === 'version_log') {
-        const doc = await loadLogFile();
-        if (doc) {
-          file = doc;
-          fileType = "version_log";
-          fileName = doc.fileName || `Log v${doc.versionNumber}`;
-          break;
-        }
-      } else if (type === 'main_pdf') {
-        const doc = await loadMainAgreement();
-        if (doc) {
-          file = doc;
-          fileType = "main_pdf";
-          fileName = doc.payload?.headerTitle || "Agreement Document";
-          break;
-        }
+    // ⚡ OPTIMIZED: Try the hinted type first with atomic update
+    if (fileTypeHint === 'attached_pdf') {
+      result = await ManualUploadDocument.findOneAndUpdate(
+        { _id: fileId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: userId
+          }
+        },
+        { new: true, select: 'fileName originalFileName', lean: true }
+      );
+      if (result) {
+        fileType = 'attached_file';
+        console.log(`🗑️ [SOFT DELETE] Attached file moved to trash: ${result.fileName || result.originalFileName} (ID: ${fileId})`);
+      }
+    } else if (fileTypeHint === 'version_pdf') {
+      result = await VersionPdf.findOneAndUpdate(
+        { _id: fileId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: userId,
+            updatedAt: new Date()
+          }
+        },
+        { new: true, select: 'fileName versionNumber', lean: true }
+      );
+      if (result) {
+        fileType = 'version_pdf';
+        console.log(`🗑️ [SOFT DELETE] Version PDF moved to trash: ${result.fileName || `Version ${result.versionNumber}`} (ID: ${fileId})`);
+      }
+    } else if (fileTypeHint === 'version_log') {
+      result = await Log.findOneAndUpdate(
+        { _id: fileId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: userId,
+            updatedAt: new Date()
+          }
+        },
+        { new: true, select: 'fileName versionNumber', lean: true }
+      );
+      if (result) {
+        fileType = 'version_log';
+        console.log(`🗑️ [SOFT DELETE] Version log moved to trash: ${result.fileName || `Log v${result.versionNumber}`} (ID: ${fileId})`);
+      }
+    } else if (fileTypeHint === 'main_pdf') {
+      result = await CustomerHeaderDoc.findOneAndUpdate(
+        { _id: fileId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: userId,
+            updatedBy: userId
+          }
+        },
+        { new: true, select: 'payload.headerTitle', lean: true }
+      );
+      if (result) {
+        fileType = 'main_pdf';
+        console.log(`🗑️ [SOFT DELETE] Agreement moved to trash: ${result.payload?.headerTitle || 'Agreement Document'} (ID: ${fileId})`);
       }
     }
 
-    if (!file) {
+    // ⚡ FALLBACK: If no fileType hint or hint was wrong, try all types in parallel
+    if (!result) {
+      console.log(`🔍 [SOFT DELETE] No fileType hint or hint failed, trying all types in parallel for ${fileId}`);
+
+      const [manualResult, versionResult, logResult, agreementResult] = await Promise.all([
+        ManualUploadDocument.findOneAndUpdate(
+          { _id: fileId, isDeleted: { $ne: true } },
+          { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: userId } },
+          { new: true, select: 'fileName originalFileName', lean: true }
+        ),
+        VersionPdf.findOneAndUpdate(
+          { _id: fileId, isDeleted: { $ne: true } },
+          { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: userId, updatedAt: new Date() } },
+          { new: true, select: 'fileName versionNumber', lean: true }
+        ),
+        Log.findOneAndUpdate(
+          { _id: fileId, isDeleted: { $ne: true } },
+          { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: userId, updatedAt: new Date() } },
+          { new: true, select: 'fileName versionNumber', lean: true }
+        ),
+        CustomerHeaderDoc.findOneAndUpdate(
+          { _id: fileId, isDeleted: { $ne: true } },
+          { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: userId, updatedBy: userId } },
+          { new: true, select: 'payload.headerTitle', lean: true }
+        )
+      ]);
+
+      if (manualResult) {
+        result = manualResult;
+        fileType = 'attached_file';
+        console.log(`🗑️ [SOFT DELETE] Attached file moved to trash: ${result.fileName || result.originalFileName} (ID: ${fileId})`);
+      } else if (versionResult) {
+        result = versionResult;
+        fileType = 'version_pdf';
+        console.log(`🗑️ [SOFT DELETE] Version PDF moved to trash: ${result.fileName || `Version ${result.versionNumber}`} (ID: ${fileId})`);
+      } else if (logResult) {
+        result = logResult;
+        fileType = 'version_log';
+        console.log(`🗑️ [SOFT DELETE] Version log moved to trash: ${result.fileName || `Log v${result.versionNumber}`} (ID: ${fileId})`);
+      } else if (agreementResult) {
+        result = agreementResult;
+        fileType = 'main_pdf';
+        console.log(`🗑️ [SOFT DELETE] Agreement moved to trash: ${result.payload?.headerTitle || 'Agreement Document'} (ID: ${fileId})`);
+      }
+    }
+
+    if (!result) {
       return res.status(404).json({
         success: false,
         error: "not_found",
@@ -3317,15 +3374,24 @@ export async function deleteFile(req, res) {
       });
     }
 
-    // Soft delete the file
-    const userId = req.user?.id || req.admin?.id || 'system';
-    file.isDeleted = true;
-    file.deletedAt = new Date();
-    file.deletedBy = userId;
+    // ⚡ Extract file name based on type
+    let fileName;
+    if (fileType === 'attached_file') {
+      fileName = result.fileName || result.originalFileName;
+    } else if (fileType === 'version_pdf') {
+      fileName = result.fileName || `Version ${result.versionNumber}`;
+    } else if (fileType === 'version_log') {
+      fileName = result.fileName || `Log v${result.versionNumber}`;
+    } else if (fileType === 'main_pdf') {
+      fileName = result.payload?.headerTitle || 'Agreement Document';
+    } else {
+      fileName = 'Unknown File';
+    }
 
-    await file.save();
-
-    console.log(`🗑️ [SOFT DELETE] ${fileType} moved to trash: ${fileName} (ID: ${fileId})`);
+    // ⚡ OPTIMIZED: Set cache-busting headers
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     res.json({
       success: true,
