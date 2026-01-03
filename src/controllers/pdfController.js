@@ -3233,88 +3233,207 @@ export async function deleteFile(req, res) {
 // GET /api/pdf/approval-documents/grouped - Get all documents pending approval grouped by agreement
 export async function getApprovalDocumentsGrouped(req, res) {
   try {
-    console.log('📋 [APPROVAL-DOCS] Fetching documents with PENDING APPROVAL status only...');
+    // ⚡ PERFORMANCE: Start timing
+    const startTime = Date.now();
+    console.log('📋 [APPROVAL-DOCS] Starting optimized approval documents fetch...');
 
-    // 1. Get main agreements with pending approval status only
-    const pendingAgreements = await CustomerHeaderDoc.find({
-      status: 'pending_approval', // ✅ ONLY pending approval documents
-      isDeleted: { $ne: true }
-    })
-    .select({
-      _id: 1,
-      status: 1,
-      createdAt: 1,
-      updatedAt: 1,
-      createdBy: 1,
-      'payload.headerTitle': 1,
-      'pdf_meta.sizeBytes': 1,
-      'attachedFiles': 1,
-    })
-    .populate({
-      path: 'attachedFiles.manualDocumentId',
-      model: 'ManualUploadDocument',
-      match: { isDeleted: { $ne: true } },
-      select: 'fileName originalFileName fileSize status uploadedBy pdfBuffer createdAt updatedAt'
-    })
-    .sort({ updatedAt: -1 })
-    .lean();
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      console.log('⚠️ [APPROVAL-DOCS] Database not connected');
+      return res.json({
+        success: true,
+        totalGroups: 0,
+        totalFiles: 0,
+        groups: []
+      });
+    }
 
-    // 2. Get version PDFs with pending approval status only
-    const pendingVersions = await VersionPdf.find({
-      status: 'pending_approval', // ✅ ONLY pending approval versions
-      isDeleted: { $ne: true }
-    })
-    .populate({
-      path: 'agreementId',
-      select: 'payload.headerTitle status'
-    })
-    .select({
-      _id: 1,
-      agreementId: 1,
-      versionNumber: 1,
-      versionLabel: 1,
-      fileName: 1,
-      status: 1,
-      createdAt: 1,
-      updatedAt: 1,
-      createdBy: 1,
-      'pdf_meta.sizeBytes': 1,
-    })
-    .sort({ updatedAt: -1 })
-    .lean();
+    // ⚡ OPTIMIZED: Use aggregation to find all unique agreement IDs with pending approval files
+    const aggregationStartTime = Date.now();
 
-    // 3. Get manually uploaded files with pending approval status only
-    const pendingAttachedFiles = await ManualUploadDocument.find({
-      status: 'pending_approval', // ✅ ONLY pending approval attached files
-      isDeleted: { $ne: true },
-      'metadata.attachedToAgreement': { $exists: true }
-    })
-    .select({
-      _id: 1,
-      fileName: 1,
-      originalFileName: 1,
-      fileSize: 1,
-      status: 1,
-      uploadedBy: 1,
-      pdfBuffer: 1,
-      'metadata.attachedToAgreement': 1,
-      'metadata.agreementTitle': 1,
-      createdAt: 1,
-      updatedAt: 1,
-    })
-    .sort({ updatedAt: -1 })
-    .lean();
+    // Get all unique agreement IDs that have at least one pending approval item
+    const [pendingAgreementIds, pendingVersionAgreementIds, pendingManualAgreementIds] = await Promise.all([
+      // Agreements with pending_approval status
+      CustomerHeaderDoc.distinct('_id', {
+        status: 'pending_approval',
+        isDeleted: { $ne: true }
+      }),
 
-    console.log(`📋 [APPROVAL-DOCS] Found: ${pendingAgreements.length} agreements, ${pendingVersions.length} versions, ${pendingAttachedFiles.length} attached files`);
+      // Agreement IDs from pending version PDFs
+      VersionPdf.distinct('agreementId', {
+        status: 'pending_approval',
+        isDeleted: { $ne: true }
+      }),
 
-    // 4. Create a map to group all documents by agreement
+      // Agreement IDs from pending manual uploads
+      ManualUploadDocument.distinct('metadata.attachedToAgreement', {
+        status: 'pending_approval',
+        isDeleted: { $ne: true },
+        'metadata.attachedToAgreement': { $exists: true }
+      })
+    ]);
+
+    // Combine all unique agreement IDs
+    const allAgreementIds = [...new Set([
+      ...pendingAgreementIds.map(id => id.toString()),
+      ...pendingVersionAgreementIds.map(id => id.toString()),
+      ...pendingManualAgreementIds.filter(id => id).map(id => id.toString())
+    ])];
+
+    console.log(`📋 [APPROVAL-DOCS] Found ${allAgreementIds.length} unique agreements with pending items`);
+
+    // ✅ FAST PATH: If no pending items, return empty result immediately
+    if (allAgreementIds.length === 0) {
+      const totalTime = Date.now() - startTime;
+      console.log(`⚡ [OPTIMIZED SUMMARY] Total: ${totalTime}ms - No pending approval items found`);
+
+      return res.json({
+        success: true,
+        totalGroups: 0,
+        totalFiles: 0,
+        groups: [],
+        _metadata: {
+          queryType: 'aggregation_pipeline_optimized',
+          includedStatuses: ['pending_approval'],
+          fileTypes: ['main_pdf', 'version_pdf', 'attached_pdf'],
+          performance: {
+            totalTime: `${totalTime}ms`,
+            singleQueryTime: '0ms',
+            transformTime: '0ms',
+            groupsReturned: 0,
+            filesReturned: 0
+          }
+        }
+      });
+    }
+
+    // ⚡ OPTIMIZED: Single aggregation pipeline to get all data at once
+    const aggregationPipeline = [
+      // Stage 1: Match agreements
+      {
+        $match: {
+          _id: { $in: allAgreementIds.map(id => new mongoose.Types.ObjectId(id)) },
+          isDeleted: { $ne: true }
+        }
+      },
+
+      // Stage 2: Lookup pending version PDFs
+      {
+        $lookup: {
+          from: 'versionpdfs',
+          let: { agreementId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$agreementId', '$$agreementId'] },
+                    { $eq: ['$status', 'pending_approval'] },
+                    { $ne: ['$isDeleted', true] }
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                versionNumber: 1,
+                fileName: 1,
+                status: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                'pdf_meta.sizeBytes': 1
+                // ❌ REMOVED: versionLabel, createdBy
+              }
+            },
+            { $sort: { updatedAt: -1 } }
+          ],
+          as: 'pendingVersions'
+        }
+      },
+
+      // Stage 3: Lookup pending manual uploads
+      {
+        $lookup: {
+          from: 'manualuploaddocuments',
+          let: {
+            attachedFileIds: { $ifNull: ['$attachedFiles.manualDocumentId', []] }, // ✅ Default to empty array
+            agreementIdStr: { $toString: '$_id' }
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    {
+                      $or: [
+                        { $in: ['$_id', '$$attachedFileIds'] },
+                        { $eq: ['$metadata.attachedToAgreement', '$$agreementIdStr'] }
+                      ]
+                    },
+                    { $eq: ['$status', 'pending_approval'] },
+                    { $ne: ['$isDeleted', true] }
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                fileName: 1,
+                originalFileName: 1,
+                fileSize: 1,
+                status: 1,
+                uploadedBy: 1,
+                createdAt: 1,
+                updatedAt: 1
+                // ❌ REMOVED: pdfBuffer (heavy field)
+              }
+            },
+            { $sort: { updatedAt: -1 } }
+          ],
+          as: 'pendingManualUploads'
+        }
+      },
+
+      // Stage 4: Project only needed fields
+      {
+        $project: {
+          _id: 1,
+          status: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          'payload.headerTitle': 1,
+          'pdf_meta.sizeBytes': 1,
+          attachedFiles: 1,
+          pendingVersions: 1,
+          pendingManualUploads: 1
+          // ❌ REMOVED: createdBy
+        }
+      },
+
+      // Stage 5: Sort by latest update
+      { $sort: { updatedAt: -1 } }
+    ];
+
+    // ⚡ EXECUTE: Single aggregation query
+    const queryStartTime = Date.now();
+    const agreements = await CustomerHeaderDoc.aggregate(aggregationPipeline);
+    const queryTime = Date.now() - queryStartTime;
+    const aggregationTime = Date.now() - aggregationStartTime;
+
+    console.log(`⚡ [OPTIMIZED] Single aggregation completed in ${queryTime}ms (total with distinct queries: ${aggregationTime}ms)`);
+
+    // Transform data (maintains same structure for compatibility)
+    const transformStartTime = Date.now();
     const agreementGroups = new Map();
 
-    // Add main agreements
-    pendingAgreements.forEach(agreement => {
+    // Process each agreement from aggregation
+    agreements.forEach(agreement => {
       const agreementId = agreement._id.toString();
       const agreementTitle = agreement.payload?.headerTitle || 'Untitled Agreement';
 
+      // Initialize group
       if (!agreementGroups.has(agreementId)) {
         agreementGroups.set(agreementId, {
           id: agreementId,
@@ -3340,7 +3459,7 @@ export async function getApprovalDocumentsGrouped(req, res) {
           status: agreement.status,
           createdAt: agreement.createdAt,
           updatedAt: agreement.updatedAt,
-          createdBy: agreement.createdBy,
+          createdBy: null,
           fileSize: agreement.pdf_meta.sizeBytes,
           hasPdf: true,
           canChangeStatus: true,
@@ -3348,122 +3467,56 @@ export async function getApprovalDocumentsGrouped(req, res) {
         });
       }
 
-      // Add attached files with pending approval status from this agreement
-      if (agreement.attachedFiles) {
-        agreement.attachedFiles.forEach(attachmentRef => {
-          const manualDoc = attachmentRef.manualDocumentId;
-          if (manualDoc && manualDoc.status === 'pending_approval') {
-            group.files.push({
-              id: manualDoc._id,
-              agreementId: agreementId,
-              fileName: manualDoc.originalFileName,
-              fileType: 'attached_pdf',
-              title: manualDoc.originalFileName,
-              status: manualDoc.status,
-              createdAt: manualDoc.createdAt,
-              updatedAt: manualDoc.updatedAt,
-              createdBy: manualDoc.uploadedBy,
-              fileSize: manualDoc.fileSize || 0,
-          hasPdf:
-            !!(manualDoc.pdfBuffer && manualDoc.pdfBuffer.length > 0) ||
-            !!(manualDoc.fileSize && manualDoc.fileSize > 0),
-              canChangeStatus: true,
-              description: attachmentRef.description || ''
-            });
-          }
-        });
-      }
-    });
-
-    // Add version PDFs (they might belong to agreements not in pending_approval)
-    pendingVersions.forEach(version => {
-      if (!version.agreementId) return;
-
-      const agreementId = version.agreementId._id.toString();
-      const agreementTitle = version.agreementId.payload?.headerTitle || 'Untitled Agreement';
-
-      if (!agreementGroups.has(agreementId)) {
-        agreementGroups.set(agreementId, {
-          id: agreementId,
-          agreementTitle,
-          agreementStatus: version.agreementId.status,
-          latestUpdate: version.updatedAt,
-          files: [],
-          hasMainPdf: false,
-          fileCount: 0
-        });
-      }
-
-      const group = agreementGroups.get(agreementId);
-      group.files.push({
-        id: version._id,
-        agreementId: agreementId,
-        fileName: version.fileName || `${agreementTitle} - Version ${version.versionNumber}.pdf`,
-        fileType: 'version_pdf',
-        title: `Version ${version.versionNumber}${version.versionLabel ? ` (${version.versionLabel})` : ''}`,
-        status: version.status,
-        createdAt: version.createdAt,
-        updatedAt: version.updatedAt,
-        createdBy: version.createdBy,
-        fileSize: version.pdf_meta?.sizeBytes || 0,
-        hasPdf: !!version.pdf_meta?.sizeBytes,
-        canChangeStatus: true,
-        versionNumber: version.versionNumber,
-        versionLabel: version.versionLabel
-      });
-
-      // Update latest update time
-      if (new Date(version.updatedAt) > new Date(group.latestUpdate)) {
-        group.latestUpdate = version.updatedAt;
-      }
-    });
-
-    // Add standalone attached files (not already included above)
-    pendingAttachedFiles.forEach(attachedFile => {
-      const agreementId = attachedFile.metadata?.attachedToAgreement;
-      const agreementTitle = attachedFile.metadata?.agreementTitle || 'Unknown Agreement';
-
-      if (!agreementId) return;
-
-      if (!agreementGroups.has(agreementId)) {
-        agreementGroups.set(agreementId, {
-          id: agreementId,
-          agreementTitle,
-          agreementStatus: 'unknown',
-          latestUpdate: attachedFile.updatedAt,
-          files: [],
-          hasMainPdf: false,
-          fileCount: 0
-        });
-      }
-
-      const group = agreementGroups.get(agreementId);
-
-      // Check if this file is already added (avoid duplicates)
-      const alreadyExists = group.files.some(f => f.id === attachedFile._id.toString());
-      if (!alreadyExists) {
+      // Add pending version PDFs
+      (agreement.pendingVersions || []).forEach(version => {
         group.files.push({
-          id: attachedFile._id,
+          id: version._id,
           agreementId: agreementId,
-          fileName: attachedFile.originalFileName,
-          fileType: 'attached_pdf',
-          title: attachedFile.originalFileName,
-          status: attachedFile.status,
-          createdAt: attachedFile.createdAt,
-          updatedAt: attachedFile.updatedAt,
-          createdBy: attachedFile.uploadedBy,
-          fileSize: attachedFile.fileSize || 0,
-      hasPdf:
-        !!(attachedFile.pdfBuffer && attachedFile.pdfBuffer.length > 0) ||
-        !!(attachedFile.fileSize && attachedFile.fileSize > 0),
-          canChangeStatus: true
+          fileName: version.fileName || `${agreementTitle} - Version ${version.versionNumber}.pdf`,
+          fileType: 'version_pdf',
+          title: `Version ${version.versionNumber}`,
+          status: version.status,
+          createdAt: version.createdAt,
+          updatedAt: version.updatedAt,
+          createdBy: null,
+          fileSize: version.pdf_meta?.sizeBytes || 0,
+          hasPdf: !!version.pdf_meta?.sizeBytes,
+          canChangeStatus: true,
+          versionNumber: version.versionNumber
         });
 
         // Update latest update time
-        if (new Date(attachedFile.updatedAt) > new Date(group.latestUpdate)) {
-          group.latestUpdate = attachedFile.updatedAt;
+        if (new Date(version.updatedAt) > new Date(group.latestUpdate)) {
+          group.latestUpdate = version.updatedAt;
         }
-      }
+      });
+
+      // Add pending manual uploads
+      (agreement.pendingManualUploads || []).forEach(manualDoc => {
+        // Check if already added via attachedFiles (avoid duplicates)
+        const alreadyExists = group.files.some(f => f.id === manualDoc._id.toString());
+        if (!alreadyExists) {
+          group.files.push({
+            id: manualDoc._id,
+            agreementId: agreementId,
+            fileName: manualDoc.originalFileName,
+            fileType: 'attached_pdf',
+            title: manualDoc.originalFileName,
+            status: manualDoc.status,
+            createdAt: manualDoc.createdAt,
+            updatedAt: manualDoc.updatedAt,
+            createdBy: manualDoc.uploadedBy,
+            fileSize: manualDoc.fileSize || 0,
+            hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0),
+            canChangeStatus: true
+          });
+
+          // Update latest update time
+          if (new Date(manualDoc.updatedAt) > new Date(group.latestUpdate)) {
+            group.latestUpdate = manualDoc.updatedAt;
+          }
+        }
+      });
     });
 
     // Convert map to array and update file counts
@@ -3473,8 +3526,11 @@ export async function getApprovalDocumentsGrouped(req, res) {
       files: group.files.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     })).sort((a, b) => new Date(b.latestUpdate).getTime() - new Date(a.latestUpdate).getTime());
 
+    const transformTime = Date.now() - transformStartTime;
     const totalFiles = groups.reduce((sum, group) => sum + group.fileCount, 0);
+    const totalTime = Date.now() - startTime;
 
+    console.log(`⚡ [OPTIMIZED SUMMARY] Total: ${totalTime}ms | Query: ${queryTime}ms | Transform: ${transformTime}ms`);
     console.log(`📋 [APPROVAL-DOCS] Grouped into ${groups.length} agreements with ${totalFiles} total files pending approval`);
 
     res.json({
@@ -3483,9 +3539,16 @@ export async function getApprovalDocumentsGrouped(req, res) {
       totalFiles,
       groups,
       _metadata: {
-        queryType: 'approval_documents_grouped',
-        includedStatuses: ['pending_approval'], // ✅ ONLY pending approval documents
-        fileTypes: ['main_pdf', 'version_pdf', 'attached_pdf']
+        queryType: 'aggregation_pipeline_optimized',
+        includedStatuses: ['pending_approval'],
+        fileTypes: ['main_pdf', 'version_pdf', 'attached_pdf'],
+        performance: {
+          totalTime: `${totalTime}ms`,
+          singleQueryTime: `${queryTime}ms`,
+          transformTime: `${transformTime}ms`,
+          groupsReturned: groups.length,
+          filesReturned: totalFiles
+        }
       }
     });
 
