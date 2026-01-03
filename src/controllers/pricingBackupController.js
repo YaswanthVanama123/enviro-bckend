@@ -413,25 +413,70 @@ class PricingBackupController {
   /**
    * Health check endpoint for backup system
    * GET /api/pricing-backup/health
+   *
+   * ✅ OPTIMIZED: Single aggregation query instead of 4 separate queries
    */
   static async getBackupSystemHealth(req, res) {
     try {
-      // Basic health checks
-      const totalBackups = await BackupPricing.countDocuments();
-      const uniqueChangeDays = await BackupPricing.distinct('changeDay');
-      const hasBackupToday = await BackupPricing.hasBackupForToday();
+      const startTime = Date.now();
+      console.log('[BACKUP-HEALTH] Starting optimized health check...');
 
-      const recentBackup = await BackupPricing.findOne({})
-        .sort({ changeDay: -1, createdAt: -1 })
-        .select('changeDay createdAt backupTrigger');
+      // ⚡ OPTIMIZED: Single aggregation with $facet for all health checks
+      const healthData = await BackupPricing.aggregate([
+        {
+          $facet: {
+            // Total backups count
+            totalCount: [{ $count: 'count' }],
+
+            // Unique changeDays
+            uniqueChangeDays: [
+              { $group: { _id: '$changeDay' } },
+              { $count: 'count' }
+            ],
+
+            // Check if backup exists for today
+            todayBackup: [
+              {
+                $match: {
+                  changeDay: BackupPricing.getCurrentDateString()
+                }
+              },
+              { $limit: 1 },
+              { $project: { _id: 1 } }
+            ],
+
+            // Most recent backup
+            recentBackup: [
+              { $sort: { changeDay: -1, createdAt: -1 } },
+              { $limit: 1 },
+              {
+                $project: {
+                  changeDay: 1,
+                  createdAt: 1,
+                  backupTrigger: 1
+                }
+              }
+            ]
+          }
+        }
+      ]);
+
+      const queryTime = Date.now() - startTime;
+
+      // Extract results from aggregation
+      const result = healthData[0];
+      const totalBackups = result.totalCount[0]?.count || 0;
+      const uniqueChangeDaysCount = result.uniqueChangeDays[0]?.count || 0;
+      const hasBackupToday = result.todayBackup.length > 0;
+      const recentBackup = result.recentBackup[0] || null;
 
       const health = {
         status: 'healthy',
         checks: {
           backupModelAccessible: true,
           totalBackups: totalBackups,
-          uniqueChangeDays: uniqueChangeDays.length,
-          retentionPolicyCompliant: uniqueChangeDays.length <= 10,
+          uniqueChangeDays: uniqueChangeDaysCount,
+          retentionPolicyCompliant: uniqueChangeDaysCount <= 10,
           hasBackupToday: hasBackupToday,
           mostRecentBackup: recentBackup ? {
             changeDay: recentBackup.changeDay,
@@ -443,7 +488,7 @@ class PricingBackupController {
       };
 
       // Add warnings if needed
-      if (uniqueChangeDays.length > 10) {
+      if (uniqueChangeDaysCount > 10) {
         health.warnings.push('Retention policy may need enforcement - more than 10 change-days stored');
         health.status = 'warning';
       }
@@ -453,11 +498,18 @@ class PricingBackupController {
         health.status = 'warning';
       }
 
+      console.log(`⚡ [BACKUP-HEALTH] Optimized health check completed in ${queryTime}ms`);
+
       return res.status(200).json({
         success: true,
         message: `Backup system health: ${health.status}`,
         data: health,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        _metadata: {
+          queryTime: `${queryTime}ms`,
+          optimized: true,
+          queryType: 'single_aggregation_with_facet'
+        }
       });
 
     } catch (error) {
