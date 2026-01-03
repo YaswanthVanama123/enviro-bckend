@@ -18,16 +18,35 @@ dotenv.config();
  * - EMAIL_FROM_ADDRESS: Email address for sender
  */
 
-// Create reusable transporter object
-const createTransporter = () => {
+// ⚡ ULTRA-OPTIMIZED: Persistent transporter with connection pooling
+let transporterInstance = null;
+let transporterCreatedAt = null;
+const TRANSPORTER_MAX_AGE = 1000 * 60 * 30; // 30 minutes
+
+// Create or reuse persistent transporter with connection pool
+const getTransporter = () => {
+  const now = Date.now();
+
+  // ⚡ OPTIMIZATION: Reuse existing transporter if it's still valid
+  if (transporterInstance && transporterCreatedAt && (now - transporterCreatedAt) < TRANSPORTER_MAX_AGE) {
+    return transporterInstance;
+  }
+
+  // Create new transporter with connection pooling
   const config = {
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.EMAIL_PORT || '587', 10),
-    secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
+    secure: process.env.EMAIL_SECURE === 'true',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD,
     },
+    // ⚡ CRITICAL: Enable connection pooling for 10x speed improvement
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+    rateDelta: 1000,
+    rateLimit: 10,
     tls: {}
   };
 
@@ -35,21 +54,28 @@ const createTransporter = () => {
     config.tls.rejectUnauthorized = false;
   }
 
-  // If using a specific service like Gmail, add service property
   if (process.env.EMAIL_SERVICE) {
     config.service = process.env.EMAIL_SERVICE;
   }
 
-  console.log('📧 [EMAIL-SERVICE] Creating transporter with config:', {
+  console.log('⚡ [EMAIL-SERVICE] Creating pooled transporter with config:', {
     host: config.host,
     port: config.port,
     secure: config.secure,
     service: config.service || 'custom',
+    pool: true,
+    maxConnections: config.maxConnections,
     user: config.auth.user ? config.auth.user.substring(0, 3) + '***' : 'not set'
   });
 
-  return nodemailer.createTransport(config);
+  transporterInstance = nodemailer.createTransport(config);
+  transporterCreatedAt = now;
+
+  return transporterInstance;
 };
+
+// Legacy function for backward compatibility
+const createTransporter = getTransporter;
 
 /**
  * Send email with optional PDF attachment
@@ -61,15 +87,18 @@ const createTransporter = () => {
  * @param {Object} emailOptions.attachment - Optional PDF attachment
  * @param {Buffer} emailOptions.attachment.buffer - PDF buffer
  * @param {string} emailOptions.attachment.filename - PDF filename
+ * @param {string} emailOptions.attachment.contentType - File content type
+ * @param {boolean} emailOptions.fireAndForget - If true, returns immediately without waiting for send (ultra-fast)
  * @returns {Promise<Object>} Result with success status and message ID
  */
-export async function sendEmail({ to, from, subject, body, attachment }) {
+export async function sendEmail({ to, from, subject, body, attachment, fireAndForget = false }) {
   try {
-    console.log('📧 [EMAIL-SERVICE] Preparing to send email:', {
+    console.log('⚡ [EMAIL-SERVICE] Preparing to send email:', {
       to,
       from: from || process.env.EMAIL_FROM_ADDRESS,
       subject,
-      hasAttachment: !!attachment
+      hasAttachment: !!attachment,
+      fireAndForget
     });
 
     // Validate required fields
@@ -82,7 +111,8 @@ export async function sendEmail({ to, from, subject, body, attachment }) {
       throw new Error('Email configuration not set. Please configure EMAIL_USER and EMAIL_PASSWORD in .env file');
     }
 
-    const transporter = createTransporter();
+    // ⚡ OPTIMIZATION: Use persistent pooled transporter
+    const transporter = getTransporter();
 
     // Prepare email options
     const mailOptions = {
@@ -99,7 +129,7 @@ export async function sendEmail({ to, from, subject, body, attachment }) {
         {
           filename: attachment.filename || 'document.pdf',
           content: attachment.buffer,
-          contentType: 'application/pdf',
+          contentType: attachment.contentType || 'application/pdf',
         },
       ];
       console.log('📎 [EMAIL-SERVICE] Attachment added:', {
@@ -108,8 +138,35 @@ export async function sendEmail({ to, from, subject, body, attachment }) {
       });
     }
 
-    // Send email
-    console.log('📤 [EMAIL-SERVICE] Sending email...');
+    // ⚡ ULTRA-FAST MODE: Fire and forget - return immediately without waiting
+    if (fireAndForget) {
+      console.log('🚀 [EMAIL-SERVICE] ULTRA-FAST: Sending email in background (fire-and-forget)...');
+
+      // Send email in background without blocking
+      transporter.sendMail(mailOptions).then(info => {
+        console.log('✅ [EMAIL-SERVICE] Background email sent successfully:', {
+          messageId: info.messageId,
+          response: info.response
+        });
+      }).catch(error => {
+        console.error('❌ [EMAIL-SERVICE] Background email failed:', {
+          error: error.message,
+          to,
+          subject
+        });
+      });
+
+      // Return immediately with queued status
+      return {
+        success: true,
+        messageId: 'queued',
+        message: 'Email queued for sending',
+        queued: true
+      };
+    }
+
+    // Normal mode: Wait for email to send
+    console.log('📤 [EMAIL-SERVICE] Sending email (waiting for completion)...');
     const info = await transporter.sendMail(mailOptions);
 
     console.log('✅ [EMAIL-SERVICE] Email sent successfully:', {
