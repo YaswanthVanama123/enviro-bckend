@@ -2902,11 +2902,30 @@ export async function deleteAgreement(req, res) {
       });
     }
 
-    // Find the agreement
-    const agreement = await CustomerHeaderDoc.findOne({
-      _id: agreementId,
-      isDeleted: { $ne: true }
-    });
+    const userId = req.user?.id || req.admin?.id || 'system';
+    const deleteTimestamp = new Date();
+
+    // ⚡ ULTRA-OPTIMIZED: Delete agreement and all files in parallel with bulk operations
+    console.log(`🗑️ [BULK DELETE] Starting bulk delete for agreement ${agreementId}...`);
+    const startTime = Date.now();
+
+    // ⚡ Step 1: Get agreement info and mark as deleted (atomic operation)
+    const agreement = await CustomerHeaderDoc.findOneAndUpdate(
+      { _id: agreementId, isDeleted: { $ne: true } },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: deleteTimestamp,
+          deletedBy: userId,
+          updatedBy: userId
+        }
+      },
+      {
+        new: true,
+        select: 'payload.headerTitle attachedFiles',
+        lean: true
+      }
+    );
 
     if (!agreement) {
       return res.status(404).json({
@@ -2916,19 +2935,79 @@ export async function deleteAgreement(req, res) {
       });
     }
 
-    // Soft delete the agreement
-    const userId = req.user?.id || req.admin?.id || 'system';
-    agreement.isDeleted = true;
-    agreement.deletedAt = new Date();
-    agreement.deletedBy = userId;
+    // ⚡ Step 2: Bulk delete all related files in parallel (3 collections)
+    const manualFileIds = (agreement.attachedFiles || [])
+      .map(ref => ref.manualDocumentId)
+      .filter(id => id);
 
-    await agreement.save();
+    const [versionResult, manualResult, logResult] = await Promise.all([
+      // Delete all version PDFs for this agreement
+      VersionPdf.updateMany(
+        { agreementId: agreementId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: deleteTimestamp,
+            deletedBy: userId,
+            updatedAt: deleteTimestamp
+          }
+        }
+      ),
 
-    console.log(`🗑️ [SOFT DELETE] Agreement moved to trash: ${agreement.payload.headerTitle} (ID: ${agreementId})`);
+      // Delete all manually uploaded files attached to this agreement
+      manualFileIds.length > 0
+        ? ManualUploadDocument.updateMany(
+            { _id: { $in: manualFileIds }, isDeleted: { $ne: true } },
+            {
+              $set: {
+                isDeleted: true,
+                deletedAt: deleteTimestamp,
+                deletedBy: userId,
+                updatedAt: deleteTimestamp
+              }
+            }
+          )
+        : Promise.resolve({ modifiedCount: 0 }),
+
+      // Delete all version logs for this agreement
+      Log.updateMany(
+        { agreementId: agreementId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: deleteTimestamp,
+            deletedBy: userId,
+            updatedAt: deleteTimestamp
+          }
+        }
+      )
+    ]);
+
+    const totalTime = Date.now() - startTime;
+    const totalDeleted = 1 + versionResult.modifiedCount + manualResult.modifiedCount + logResult.modifiedCount;
+
+    console.log(`🗑️ [BULK DELETE] Agreement "${agreement.payload?.headerTitle}" moved to trash in ${totalTime}ms:`);
+    console.log(`   • Agreement: 1`);
+    console.log(`   • Version PDFs: ${versionResult.modifiedCount}`);
+    console.log(`   • Attached files: ${manualResult.modifiedCount}`);
+    console.log(`   • Version logs: ${logResult.modifiedCount}`);
+    console.log(`   • Total: ${totalDeleted} items`);
+
+    // ⚡ OPTIMIZED: Set cache-busting headers
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     res.json({
       success: true,
-      message: "Agreement moved to trash successfully"
+      message: `Agreement and ${totalDeleted - 1} file(s) moved to trash successfully`,
+      deletedCount: totalDeleted,
+      breakdown: {
+        agreement: 1,
+        versionPdfs: versionResult.modifiedCount,
+        attachedFiles: manualResult.modifiedCount,
+        versionLogs: logResult.modifiedCount
+      }
     });
 
   } catch (err) {
