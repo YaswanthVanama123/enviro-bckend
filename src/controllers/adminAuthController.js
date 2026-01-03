@@ -200,8 +200,9 @@ export async function createAdminAccount(req, res) {
  */
 export async function getAdminDashboard(req, res) {
   try {
-    console.log('📊 [ADMIN-DASHBOARD] Starting dashboard data fetch...');
-    console.log('📊 [DB-STATE] Connection state:', mongoose.connection.readyState);
+    // ⚡ PERFORMANCE: Start timing
+    const startTime = Date.now();
+    console.log('📊 [ADMIN-DASHBOARD] Starting optimized dashboard data fetch...');
 
     // Check database connection state
     if (mongoose.connection.readyState !== 1) {
@@ -212,7 +213,6 @@ export async function getAdminDashboard(req, res) {
           savedDocuments: 0,
           totalDocuments: 0
         },
-        recentDocuments: [],
         documentStatus: {
           done: 0,
           pending: 0,
@@ -226,173 +226,86 @@ export async function getAdminDashboard(req, res) {
       });
     }
 
-    console.log('📊 [ADMIN-DASHBOARD] Database connected, fetching statistics...');
+    // ⚡ OPTIMIZED: Single aggregation query for all counts only (recentDocuments fetched separately by frontend)
+    const aggregationStartTime = Date.now();
 
-    // Get document counts with detailed logging
-    console.log('📊 [QUERY] Executing manual uploads count...');
-    const manualUploadsCountQuery = ManualUploadDocument.countDocuments({
-      $or: [
-        { isDeleted: { $exists: false } },
-        { isDeleted: false },
-        { isDeleted: { $ne: true } }
-      ]
-    });
+    const [customerHeaderStats, manualUploadsCount] = await Promise.all([
+      // ⚡ Use $facet to get all CustomerHeaderDoc counts in a single query
+      CustomerHeaderDoc.aggregate([
+        // Filter out deleted documents once
+        { $match: { isDeleted: { $ne: true } } },
 
-    console.log('📊 [QUERY] Executing saved documents count...');
-    const savedDocumentsCountQuery = CustomerHeaderDoc.countDocuments({
-      $and: [
         {
-          $or: [
-            { isDeleted: { $exists: false } },
-            { isDeleted: false },
-            { isDeleted: { $ne: true } }
-          ]
-        },
-        {
-          $or: [
-            { 'pdf_meta.pdfBuffer': { $exists: true, $ne: null } },
-            { 'zoho.bigin.fileId': { $exists: true, $ne: null } },
-            { 'zoho.crm.fileId': { $exists: true, $ne: null } }
-          ]
+          $facet: {
+            // Total documents count
+            totalCount: [{ $count: 'count' }],
+
+            // Saved documents (has PDF)
+            savedCount: [
+              {
+                $match: {
+                  $or: [
+                    { 'pdf_meta.pdfBuffer': { $exists: true, $ne: null } },
+                    { 'zoho.bigin.fileId': { $exists: true, $ne: null } },
+                    { 'zoho.crm.fileId': { $exists: true, $ne: null } }
+                  ]
+                }
+              },
+              { $count: 'count' }
+            ],
+
+            // Status-based counts
+            draftCount: [
+              { $match: { status: 'draft' } },
+              { $count: 'count' }
+            ],
+
+            savedStatusCount: [
+              { $match: { status: 'saved' } },
+              { $count: 'count' }
+            ],
+
+            pendingCount: [
+              {
+                $match: {
+                  $or: [
+                    { status: 'pending_approval' },
+                    { status: 'approved_salesman' }
+                  ]
+                }
+              },
+              { $count: 'count' }
+            ],
+
+            approvedCount: [
+              { $match: { status: 'approved_admin' } },
+              { $count: 'count' }
+            ]
+          }
         }
-      ]
-    });
+      ]),
 
-    console.log('📊 [QUERY] Executing total documents count...');
-    const totalDocumentsCountQuery = CustomerHeaderDoc.countDocuments({
-      $or: [
-        { isDeleted: { $exists: false } },
-        { isDeleted: false },
-        { isDeleted: { $ne: true } }
-      ]
-    });
-
-    console.log('📊 [QUERY] Executing status-based counts...');
-    const draftCountQuery = CustomerHeaderDoc.countDocuments({
-      status: 'draft',
-      $or: [
-        { isDeleted: { $exists: false } },
-        { isDeleted: false },
-        { isDeleted: { $ne: true } }
-      ]
-    });
-
-    const savedCountQuery = CustomerHeaderDoc.countDocuments({
-      status: 'saved',
-      $or: [
-        { isDeleted: { $exists: false } },
-        { isDeleted: false },
-        { isDeleted: { $ne: true } }
-      ]
-    });
-
-    const pendingCountQuery = CustomerHeaderDoc.countDocuments({
-      $and: [
-        {
-          $or: [
-            { status: 'pending_approval' },
-            { status: 'approved_salesman' }
-          ]
-        },
-        {
-          $or: [
-            { isDeleted: { $exists: false } },
-            { isDeleted: false },
-            { isDeleted: { $ne: true } }
-          ]
-        }
-      ]
-    });
-
-    const approvedCountQuery = CustomerHeaderDoc.countDocuments({
-      status: 'approved_admin',
-      $or: [
-        { isDeleted: { $exists: false } },
-        { isDeleted: false },
-        { isDeleted: { $ne: true } }
-      ]
-    });
-
-    // Execute all queries in parallel
-    const [
-      manualUploadsCount,
-      savedDocumentsCount,
-      totalDocumentsCount,
-      draftCount,
-      savedCount,
-      pendingCount,
-      approvedCount
-    ] = await Promise.all([
-      manualUploadsCountQuery,
-      savedDocumentsCountQuery,
-      totalDocumentsCountQuery,
-      draftCountQuery,
-      savedCountQuery,
-      pendingCountQuery,
-      approvedCountQuery
+      // Manual uploads count (separate query - different collection)
+      ManualUploadDocument.countDocuments({ isDeleted: { $ne: true } })
     ]);
 
+    const aggregationTime = Date.now() - aggregationStartTime;
+
+    // Extract counts from aggregation result
+    const stats = customerHeaderStats[0];
+    const totalDocumentsCount = stats.totalCount[0]?.count || 0;
+    const savedDocumentsCount = stats.savedCount[0]?.count || 0;
+    const draftCount = stats.draftCount[0]?.count || 0;
+    const savedCount = stats.savedStatusCount[0]?.count || 0;
+    const pendingCount = stats.pendingCount[0]?.count || 0;
+    const approvedCount = stats.approvedCount[0]?.count || 0;
+
+    const totalTime = Date.now() - startTime;
+    console.log(`⚡ [OPTIMIZED SUMMARY] Total: ${totalTime}ms | Aggregation: ${aggregationTime}ms`);
     console.log('📊 [COUNTS] Manual uploads:', manualUploadsCount);
-    console.log('📊 [COUNTS] Saved documents:', savedDocumentsCount);
     console.log('📊 [COUNTS] Total documents:', totalDocumentsCount);
-    console.log('📊 [COUNTS] Draft:', draftCount);
-    console.log('📊 [COUNTS] Saved:', savedCount);
-    console.log('📊 [COUNTS] Pending:', pendingCount);
-    console.log('📊 [COUNTS] Approved:', approvedCount);
-
-    // Get recent documents (last 10) with better error handling
-    console.log('📊 [QUERY] Fetching recent documents...');
-    const recentDocuments = await CustomerHeaderDoc.find({
-      $or: [
-        { isDeleted: { $exists: false } },
-        { isDeleted: false },
-        { isDeleted: { $ne: true } }
-      ]
-    })
-      .select({
-        _id: 1,
-        status: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        'payload.headerTitle': 1,
-        'pdf_meta.sizeBytes': 1,
-        'pdf_meta.storedAt': 1,
-        'pdf_meta.pdfBuffer': 1,
-        'zoho.bigin.dealId': 1,
-        'zoho.bigin.fileId': 1,
-        'zoho.crm.dealId': 1,
-        'zoho.crm.fileId': 1,
-      })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean();
-
-    console.log('📊 [RECENT] Found recent documents:', recentDocuments.length);
-
-    // Transform recent documents to match admin panel format
-    const transformedRecentDocuments = recentDocuments.map(doc => ({
-      id: doc._id,
-      title: doc.payload?.headerTitle || 'Untitled Document',
-      status: doc.status || 'saved',
-      createdDate: doc.createdAt,
-      uploadedOn: doc.pdf_meta?.storedAt || doc.createdAt,
-      hasPdf: !!(
-        doc.pdf_meta?.pdfBuffer ||
-        (doc.zoho?.bigin?.fileId && !doc.zoho.bigin.fileId.includes('MOCK_')) ||
-        (doc.zoho?.crm?.fileId && !doc.zoho.crm.fileId.includes('MOCK_'))
-      ),
-      fileSize: doc.pdf_meta?.sizeBytes || 0,
-      // Format dates for display
-      createdDateFormatted: new Date(doc.createdAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      }),
-      uploadedOnFormatted: new Date(doc.pdf_meta?.storedAt || doc.createdAt).toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric'
-      })
-    }));
+    console.log('📊 [COUNTS] Saved documents:', savedDocumentsCount);
+    console.log('📊 [COUNTS] By status - Draft:', draftCount, 'Saved:', savedCount, 'Pending:', pendingCount, 'Approved:', approvedCount);
 
     // Build comprehensive dashboard data
     const dashboardData = {
@@ -401,12 +314,20 @@ export async function getAdminDashboard(req, res) {
         savedDocuments: savedDocumentsCount,
         totalDocuments: totalDocumentsCount
       },
-      recentDocuments: transformedRecentDocuments,
       documentStatus: {
         done: approvedCount,
         pending: pendingCount,
         saved: savedCount,
         drafts: draftCount
+      },
+      _metadata: {
+        performance: {
+          totalTime: `${totalTime}ms`,
+          aggregationTime: `${aggregationTime}ms`
+        },
+        optimized: true,
+        queryType: 'single_aggregation_with_facet',
+        note: 'recentDocuments removed - fetched separately via /api/pdf/saved-files/grouped'
       },
       _debug: {
         databaseState: 'connected',
@@ -427,7 +348,7 @@ export async function getAdminDashboard(req, res) {
       manualUploads: manualUploadsCount,
       savedDocuments: savedDocumentsCount,
       totalDocuments: totalDocumentsCount,
-      recentDocsCount: transformedRecentDocuments.length
+      performanceMs: totalTime
     });
 
     res.json(dashboardData);
@@ -445,7 +366,6 @@ export async function getAdminDashboard(req, res) {
         savedDocuments: 0,
         totalDocuments: 0
       },
-      recentDocuments: [],
       documentStatus: {
         done: 0,
         pending: 0,
