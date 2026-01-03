@@ -67,6 +67,9 @@ const ManualUploadDocumentSchema = new mongoose.Schema(
 ManualUploadDocumentSchema.index({ uploadedBy: 1, createdAt: -1 });
 ManualUploadDocumentSchema.index({ status: 1 });
 
+// ⚡ OPTIMIZED: Index for getSavedFilesGrouped lookup performance
+ManualUploadDocumentSchema.index({ _id: 1, isDeleted: 1 });
+
 const ManualUploadDocument = mongoose.model(
   "ManualUploadDocument",
   ManualUploadDocumentSchema

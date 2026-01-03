@@ -106,6 +106,10 @@ VersionPdfSchema.index({ agreementId: 1, versionNumber: 1 }, { unique: true });
 // Index for querying versions by agreement
 VersionPdfSchema.index({ agreementId: 1, createdAt: -1 });
 
+// ⚡ OPTIMIZED: Index for getSavedFilesGrouped lookup performance
+VersionPdfSchema.index({ agreementId: 1, status: 1, isDeleted: 1 });
+VersionPdfSchema.index({ agreementId: 1, versionNumber: -1 });
+
 // Static method to get next version number for an agreement
 VersionPdfSchema.statics.getNextVersionNumber = async function(agreementId) {
   const latestVersion = await this.findOne(

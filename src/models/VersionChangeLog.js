@@ -238,6 +238,9 @@ VersionChangeLogSchema.index({ reviewStatus: 1 });
 VersionChangeLogSchema.index({ hasSignificantChanges: 1 });
 VersionChangeLogSchema.index({ saveAction: 1 });
 
+// ⚡ OPTIMIZED: Index for getSavedFilesGrouped lookup performance
+VersionChangeLogSchema.index({ agreementId: 1, isDeleted: 1 });
+
 // Compound index for grouped folder display
 VersionChangeLogSchema.index({
   agreementId: 1,

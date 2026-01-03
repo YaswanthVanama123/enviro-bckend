@@ -1856,7 +1856,6 @@ export async function getSavedFilesGrouped(req, res) {
             {
               $project: {
                 _id: 1,
-                agreementId: 1,
                 versionNumber: 1,
                 status: 1,
                 isDeleted: 1,
@@ -1900,16 +1899,12 @@ export async function getSavedFilesGrouped(req, res) {
             {
               $project: {
                 _id: 1,
-                agreementId: 1,
                 versionId: 1,
                 versionNumber: 1,
                 fileName: 1,
                 fileSize: 1,
-                salespersonName: 1,
-                saveAction: 1,
                 totalChanges: 1,
                 totalPriceImpact: 1,
-                hasSignificantChanges: 1,
                 createdAt: 1,
                 isDeleted: 1,
                 deletedAt: 1,
@@ -1989,7 +1984,6 @@ export async function getSavedFilesGrouped(req, res) {
           'payload.headerTitle': 1,
           'payload.agreement.startDate': 1,
           'payload.summary.contractMonths': 1,
-          'pdf_meta.sizeBytes': 1,
           'zoho.bigin.dealId': 1,
           'zoho.crm.dealId': 1,
           attachedFiles: 1,

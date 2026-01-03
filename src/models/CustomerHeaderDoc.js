@@ -375,8 +375,12 @@ const CustomerHeaderDocSchema = new mongoose.Schema(
   }
 );
 
-// helpful index if you’ll query by creation time
+// helpful index if you'll query by creation time
 CustomerHeaderDocSchema.index({ createdAt: -1 });
+
+// ⚡ OPTIMIZED: Index for getSavedFilesGrouped query performance
+CustomerHeaderDocSchema.index({ isDeleted: 1, createdAt: -1 });
+CustomerHeaderDocSchema.index({ 'payload.headerTitle': 'text' });
 
 export default mongoose.models.CustomerHeaderDoc
   || mongoose.model("CustomerHeaderDoc", CustomerHeaderDocSchema);
