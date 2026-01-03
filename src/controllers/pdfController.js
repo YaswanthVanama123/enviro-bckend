@@ -1887,9 +1887,11 @@ export async function getSavedFilesGrouped(req, res) {
       },
 
       // Stage 5: Lookup logs (conditional) using foreign key
+      // ✅ FIXED: Query from 'logs' collection (Log model) instead of 'versionchangelogs' (VersionChangeLog model)
+      // The 'logs' collection stores actual TXT log files, while 'versionchangelogs' only has metadata
       ...(includeLogs ? [{
         $lookup: {
-          from: 'versionchangelogs',
+          from: 'logs',  // ✅ CORRECTED: Query actual log files collection
           let: { agreementId: '$_id', agreementDeleted: '$isDeleted' },
           pipeline: [
             {
