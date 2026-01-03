@@ -243,28 +243,56 @@ BackupPricingSchema.statics.hasBackupForToday = async function() {
   return !!existingBackup;
 };
 
-// Static method to get last N change days (now returns ALL backups, not grouped)
+// ✅ OPTIMIZED: Static method to get last N change days
+// Excludes compressedSnapshot field to improve performance
 BackupPricingSchema.statics.getLastNChangeDays = async function(n = 10) {
-  // Get the last N unique change days first
-  const uniqueChangeDays = await this.distinct('changeDay', {}, { sort: { changeDay: -1 } });
-  const lastNChangeDays = uniqueChangeDays.sort().reverse().slice(0, n);
+  const startTime = Date.now();
+  console.log(`[BACKUP-MODEL] Fetching last ${n} change days (optimized)...`);
 
-  if (lastNChangeDays.length === 0) {
-    return [];
-  }
+  // ⚡ OPTIMIZED: Single aggregation query instead of 2 separate queries
+  const result = await this.aggregate([
+    // Stage 1: Sort by changeDay descending
+    { $sort: { changeDay: -1, createdAt: -1 } },
 
-  // Now get ALL backups from those change days (both auto and manual)
-  const backups = await this.find({
-    changeDay: { $in: lastNChangeDays }
-  })
-    .sort({ changeDay: -1, createdAt: -1 })
-    .lean();
+    // Stage 2: Group by changeDay to get unique days
+    {
+      $group: {
+        _id: '$changeDay',
+        backups: { $push: '$$ROOT' }
+      }
+    },
 
-  // Transform to match the expected structure with individual backups
-  return backups.map(backup => ({
+    // Stage 3: Sort grouped results
+    { $sort: { _id: -1 } },
+
+    // Stage 4: Limit to last N change days
+    { $limit: n },
+
+    // Stage 5: Unwind backups array to get individual backups
+    { $unwind: '$backups' },
+
+    // Stage 6: ⚡ CRITICAL: Exclude compressedSnapshot field (HUGE performance gain!)
+    {
+      $project: {
+        'backups.compressedSnapshot': 0  // ✅ Exclude the large binary field
+      }
+    },
+
+    // Stage 7: Replace root with backup document
+    { $replaceRoot: { newRoot: '$backups' } },
+
+    // Stage 8: Sort final results
+    { $sort: { changeDay: -1, createdAt: -1 } }
+  ]);
+
+  const queryTime = Date.now() - startTime;
+  console.log(`⚡ [BACKUP-MODEL] Fetched ${result.length} backups in ${queryTime}ms (excluded compressedSnapshot)`);
+
+  // Transform to match expected structure
+  return result.map(backup => ({
     changeDay: backup.changeDay,
     backup: backup,
-    backupCount: 1  // Each backup is counted individually now
+    backupCount: 1
   }));
 };
 

@@ -405,70 +405,31 @@ class PricingBackupService {
    * Get list of available backups with summary information
    * @param {number} limit - Maximum number of backups to return
    * @returns {Object} List of backups
+   *
+   * ✅ OPTIMIZED: Removed expensive snapshot decompression - use stored metadata instead
    */
   static async getAvailableBackups(limit = 10) {
     try {
-      const backups = await BackupPricing.getLastNChangeDays(limit);
-      console.log(`[DEBUG] getAvailableBackups: Processing ${backups.length} backups`);
+      const startTime = Date.now();
+      console.log(`[BACKUP-LIST] Starting optimized backup list fetch (limit: ${limit})...`);
 
+      // ⚡ OPTIMIZED: Use projection to fetch only needed fields (no compressedSnapshot!)
+      const backups = await BackupPricing.getLastNChangeDays(limit);
+      const queryTime = Date.now() - startTime;
+
+      console.log(`⚡ [BACKUP-LIST] Fetched ${backups.length} backups in ${queryTime}ms`);
+
+      // ✅ OPTIMIZED: Use stored metadata directly - no decompression needed
       const backupSummary = backups.map((item, index) => {
         const changeDayId = item.backup.changeDayId;
-        console.log(`[DEBUG] Processing backup ${index + 1}/${backups.length}: ${changeDayId}`);
 
-        let correctedProductCount = item.backup.snapshotMetadata?.documentCounts?.productCatalogCount || 0;
-        console.log(`[DEBUG] ${changeDayId} - Stored productCatalogCount: ${correctedProductCount}`);
-
-        // Recalculate product count from actual snapshot data
-        try {
-          console.log(`[DEBUG] ${changeDayId} - Attempting to decompress snapshot...`);
-
-          // Convert MongoDB Binary to Buffer if needed
-          let compressedData = item.backup.compressedSnapshot;
-          if (compressedData && typeof compressedData === 'object' && compressedData.buffer) {
-            // MongoDB Binary object - extract the buffer
-            compressedData = compressedData.buffer;
-          }
-          console.log(`[DEBUG] ${changeDayId} - Compressed data type: ${typeof compressedData}, constructor: ${compressedData.constructor.name}`);
-
-          // Use static decompression method since aggregation returns plain objects
-          const snapshot = BackupPricing.decompressPricingData(compressedData);
-          console.log(`[DEBUG] ${changeDayId} - Snapshot decompressed successfully`);
-
-          if (snapshot.dataTypes?.productCatalog?.active?.families) {
-            const families = snapshot.dataTypes.productCatalog.active.families;
-            console.log(`[DEBUG] ${changeDayId} - Found ${families.length} families`);
-
-            families.forEach((family, famIndex) => {
-              const productCount = family.products ? family.products.length : 0;
-              console.log(`[DEBUG] ${changeDayId} - Family ${famIndex + 1} (${family.familyName || family.name || 'unnamed'}): ${productCount} products`);
-            });
-
-            correctedProductCount = families.reduce((count, family) => {
-              const familyProductCount = family.products ? family.products.length : 0;
-              return count + familyProductCount;
-            }, 0);
-
-            console.log(`[DEBUG] ${changeDayId} - Recalculated productCount: ${correctedProductCount}`);
-          } else {
-            console.log(`[DEBUG] ${changeDayId} - No families found in snapshot`);
-            console.log(`[DEBUG] ${changeDayId} - ProductCatalog structure:`, {
-              hasProductCatalog: !!snapshot.dataTypes?.productCatalog,
-              hasActive: !!snapshot.dataTypes?.productCatalog?.active,
-              activeKeys: snapshot.dataTypes?.productCatalog?.active ? Object.keys(snapshot.dataTypes.productCatalog.active) : 'N/A'
-            });
-          }
-        } catch (error) {
-          console.error(`[DEBUG] ${changeDayId} - Error processing snapshot:`, error.message);
-          console.warn(`Could not recalculate product count for backup ${changeDayId}, using stored metadata`);
-        }
-
-        // Create corrected document counts
-        const correctedDocumentCounts = {
-          ...item.backup.snapshotMetadata.documentCounts,
-          productCatalogCount: correctedProductCount
+        // Use stored metadata counts directly (no decompression!)
+        const documentCounts = {
+          ...item.backup.snapshotMetadata.documentCounts
         };
 
-        console.log(`[DEBUG] ${changeDayId} - Final corrected counts:`, correctedDocumentCounts);
+        // Log for debugging
+        console.log(`[BACKUP-LIST] Backup ${index + 1}/${backups.length}: ${changeDayId} - ${documentCounts.productCatalogCount} products`);
 
         return {
           changeDayId: item.backup.changeDayId,
@@ -481,7 +442,7 @@ class PricingBackupService {
             changeCount: item.backup.changeContext.changeCount
           },
           snapshotMetadata: {
-            documentCounts: correctedDocumentCounts, // Use corrected counts
+            documentCounts: documentCounts, // ✅ Use stored counts directly
             originalSize: item.backup.snapshotMetadata.originalSize,
             compressedSize: item.backup.snapshotMetadata.compressedSize,
             compressionRatio: item.backup.snapshotMetadata.compressionRatio,
@@ -497,13 +458,20 @@ class PricingBackupService {
         };
       });
 
-      console.log(`[DEBUG] getAvailableBackups: Returning ${backupSummary.length} processed backups`);
+      const totalTime = Date.now() - startTime;
+      console.log(`⚡ [BACKUP-LIST] Optimized list processing completed in ${totalTime}ms (${backupSummary.length} backups)`);
 
       return {
         success: true,
         backups: backupSummary,
         totalChangeDays: backups.length,
-        message: `Found ${backups.length} backup change-days`
+        message: `Found ${backups.length} backup change-days`,
+        _metadata: {
+          queryTime: `${totalTime}ms`,
+          optimized: true,
+          optimization: 'removed_snapshot_decompression',
+          note: 'Using stored metadata counts instead of decompressing snapshots'
+        }
       };
 
     } catch (error) {
@@ -657,55 +625,101 @@ class PricingBackupService {
   /**
    * Get backup statistics and health information
    * @returns {Object} Backup system statistics
+   *
+   * ✅ OPTIMIZED: Single aggregation query with $facet instead of 5 separate queries
    */
   static async getBackupStatistics() {
     try {
-      const totalBackups = await BackupPricing.countDocuments();
-      const uniqueChangeDays = await BackupPricing.distinct('changeDay');
+      const startTime = Date.now();
+      console.log('[BACKUP-STATS] Starting optimized statistics collection...');
 
-      const sizeStats = await BackupPricing.aggregate([
+      // ⚡ OPTIMIZED: Single aggregation with $facet for all statistics
+      const statsData = await BackupPricing.aggregate([
         {
-          $group: {
-            _id: null,
-            totalOriginalSize: { $sum: '$snapshotMetadata.originalSize' },
-            totalCompressedSize: { $sum: '$snapshotMetadata.compressedSize' },
-            avgCompressionRatio: { $avg: '$snapshotMetadata.compressionRatio' },
-            minCompressionRatio: { $min: '$snapshotMetadata.compressionRatio' },
-            maxCompressionRatio: { $max: '$snapshotMetadata.compressionRatio' }
+          $facet: {
+            // Total backups count
+            totalCount: [{ $count: 'count' }],
+
+            // Unique changeDays count
+            uniqueChangeDays: [
+              { $group: { _id: '$changeDay' } },
+              { $count: 'count' }
+            ],
+
+            // Size statistics
+            sizeStats: [
+              {
+                $group: {
+                  _id: null,
+                  totalOriginalSize: { $sum: '$snapshotMetadata.originalSize' },
+                  totalCompressedSize: { $sum: '$snapshotMetadata.compressedSize' },
+                  avgCompressionRatio: { $avg: '$snapshotMetadata.compressionRatio' },
+                  minCompressionRatio: { $min: '$snapshotMetadata.compressionRatio' },
+                  maxCompressionRatio: { $max: '$snapshotMetadata.compressionRatio' }
+                }
+              }
+            ],
+
+            // Trigger statistics
+            triggerStats: [
+              {
+                $group: {
+                  _id: '$backupTrigger',
+                  count: { $sum: 1 }
+                }
+              }
+            ],
+
+            // Recent backups
+            recentBackups: [
+              { $sort: { changeDay: -1 } },
+              { $limit: 5 },
+              {
+                $project: {
+                  changeDayId: 1,
+                  changeDay: 1,
+                  backupTrigger: 1,
+                  'snapshotMetadata.documentCounts': 1
+                }
+              }
+            ]
           }
         }
       ]);
 
-      const triggerStats = await BackupPricing.aggregate([
-        {
-          $group: {
-            _id: '$backupTrigger',
-            count: { $sum: 1 }
-          }
-        }
-      ]);
+      const queryTime = Date.now() - startTime;
 
-      const recentBackups = await BackupPricing.find({})
-        .sort({ changeDay: -1 })
-        .limit(5)
-        .select('changeDayId changeDay backupTrigger snapshotMetadata.documentCounts');
+      // Extract results from aggregation
+      const result = statsData[0];
+      const totalBackups = result.totalCount[0]?.count || 0;
+      const uniqueChangeDaysCount = result.uniqueChangeDays[0]?.count || 0;
+      const sizeStats = result.sizeStats[0] || {};
+      const triggerStats = result.triggerStats || [];
+      const recentBackups = result.recentBackups || [];
+
+      console.log(`⚡ [BACKUP-STATS] Optimized statistics collected in ${queryTime}ms`);
 
       return {
         success: true,
         statistics: {
           totalBackups,
-          uniqueChangeDays: uniqueChangeDays.length,
-          retentionCompliance: uniqueChangeDays.length <= 10,
-          sizeStatistics: sizeStats[0] || {},
+          uniqueChangeDays: uniqueChangeDaysCount,
+          retentionCompliance: uniqueChangeDaysCount <= 10,
+          sizeStatistics: sizeStats,
           triggerStatistics: triggerStats,
           recentBackups: recentBackups,
           systemHealth: {
-            isHealthy: uniqueChangeDays.length <= 10 && totalBackups > 0,
-            warnings: uniqueChangeDays.length > 10 ?
+            isHealthy: uniqueChangeDaysCount <= 10 && totalBackups > 0,
+            warnings: uniqueChangeDaysCount > 10 ?
               ['Retention policy may need enforcement'] : []
           }
         },
-        message: 'Backup statistics retrieved successfully'
+        message: 'Backup statistics retrieved successfully',
+        _metadata: {
+          queryTime: `${queryTime}ms`,
+          optimized: true,
+          queryType: 'single_aggregation_with_facet'
+        }
       };
 
     } catch (error) {
