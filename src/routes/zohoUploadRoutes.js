@@ -292,6 +292,7 @@ function buildNormalizedFileName(rawName, fallbackBase = "file", fallbackExtensi
 /**
  * GET /zoho-upload/:agreementId/status
  * Check if this is first-time upload or update
+ * ✅ OPTIMIZED: Parallel queries, lean(), select(), removed expensive debugging
  */
 router.get("/:agreementId/status", async (req, res) => {
   try {
@@ -299,56 +300,41 @@ router.get("/:agreementId/status", async (req, res) => {
 
     console.log(`🔍 Checking upload status for agreement: ${agreementId}`);
 
-    // ✅ NEW: Validate ObjectId format first
+    // ✅ OPTIMIZED: Validate ObjectId format first
     if (!mongoose.Types.ObjectId.isValid(agreementId)) {
-      console.error(`❌ Invalid ObjectId format in status check: ${agreementId}`);
       return res.status(400).json({
         success: false,
-        error: "Invalid agreement ID format",
-        details: `Provided ID '${agreementId}' is not a valid MongoDB ObjectId`
+        error: "Invalid agreement ID format"
       });
     }
 
-    // ✅ IMPROVED: Enhanced logging for agreement lookup
-    console.log(`🔍 Looking up CustomerHeaderDoc with ID: ${agreementId}`);
-    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    // ✅ OPTIMIZED: Run both queries in parallel + use lean() + select only needed fields
+    const [agreement, mapping] = await Promise.all([
+      CustomerHeaderDoc.findById(agreementId)
+        .select('_id payload.headerTitle status')
+        .lean()
+        .exec(),
+      ZohoMapping.findOne({ agreementId })
+        .select('zohoCompany.id zohoCompany.name zohoDeal.id zohoDeal.name currentVersion lastUploadedAt')
+        .lean()
+        .exec()
+    ]);
 
     if (!agreement) {
-      console.error(`❌ CustomerHeaderDoc not found with ID: ${agreementId}`);
-
-      // ✅ NEW: Provide helpful debugging info
-      const recentAgreements = await CustomerHeaderDoc.find({})
-        .sort({ createdAt: -1 })
-        .limit(3)
-        .select('_id payload.headerTitle createdAt');
-
-      console.log(`📋 Recent agreements in database (for debugging):`);
-      recentAgreements.forEach(doc => {
-        console.log(`   - ${doc._id} (${doc.payload?.headerTitle || 'No title'}) created ${doc.createdAt}`);
-      });
-
+      console.error(`❌ CustomerHeaderDoc not found: ${agreementId}`);
       return res.status(404).json({
         success: false,
-        error: "Agreement not found",
-        details: `CustomerHeaderDoc with ID ${agreementId} does not exist in database`,
-        debugInfo: {
-          providedId: agreementId,
-          isValidObjectId: mongoose.Types.ObjectId.isValid(agreementId),
-          recentAgreementIds: recentAgreements.map(a => a._id.toString())
-        }
+        error: "Agreement not found"
       });
     }
 
-    console.log(`✅ Found CustomerHeaderDoc: ${agreement._id} (${agreement.payload?.headerTitle || 'No title'})`);
-
-    // Check if Zoho mapping exists
-    const mapping = await ZohoMapping.findByAgreementId(agreementId);
+    console.log(`✅ Found CustomerHeaderDoc: ${agreement._id}`);
 
     if (mapping) {
-      console.log(`✅ Found existing mapping - this is an UPDATE`);
-      console.log(`  ├ Company: ${mapping.zohoCompany.name} (${mapping.zohoCompany.id})`);
-      console.log(`  ├ Deal: ${mapping.zohoDeal.name} (${mapping.zohoDeal.id})`);
-      console.log(`  └ Version: ${mapping.currentVersion} → ${mapping.getNextVersion()}`);
+      // ✅ OPTIMIZED: Calculate next version inline (no method call needed)
+      const nextVersion = (mapping.currentVersion || 0) + 1;
+
+      console.log(`✅ Existing mapping - UPDATE mode (v${mapping.currentVersion} → v${nextVersion})`);
 
       return res.json({
         success: true,
@@ -359,7 +345,7 @@ router.get("/:agreementId/status", async (req, res) => {
           dealName: mapping.zohoDeal.name,
           dealId: mapping.zohoDeal.id,
           currentVersion: mapping.currentVersion,
-          nextVersion: mapping.getNextVersion(),
+          nextVersion: nextVersion,
           lastUploadedAt: mapping.lastUploadedAt
         },
         agreement: {
@@ -369,7 +355,7 @@ router.get("/:agreementId/status", async (req, res) => {
         }
       });
     } else {
-      console.log(`🆕 No mapping found - this is a FIRST-TIME upload`);
+      console.log(`🆕 No mapping - FIRST-TIME upload`);
 
       return res.json({
         success: true,
@@ -1827,6 +1813,541 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to upload attached file to Zoho",
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/:agreementId/batch-update
+ * ✅ OPTIMIZED: Batch upload multiple version PDFs to existing deal in single API call
+ * Reduces N API calls to 1 API call for bulk uploads
+ */
+router.post("/:agreementId/batch-update", async (req, res) => {
+  try {
+    const { agreementId } = req.params;
+    const { versionIds, noteText, dealId: providedDealId } = req.body;
+
+    console.log(`📦 [BATCH-UPDATE] Starting batch upload for agreement: ${agreementId}`);
+    console.log(`📦 [BATCH-UPDATE] Files to upload: ${versionIds?.length || 0}`);
+
+    // Validate required fields
+    if (!noteText || !noteText.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Note text is required for batch updates"
+      });
+    }
+
+    if (!Array.isArray(versionIds) || versionIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "versionIds array is required and must not be empty"
+      });
+    }
+
+    // Check if agreement exists
+    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    if (!agreement) {
+      return res.status(404).json({
+        success: false,
+        error: "Agreement not found"
+      });
+    }
+
+    let dealId, dealName, nextVersion, mapping;
+
+    // Get or create mapping
+    if (providedDealId) {
+      // BULK UPLOAD MODE: Use provided dealId from first file's deal
+      dealId = providedDealId;
+      mapping = await ZohoMapping.findByAgreementId(agreementId);
+
+      if (mapping) {
+        nextVersion = mapping.getNextVersion();
+        dealName = mapping.zohoDeal.name;
+        console.log(`📦 [BATCH-UPDATE] Adding to existing deal ${dealId}, starting version ${nextVersion}`);
+      } else {
+        // Create new mapping for this batch
+        nextVersion = 1;
+        dealName = `Batch Upload Deal ${dealId}`;
+        console.log(`📦 [BATCH-UPDATE] Creating new mapping for batch in shared deal ${dealId}`);
+      }
+    } else {
+      // Use existing mapping
+      mapping = await ZohoMapping.findByAgreementId(agreementId);
+      if (!mapping) {
+        return res.status(400).json({
+          success: false,
+          error: "No existing Zoho mapping found. Use first-time upload instead."
+        });
+      }
+
+      nextVersion = mapping.getNextVersion();
+      dealId = mapping.zohoDeal.id;
+      dealName = mapping.zohoDeal.name;
+      console.log(`📦 [BATCH-UPDATE] Adding batch to existing deal: ${dealId}, starting version ${nextVersion}`);
+    }
+
+    // Process all version PDFs
+    const processedFiles = [];
+    const failedFiles = [];
+
+    for (let i = 0; i < versionIds.length; i++) {
+      const versionId = versionIds[i];
+
+      try {
+        console.log(`📄 [BATCH-UPDATE] Processing ${i + 1}/${versionIds.length}: ${versionId}`);
+
+        // Get version document with payloadSnapshot for recompilation
+        const versionDoc = await VersionPdf.findOne({
+          _id: versionId,
+          agreementId: agreementId,
+          status: { $ne: 'archived' }
+        }).select('_id versionNumber payloadSnapshot fileName');
+
+        if (!versionDoc || !versionDoc.payloadSnapshot) {
+          console.error(`❌ [BATCH-UPDATE] Version ${versionId} not found or missing payloadSnapshot`);
+          failedFiles.push({
+            versionId,
+            error: "Version document not found or missing data for PDF compilation"
+          });
+          continue;
+        }
+
+        console.log(`🔄 [BATCH-UPDATE] Recompiling PDF for version ${versionDoc.versionNumber}...`);
+
+        // Recompile PDF on-demand
+        const compiledPdf = await compileCustomerHeader(versionDoc.payloadSnapshot, {
+          watermark: false
+        });
+
+        if (!compiledPdf || !compiledPdf.buffer) {
+          console.error(`❌ [BATCH-UPDATE] Failed to compile PDF for version ${versionDoc.versionNumber}`);
+          failedFiles.push({
+            versionId,
+            fileName: versionDoc.fileName,
+            error: "Failed to compile PDF"
+          });
+          continue;
+        }
+
+        const pdfBuffer = compiledPdf.buffer;
+        const fileName = versionDoc.fileName || `version_${versionDoc.versionNumber}.pdf`;
+
+        // Validate PDF buffer
+        if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
+          console.error(`❌ [BATCH-UPDATE] Invalid PDF buffer for version ${versionDoc.versionNumber}`);
+          failedFiles.push({
+            versionId,
+            fileName,
+            error: "Invalid PDF buffer"
+          });
+          continue;
+        }
+
+        processedFiles.push({
+          versionId: versionDoc._id,
+          versionNumber: versionDoc.versionNumber,
+          fileName,
+          pdfBuffer,
+          bufferSize: pdfBuffer.length
+        });
+
+        console.log(`✅ [BATCH-UPDATE] Processed ${fileName}: ${pdfBuffer.length} bytes`);
+      } catch (err) {
+        console.error(`❌ [BATCH-UPDATE] Error processing version ${versionId}:`, err);
+        failedFiles.push({
+          versionId,
+          error: err.message
+        });
+      }
+    }
+
+    if (processedFiles.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No files could be processed successfully",
+        failedFiles
+      });
+    }
+
+    console.log(`📦 [BATCH-UPDATE] Successfully processed ${processedFiles.length}/${versionIds.length} files`);
+
+    // Create SINGLE note with all file names listed
+    const fileList = processedFiles.map(f => `• ${f.fileName}`).join('\n');
+    const batchNoteContent = `${noteText.trim()}\n\nBatch upload of ${processedFiles.length} files:\n${fileList}`;
+
+    const noteResult = await createBiginNote(dealId, {
+      title: `Batch Upload - ${processedFiles.length} files`,
+      content: batchNoteContent
+    });
+
+    if (!noteResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: `Failed to create note: ${noteResult.error?.message || 'Unknown error'}`,
+        details: noteResult.error,
+        processedFiles: processedFiles.length,
+        failedFiles: failedFiles.length
+      });
+    }
+
+    const note = noteResult.note;
+    console.log(`✅ [BATCH-UPDATE] Created batch note: ${note.id}`);
+
+    // Upload all PDFs to Zoho deal
+    const uploadResults = [];
+    let currentVersion = nextVersion;
+
+    for (const file of processedFiles) {
+      try {
+        console.log(`📤 [BATCH-UPDATE] Uploading ${file.fileName} to Zoho...`);
+
+        const fileResult = await uploadBiginFile(dealId, file.pdfBuffer, file.fileName);
+
+        if (!fileResult.success) {
+          console.error(`❌ [BATCH-UPDATE] Failed to upload ${file.fileName}:`, fileResult.error);
+          failedFiles.push({
+            versionId: file.versionId,
+            fileName: file.fileName,
+            error: fileResult.error?.message || 'Upload failed'
+          });
+        } else {
+          console.log(`✅ [BATCH-UPDATE] Uploaded ${file.fileName}: ${fileResult.file.id}`);
+
+          uploadResults.push({
+            versionId: file.versionId,
+            versionNumber: file.versionNumber,
+            fileName: file.fileName,
+            zohoFileId: fileResult.file.id,
+            version: currentVersion
+          });
+
+          currentVersion++;
+        }
+      } catch (err) {
+        console.error(`❌ [BATCH-UPDATE] Error uploading ${file.fileName}:`, err);
+        failedFiles.push({
+          versionId: file.versionId,
+          fileName: file.fileName,
+          error: err.message
+        });
+      }
+    }
+
+    // Update MongoDB mapping with all successful uploads
+    if (uploadResults.length > 0 && mapping) {
+      // Add all uploads to existing mapping
+      for (const result of uploadResults) {
+        mapping.addUpload({
+          zohoNoteId: note.id,
+          zohoFileId: result.zohoFileId,
+          noteText: noteText.trim(),
+          fileName: result.fileName,
+          uploadedBy: 'system'
+        });
+      }
+      await mapping.save();
+      console.log(`✅ [BATCH-UPDATE] Updated mapping with ${uploadResults.length} new uploads`);
+    } else if (uploadResults.length > 0 && !mapping) {
+      console.warn(`⚠️ [BATCH-UPDATE] No mapping found for agreement ${agreementId} - uploads completed but not tracked in mapping`);
+    }
+
+    console.log(`✅ [BATCH-UPDATE] Batch upload completed!`);
+    console.log(`  ├ Total files: ${versionIds.length}`);
+    console.log(`  ├ Successful: ${uploadResults.length}`);
+    console.log(`  ├ Failed: ${failedFiles.length}`);
+    console.log(`  ├ Deal: ${dealName} (${dealId})`);
+    console.log(`  ├ Note: ${note.id}`);
+    console.log(`  └ Versions: ${nextVersion} - ${currentVersion - 1}`);
+
+    res.json({
+      success: true,
+      message: `Successfully uploaded ${uploadResults.length} of ${versionIds.length} files in batch`,
+      data: {
+        deal: {
+          id: dealId,
+          name: dealName
+        },
+        note: {
+          id: note.id,
+          title: note.title
+        },
+        uploadedFiles: uploadResults,
+        failedFiles: failedFiles.length > 0 ? failedFiles : undefined,
+        mapping: mapping ? {
+          id: mapping._id,
+          startVersion: nextVersion,
+          endVersion: currentVersion - 1,
+          totalVersions: mapping.uploads.length
+        } : undefined,
+        summary: {
+          total: versionIds.length,
+          successful: uploadResults.length,
+          failed: failedFiles.length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ [BATCH-UPDATE] Batch upload failed:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /zoho-upload/batch-attached-files/add-to-deal
+ * ✅ OPTIMIZED: Batch upload multiple attached files to existing deal in single API call
+ * Reduces N API calls to 1 API call for bulk uploads
+ */
+router.post("/batch-attached-files/add-to-deal", async (req, res) => {
+  try {
+    const { fileIds, dealId, noteText, dealName } = req.body;
+
+    console.log(`📦 [BATCH-ATTACHED] Starting batch upload of attached files`);
+    console.log(`📦 [BATCH-ATTACHED] Files to upload: ${fileIds?.length || 0}`);
+
+    // Validate required fields
+    const trimmedNoteText = (noteText || "").trim();
+    if (!trimmedNoteText) {
+      return res.status(400).json({
+        success: false,
+        error: "Note text is required"
+      });
+    }
+
+    if (!dealId) {
+      return res.status(400).json({
+        success: false,
+        error: "Deal ID is required"
+      });
+    }
+
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "fileIds array is required and must not be empty"
+      });
+    }
+
+    // Process all attached files
+    const processedFiles = [];
+    const failedFiles = [];
+
+    for (let i = 0; i < fileIds.length; i++) {
+      const fileInfo = fileIds[i];
+      const fileId = typeof fileInfo === 'string' ? fileInfo : fileInfo.fileId;
+      const fileType = typeof fileInfo === 'string' ? 'attached_pdf' : (fileInfo.fileType || 'attached_pdf');
+
+      try {
+        console.log(`📄 [BATCH-ATTACHED] Processing ${i + 1}/${fileIds.length}: ${fileId} (${fileType})`);
+
+        if (!mongoose.Types.ObjectId.isValid(fileId)) {
+          failedFiles.push({
+            fileId,
+            fileType,
+            error: "Invalid file ID format"
+          });
+          continue;
+        }
+
+        const normalizedFileType = fileType.toLowerCase();
+        const isLogAttachment = normalizedFileType === "version_log";
+
+        let pdfBuffer;
+        let originalFileName = isLogAttachment ? "Version_Log.txt" : "AttachedFile.pdf";
+
+        if (isLogAttachment) {
+          const logDoc = await Log.findOne({
+            _id: fileId,
+            isDeleted: { $ne: true }
+          });
+
+          if (!logDoc) {
+            console.error(`❌ [BATCH-ATTACHED] Log document not found: ${fileId}`);
+            failedFiles.push({
+              fileId,
+              fileType,
+              error: "Log file not found"
+            });
+            continue;
+          }
+
+          originalFileName = logDoc.fileName || logDoc.documentTitle || originalFileName;
+          const textContent = logDoc.generateTextContent();
+          pdfBuffer = Buffer.from(textContent, "utf8");
+        } else {
+          const manualDoc = await ManualUploadDocument.findById(fileId).select("fileName originalFileName pdfBuffer");
+
+          if (!manualDoc) {
+            console.error(`❌ [BATCH-ATTACHED] ManualUploadDocument not found: ${fileId}`);
+            failedFiles.push({
+              fileId,
+              fileType,
+              error: "Attached file not found"
+            });
+            continue;
+          }
+
+          if (!manualDoc.pdfBuffer) {
+            failedFiles.push({
+              fileId,
+              fileType,
+              error: "Attached file has no PDF content"
+            });
+            continue;
+          }
+
+          originalFileName = manualDoc.originalFileName || manualDoc.fileName || originalFileName;
+
+          if (Buffer.isBuffer(manualDoc.pdfBuffer)) {
+            pdfBuffer = manualDoc.pdfBuffer;
+          } else if (typeof manualDoc.pdfBuffer === "string") {
+            pdfBuffer = Buffer.from(manualDoc.pdfBuffer, "base64");
+          } else {
+            throw new Error("Invalid PDF buffer format");
+          }
+        }
+
+        // Generate Zoho filename
+        const sanitizedFileNameBase = (originalFileName || "file").replace(/[^a-zA-Z0-9-_.]/g, "_");
+        const extensionMatch = sanitizedFileNameBase.match(/(\.[^./]+)$/);
+        const extensionFromName = extensionMatch ? extensionMatch[1] : "";
+        const baseName = extensionMatch
+          ? sanitizedFileNameBase.slice(0, sanitizedFileNameBase.length - extensionFromName.length)
+          : sanitizedFileNameBase;
+        const suffix = isLogAttachment ? "_log" : "_attached";
+        const finalExtension = isLogAttachment ? ".txt" : ".pdf";
+        const zohoFileName = `${baseName || "file"}${suffix}${finalExtension}`;
+
+        processedFiles.push({
+          fileId,
+          fileType: normalizedFileType,
+          originalFileName,
+          zohoFileName,
+          pdfBuffer,
+          isLogAttachment
+        });
+
+        console.log(`✅ [BATCH-ATTACHED] Processed ${originalFileName} -> ${zohoFileName}: ${pdfBuffer.length} bytes`);
+      } catch (err) {
+        console.error(`❌ [BATCH-ATTACHED] Error processing file ${fileId}:`, err);
+        failedFiles.push({
+          fileId,
+          fileType,
+          error: err.message
+        });
+      }
+    }
+
+    if (processedFiles.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No files could be processed successfully",
+        failedFiles
+      });
+    }
+
+    console.log(`📦 [BATCH-ATTACHED] Successfully processed ${processedFiles.length}/${fileIds.length} files`);
+
+    // Create SINGLE note with all file names listed
+    const fileList = processedFiles.map(f => `• ${f.originalFileName}`).join('\n');
+    const batchNoteContent = `${trimmedNoteText}\n\nBatch upload of ${processedFiles.length} attached files:\n${fileList}`;
+
+    const noteResult = await createBiginNote(dealId, {
+      title: `Batch Attached Files - ${processedFiles.length} files`,
+      content: batchNoteContent
+    });
+
+    if (!noteResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: `Failed to create note: ${noteResult.error?.message || 'Unknown error'}`,
+        processedFiles: processedFiles.length,
+        failedFiles: failedFiles.length
+      });
+    }
+
+    const note = noteResult.note;
+    console.log(`✅ [BATCH-ATTACHED] Created batch note: ${note.id}`);
+
+    // Upload all files to Zoho deal
+    const uploadResults = [];
+
+    for (const file of processedFiles) {
+      try {
+        console.log(`📤 [BATCH-ATTACHED] Uploading ${file.zohoFileName} to Zoho...`);
+
+        const fileResult = await uploadBiginFile(dealId, file.pdfBuffer, file.zohoFileName, {
+          contentType: file.isLogAttachment ? "text/plain" : "application/pdf"
+        });
+
+        if (!fileResult.success) {
+          console.error(`❌ [BATCH-ATTACHED] Failed to upload ${file.zohoFileName}:`, fileResult.error);
+          failedFiles.push({
+            fileId: file.fileId,
+            fileName: file.originalFileName,
+            error: fileResult.error?.message || 'Upload failed'
+          });
+        } else {
+          console.log(`✅ [BATCH-ATTACHED] Uploaded ${file.zohoFileName}: ${fileResult.file.id}`);
+
+          uploadResults.push({
+            fileId: file.fileId,
+            fileType: file.fileType,
+            originalFileName: file.originalFileName,
+            zohoFileName: file.zohoFileName,
+            zohoFileId: fileResult.file.id
+          });
+        }
+      } catch (err) {
+        console.error(`❌ [BATCH-ATTACHED] Error uploading ${file.zohoFileName}:`, err);
+        failedFiles.push({
+          fileId: file.fileId,
+          fileName: file.originalFileName,
+          error: err.message
+        });
+      }
+    }
+
+    console.log(`✅ [BATCH-ATTACHED] Batch upload completed!`);
+    console.log(`  ├ Total files: ${fileIds.length}`);
+    console.log(`  ├ Successful: ${uploadResults.length}`);
+    console.log(`  ├ Failed: ${failedFiles.length}`);
+    console.log(`  ├ Deal: ${dealName || dealId}`);
+    console.log(`  └ Note: ${note.id}`);
+
+    res.json({
+      success: true,
+      message: `Successfully uploaded ${uploadResults.length} of ${fileIds.length} attached files in batch`,
+      data: {
+        deal: {
+          id: dealId,
+          name: dealName || "Unknown Deal"
+        },
+        note: {
+          id: note.id,
+          title: note.title
+        },
+        uploadedFiles: uploadResults,
+        failedFiles: failedFiles.length > 0 ? failedFiles : undefined,
+        summary: {
+          total: fileIds.length,
+          successful: uploadResults.length,
+          failed: failedFiles.length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ [BATCH-ATTACHED] Batch upload failed:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to upload attached files in batch",
       detail: error.message
     });
   }

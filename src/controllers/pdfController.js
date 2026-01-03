@@ -2343,11 +2343,14 @@ export async function getSavedFileDetails(req, res) {
 }
 
 
-// ✅ NEW: Add file(s) to existing agreement's attachedFiles array
+// ✅ OPTIMIZED: Add file(s) to existing agreement's attachedFiles array
+// Performance improvements: batch insert, selective field loading, atomic updates
 export async function addFileToAgreement(req, res) {
   try {
     const { agreementId } = req.params;
     const { files } = req.body; // Array of file data
+
+    console.log(`📎 [ADD-FILES] Starting to add ${files?.length || 0} file(s) to agreement ${agreementId}`);
 
     if (!mongoose.isValidObjectId(agreementId)) {
       return res.status(400).json({
@@ -2365,8 +2368,12 @@ export async function addFileToAgreement(req, res) {
       });
     }
 
-    // Find the agreement
-    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    // ✅ OPTIMIZED: Only fetch needed fields (avoid loading heavy payload and pdfBuffer)
+    const agreement = await CustomerHeaderDoc.findById(agreementId)
+      .select('_id payload.headerTitle attachedFiles updatedBy')
+      .lean()
+      .exec();
+
     if (!agreement) {
       return res.status(404).json({
         success: false,
@@ -2375,10 +2382,11 @@ export async function addFileToAgreement(req, res) {
       });
     }
 
-    // ✅ NEW APPROACH: Store PDFs in ManualUploadDocument collection
     const userId = req.user?.id || req.admin?.id || 'system';
-    const addedFiles = [];
-    const attachmentRefs = [];
+    const agreementTitle = agreement.payload?.headerTitle || 'Untitled Agreement';
+
+    // ✅ OPTIMIZED: Prepare all documents for batch insert
+    const manualDocsToInsert = [];
 
     for (const file of files) {
       // ✅ Convert number array back to Buffer if provided
@@ -2393,111 +2401,97 @@ export async function addFileToAgreement(req, res) {
         throw new Error(`File ${file.fileName}: No PDF data provided. Please select a valid file.`);
       }
 
-      // 1. Create ManualUploadDocument with actual PDF data
-      const manualDoc = new ManualUploadDocument({
-        fileName: `${agreement.payload.headerTitle}_${file.fileName}`,
+      manualDocsToInsert.push({
+        fileName: `${agreementTitle}_${file.fileName}`,
         originalFileName: file.fileName || 'Untitled.pdf',
         fileSize: file.fileSize || pdfBuffer.length,
         mimeType: file.contentType || 'application/pdf',
-        description: file.description || `Attached to agreement: ${agreement.payload.headerTitle}`,
+        description: file.description || `Attached to agreement: ${agreementTitle}`,
         uploadedBy: userId,
         status: 'uploaded',
-        pdfBuffer: pdfBuffer, // Store actual PDF Buffer here
+        pdfBuffer: pdfBuffer,
         zoho: {
           bigin: file.zoho?.bigin || {},
           crm: file.zoho?.crm || {},
         },
         metadata: {
           attachedToAgreement: agreementId,
-          agreementTitle: agreement.payload.headerTitle,
+          agreementTitle: agreementTitle,
           attachedAt: new Date()
         }
       });
-
-      await manualDoc.save();
-
-      console.log(`📁 [SAVED-FILE] ManualUploadDocument saved with ID: ${manualDoc._id}`);
-
-      // Verify the document was saved correctly
-      if (!manualDoc._id) {
-        throw new Error(`Failed to save ManualUploadDocument for file: ${file.fileName}`);
-      }
-
-      // 2. Create lightweight reference in CustomerHeaderDoc.attachedFiles
-      // ✅ Ensure ObjectId is properly converted
-      const documentId = manualDoc._id;
-      if (!documentId) {
-        throw new Error(`ManualUploadDocument ID is null for file: ${file.fileName}`);
-      }
-
-      const attachmentRef = {
-        manualDocumentId: new mongoose.Types.ObjectId(documentId), // ✅ Explicit ObjectId conversion
-        fileName: file.fileName || 'Untitled.pdf',
-        fileSize: file.fileSize || 0,
-        description: file.description || '',
-        attachedAt: new Date(),
-        attachedBy: userId,
-        displayOrder: agreement.attachedFiles.length + attachmentRefs.length
-      };
-
-      console.log(`📁 [ATTACHMENT-REF] Creating reference:`, {
-        manualDocumentId: attachmentRef.manualDocumentId,
-        fileName: attachmentRef.fileName,
-        hasId: !!attachmentRef.manualDocumentId
-      });
-
-      attachmentRefs.push(attachmentRef);
-      addedFiles.push({
-        id: manualDoc._id,
-        fileName: file.fileName,
-        fileSize: file.fileSize
-      });
     }
 
-    console.log(`📁 [REFS-READY] About to add ${attachmentRefs.length} attachment refs to agreement`);
-    console.log(`📁 [REFS-PREVIEW]`, attachmentRefs.map(ref => ({
-      manualDocumentId: ref.manualDocumentId,
-      fileName: ref.fileName
-    })));
-
-    // 🛡️ VALIDATION FIX: Clean existing corrupt attachments before adding new ones
-    const originalAttachmentCount = agreement.attachedFiles.length;
-    agreement.attachedFiles = agreement.attachedFiles.filter(attachment => {
-      const isValid = attachment.manualDocumentId &&
-                     mongoose.isValidObjectId(attachment.manualDocumentId);
-
-      if (!isValid) {
-        console.log(`🗑️  [CLEANUP] Removing corrupt attachment: fileName="${attachment.fileName || 'N/A'}", manualDocumentId="${attachment.manualDocumentId || 'undefined'}"`);
-      }
-      return isValid;
+    // ✅ OPTIMIZED: Batch insert all documents at once (1 query instead of N queries)
+    console.log(`📦 [ADD-FILES] Batch inserting ${manualDocsToInsert.length} ManualUploadDocuments...`);
+    const insertedDocs = await ManualUploadDocument.insertMany(manualDocsToInsert, {
+      ordered: true, // Stop on first error
+      lean: false    // Return full Mongoose documents with _id
     });
 
-    const cleanedCount = originalAttachmentCount - agreement.attachedFiles.length;
-    if (cleanedCount > 0) {
-      console.log(`🧹 [VALIDATION-FIX] Removed ${cleanedCount} corrupt attachments from agreement ${agreement._id}`);
+    console.log(`✅ [ADD-FILES] Inserted ${insertedDocs.length} ManualUploadDocuments`);
+
+    // ✅ OPTIMIZED: Build attachment references from inserted documents
+    const attachmentRefs = insertedDocs.map((doc, index) => ({
+      manualDocumentId: new mongoose.Types.ObjectId(doc._id),
+      fileName: files[index].fileName || 'Untitled.pdf',
+      fileSize: files[index].fileSize || 0,
+      description: files[index].description || '',
+      attachedAt: new Date(),
+      attachedBy: userId,
+      displayOrder: (agreement.attachedFiles?.length || 0) + index
+    }));
+
+    const addedFiles = insertedDocs.map((doc, index) => ({
+      id: doc._id,
+      fileName: files[index].fileName,
+      fileSize: files[index].fileSize
+    }));
+
+    // ✅ OPTIMIZED: Use findByIdAndUpdate with $push for atomic update
+    // This avoids loading the full document and is much faster than find + save
+    const updateResult = await CustomerHeaderDoc.findByIdAndUpdate(
+      agreementId,
+      {
+        $push: { attachedFiles: { $each: attachmentRefs } },
+        $set: { updatedBy: userId, updatedAt: new Date() }
+      },
+      {
+        new: true,
+        select: '_id payload.headerTitle attachedFiles',
+        runValidators: true
+      }
+    ).lean();
+
+    if (!updateResult) {
+      // Rollback: delete the inserted documents if agreement update failed
+      await ManualUploadDocument.deleteMany({
+        _id: { $in: insertedDocs.map(doc => doc._id) }
+      });
+
+      throw new Error('Failed to update agreement with attachment references');
     }
 
-    // 3. Add attachment references to agreement
-    agreement.attachedFiles.push(...attachmentRefs);
-    agreement.updatedBy = userId;
+    console.log(`✅ [ADD-FILES] Added ${attachmentRefs.length} file refs to agreement: ${agreementTitle}`);
 
-    await agreement.save();
-
-    console.log(`📎 [ADD-FILE-OPTIMIZED] Added ${attachmentRefs.length} file refs to agreement: ${agreement.payload.headerTitle}`);
+    // ✅ OPTIMIZED: Set cache-busting headers to prevent stale data
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     res.json({
       success: true,
       message: `Successfully added ${attachmentRefs.length} file(s) to agreement`,
       agreement: {
-        id: agreement._id,
-        title: agreement.payload.headerTitle,
-        attachedFilesCount: agreement.attachedFiles.length
+        id: updateResult._id,
+        title: updateResult.payload?.headerTitle || 'Untitled Agreement',
+        attachedFilesCount: updateResult.attachedFiles?.length || 0
       },
       addedFiles: addedFiles
     });
 
   } catch (err) {
-    console.error("addFileToAgreement error:", err);
+    console.error("❌ [ADD-FILES] Error:", err.message);
     res.status(500).json({
       success: false,
       error: "server_error",

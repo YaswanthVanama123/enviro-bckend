@@ -39,11 +39,17 @@ EnviroMaster NVA Team`
   timestamps: true
 });
 
-// Ensure only one active template at a time
+// ✅ OPTIMIZED: Add index on isActive for faster queries
+emailTemplateSchema.index({ isActive: 1 });
+
+// ✅ OPTIMIZED: Ensure only one active template at a time
+// NOTE: This pre-save hook runs on every save. For better performance,
+// handle this logic in the controller using findOneAndUpdate with session/transaction
 emailTemplateSchema.pre('save', async function(next) {
-  if (this.isActive) {
+  if (this.isActive && this.isModified('isActive')) {
+    // Only run updateMany if isActive was actually changed
     await mongoose.model('EmailTemplate').updateMany(
-      { _id: { $ne: this._id } },
+      { _id: { $ne: this._id }, isActive: true },
       { isActive: false }
     );
   }

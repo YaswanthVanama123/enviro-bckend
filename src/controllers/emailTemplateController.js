@@ -4,14 +4,19 @@ import EmailTemplate from '../models/EmailTemplate.js';
 /**
  * GET /api/email-template/active
  * Get the active email template
+ * ✅ OPTIMIZED: Added lean(), cache-busting headers
  */
 export async function getActiveTemplate(req, res) {
   try {
-    let template = await EmailTemplate.findOne({ isActive: true });
+    // ✅ OPTIMIZED: Use lean() for faster query
+    let template = await EmailTemplate.findOne({ isActive: true })
+      .select('_id name subject body isActive updatedAt')
+      .lean()
+      .exec();
 
     // If no template exists, create default one
     if (!template) {
-      template = await EmailTemplate.create({
+      const newTemplate = await EmailTemplate.create({
         name: 'default',
         subject: 'Document from EnviroMaster NVA',
         body: `Hello,
@@ -23,7 +28,22 @@ EnviroMaster NVA Team`,
         isActive: true
       });
       console.log('📧 [EMAIL-TEMPLATE] Created default email template');
+
+      // Convert to plain object for consistency
+      template = {
+        _id: newTemplate._id,
+        name: newTemplate.name,
+        subject: newTemplate.subject,
+        body: newTemplate.body,
+        isActive: newTemplate.isActive,
+        updatedAt: newTemplate.updatedAt
+      };
     }
+
+    // ✅ OPTIMIZED: Set cache-busting headers
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     return res.json({
       success: true,
@@ -49,6 +69,7 @@ EnviroMaster NVA Team`,
 /**
  * PUT /api/email-template
  * Update the email template
+ * ✅ OPTIMIZED: Use findOneAndUpdate, cache-busting headers, no pre-save hook trigger
  */
 export async function updateTemplate(req, res) {
   try {
@@ -64,24 +85,36 @@ export async function updateTemplate(req, res) {
 
     console.log('📧 [EMAIL-TEMPLATE] Updating email template');
 
-    // Find active template or create new one
-    let template = await EmailTemplate.findOne({ isActive: true });
-
-    if (template) {
-      template.subject = subject;
-      template.body = body;
-      template.updatedAt = new Date();
-      await template.save();
-    } else {
-      template = await EmailTemplate.create({
-        name: 'default',
-        subject,
-        body,
-        isActive: true
-      });
-    }
+    // ✅ OPTIMIZED: Use findOneAndUpdate with upsert for single atomic operation
+    // This avoids the expensive pre-save hook and reduces from 2-3 queries to 1
+    const template = await EmailTemplate.findOneAndUpdate(
+      { isActive: true },
+      {
+        $set: {
+          subject,
+          body,
+          updatedAt: new Date(),
+          isActive: true
+        },
+        $setOnInsert: {
+          name: 'default',
+          createdAt: new Date()
+        }
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+        select: '_id name subject body isActive updatedAt'
+      }
+    ).lean();
 
     console.log('✅ [EMAIL-TEMPLATE] Template updated successfully');
+
+    // ✅ OPTIMIZED: Set cache-busting headers to prevent stale data
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     return res.json({
       success: true,
@@ -108,10 +141,15 @@ export async function updateTemplate(req, res) {
 /**
  * GET /api/email-template/test
  * Test endpoint to verify template system
+ * ✅ OPTIMIZED: Added lean()
  */
 export async function testTemplate(req, res) {
   try {
-    const template = await EmailTemplate.findOne({ isActive: true });
+    // ✅ OPTIMIZED: Use lean() for faster query
+    const template = await EmailTemplate.findOne({ isActive: true })
+      .select('subject body updatedAt')
+      .lean()
+      .exec();
 
     return res.json({
       success: true,

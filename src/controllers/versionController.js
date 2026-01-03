@@ -120,6 +120,7 @@ export async function getAllVersionPdfs(req, res) {
 /**
  * GET /api/versions/:id
  * Get a specific version PDF by ID
+ * ✅ OPTIMIZED: Added lean(), optimized populate, cache-busting headers
  */
 export async function getVersionPdfById(req, res) {
   try {
@@ -132,11 +133,16 @@ export async function getVersionPdfById(req, res) {
       });
     }
 
+    // ✅ OPTIMIZED: Use lean() + optimized populate with select
     const version = await VersionPdf.findById(id)
       .populate({
         path: 'agreementId',
-        select: 'payload.headerTitle status createdAt'
-      });
+        select: 'payload.headerTitle status',
+        options: { lean: true }
+      })
+      .select('-pdf_meta.pdfBuffer')
+      .lean()
+      .exec();
 
     if (!version) {
       return res.status(404).json({
@@ -146,6 +152,11 @@ export async function getVersionPdfById(req, res) {
     }
 
     console.log(`📄 [VERSION] Retrieved version ${version.versionNumber} for agreement ${version.agreementId._id}`);
+
+    // ✅ FIXED: Set cache-busting headers to prevent stale data
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     res.json({
       success: true,
@@ -164,7 +175,7 @@ export async function getVersionPdfById(req, res) {
         payloadSnapshot: version.payloadSnapshot,
         fileSize: version.pdf_meta?.sizeBytes || 0,
         pdfStoredAt: version.pdf_meta?.storedAt || null,
-        hasPdf: !!version.pdf_meta?.pdfBuffer,
+        hasPdf: !!version.pdf_meta,
         zohoInfo: {
           biginDealId: version.zoho?.bigin?.dealId || null,
           biginFileId: version.zoho?.bigin?.fileId || null,
@@ -186,6 +197,7 @@ export async function getVersionPdfById(req, res) {
 /**
  * PATCH /api/versions/:id/status
  * Update version PDF status
+ * ✅ OPTIMIZED: Use findByIdAndUpdate, cache-busting headers
  */
 export async function updateVersionStatus(req, res) {
   try {
@@ -212,8 +224,13 @@ export async function updateVersionStatus(req, res) {
       });
     }
 
-    // Find and update version
-    const version = await VersionPdf.findById(id);
+    // ✅ OPTIMIZED: Use findByIdAndUpdate with new:true to get updated doc in one query
+    const version = await VersionPdf.findByIdAndUpdate(
+      id,
+      { status, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    ).select('_id versionNumber status updatedAt').lean();
+
     if (!version) {
       console.log(`❌ [VERSION-STATUS] Version not found: ${id}`);
       return res.status(404).json({
@@ -222,12 +239,12 @@ export async function updateVersionStatus(req, res) {
       });
     }
 
-    // Update status
-    const oldStatus = version.status;
-    version.status = status;
-    await version.save();
+    console.log(`✅ [VERSION-STATUS] Updated version ${version.versionNumber} status to ${status}`);
 
-    console.log(`✅ [VERSION-STATUS] Updated version ${version.versionNumber} status from ${oldStatus} to ${status}`);
+    // ✅ FIXED: Set cache-busting headers to prevent stale data on subsequent GET
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     res.json({
       success: true,
@@ -236,7 +253,6 @@ export async function updateVersionStatus(req, res) {
         id: version._id,
         versionNumber: version.versionNumber,
         status: version.status,
-        previousStatus: oldStatus,
         updatedAt: version.updatedAt
       }
     });
