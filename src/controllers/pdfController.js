@@ -2584,8 +2584,17 @@ export async function restoreAgreement(req, res) {
       });
     }
 
-    // ✅ FIXED: Find agreement (deleted or not) - we'll restore all deleted files inside
-    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    const userId = req.user?.id || req.admin?.id || 'system';
+    const restoreTimestamp = new Date();
+
+    // ⚡ ULTRA-OPTIMIZED: Restore agreement and all files in parallel with bulk operations
+    console.log(`♻️ [BULK RESTORE] Starting bulk restore for agreement ${agreementId}...`);
+    const startTime = Date.now();
+
+    // ⚡ Step 1: Get agreement info (we need attachedFiles for manual upload restore)
+    const agreement = await CustomerHeaderDoc.findById(agreementId)
+      .select('_id payload.headerTitle attachedFiles isDeleted')
+      .lean();
 
     if (!agreement) {
       return res.status(404).json({
@@ -2595,96 +2604,78 @@ export async function restoreAgreement(req, res) {
       });
     }
 
-    const userId = req.user?.id || req.admin?.id || 'system';
-    let restoredCount = 0;
-    const restoredItems = [];
-
-    // ✅ FIXED: If agreement itself is deleted, restore it
-    if (agreement.isDeleted === true) {
-      agreement.isDeleted = false;
-      agreement.deletedAt = null;
-      agreement.deletedBy = null;
-      agreement.updatedBy = userId;
-      await agreement.save();
-      restoredCount++;
-      restoredItems.push(`Agreement: ${agreement.payload?.headerTitle || 'Untitled'}`);
-      console.log(`♻️ [RESTORE] Agreement restored: ${agreement.payload?.headerTitle} (ID: ${agreementId})`);
-    }
-
-    // ✅ NEW: Restore all deleted manual upload files attached to this agreement
+    // ⚡ Step 2: Restore agreement and all files in parallel (4 operations at once)
     const manualFileIds = (agreement.attachedFiles || [])
       .map(ref => ref.manualDocumentId)
       .filter(id => id);
 
-    if (manualFileIds.length > 0) {
-      const manualRestoreResult = await ManualUploadDocument.updateMany(
-        {
-          _id: { $in: manualFileIds },
-          isDeleted: true
-        },
+    const [agreementResult, versionResult, manualResult, logResult] = await Promise.all([
+      // Restore agreement itself (if deleted)
+      agreement.isDeleted === true
+        ? CustomerHeaderDoc.findOneAndUpdate(
+            { _id: agreementId, isDeleted: true },
+            {
+              $set: {
+                isDeleted: false,
+                deletedAt: null,
+                deletedBy: null,
+                updatedBy: userId,
+                updatedAt: restoreTimestamp
+              }
+            },
+            { new: true }
+          )
+        : Promise.resolve(null),
+
+      // Restore all version PDFs for this agreement
+      VersionPdf.updateMany(
+        { agreementId: agreementId, isDeleted: true },
         {
           $set: {
             isDeleted: false,
             deletedAt: null,
             deletedBy: null,
-            updatedAt: new Date()
+            updatedAt: restoreTimestamp
           }
         }
-      );
+      ),
 
-      if (manualRestoreResult.modifiedCount > 0) {
-        restoredCount += manualRestoreResult.modifiedCount;
-        restoredItems.push(`${manualRestoreResult.modifiedCount} attached file(s)`);
-        console.log(`♻️ [RESTORE] Restored ${manualRestoreResult.modifiedCount} manual upload files for agreement ${agreementId}`);
-      }
-    }
+      // Restore all manually uploaded files attached to this agreement
+      manualFileIds.length > 0
+        ? ManualUploadDocument.updateMany(
+            { _id: { $in: manualFileIds }, isDeleted: true },
+            {
+              $set: {
+                isDeleted: false,
+                deletedAt: null,
+                deletedBy: null,
+                updatedAt: restoreTimestamp
+              }
+            }
+          )
+        : Promise.resolve({ modifiedCount: 0 }),
 
-    // ✅ NEW: Restore all deleted version PDFs for this agreement
-    const versionRestoreResult = await VersionPdf.updateMany(
-      {
-        agreementId: agreementId,
-        isDeleted: true
-      },
-      {
-        $set: {
-          isDeleted: false,
-          deletedAt: null,
-          deletedBy: null,
-          updatedAt: new Date()
+      // Restore all version logs for this agreement
+      Log.updateMany(
+        { agreementId: agreementId, isDeleted: true },
+        {
+          $set: {
+            isDeleted: false,
+            deletedAt: null,
+            deletedBy: null,
+            updatedAt: restoreTimestamp
+          }
         }
-      }
-    );
+      )
+    ]);
 
-    if (versionRestoreResult.modifiedCount > 0) {
-      restoredCount += versionRestoreResult.modifiedCount;
-      restoredItems.push(`${versionRestoreResult.modifiedCount} version PDF(s)`);
-      console.log(`♻️ [RESTORE] Restored ${versionRestoreResult.modifiedCount} version PDFs for agreement ${agreementId}`);
-    }
-
-    // ✅ NEW: Restore all deleted version logs for this agreement
-    const logRestoreResult = await Log.updateMany(
-      {
-        agreementId: agreementId,
-        isDeleted: true
-      },
-      {
-        $set: {
-          isDeleted: false,
-          deletedAt: null,
-          deletedBy: null,
-          updatedAt: new Date()
-        }
-      }
-    );
-
-    if (logRestoreResult.modifiedCount > 0) {
-      restoredCount += logRestoreResult.modifiedCount;
-      restoredItems.push(`${logRestoreResult.modifiedCount} version log(s)`);
-      console.log(`♻️ [RESTORE] Restored ${logRestoreResult.modifiedCount} version logs for agreement ${agreementId}`);
-    }
+    // ⚡ Calculate results
+    const agreementRestored = agreementResult ? 1 : 0;
+    const totalRestored = agreementRestored + versionResult.modifiedCount + manualResult.modifiedCount + logResult.modifiedCount;
+    const totalTime = Date.now() - startTime;
 
     // ✅ Check if anything was restored
-    if (restoredCount === 0) {
+    if (totalRestored === 0) {
       return res.status(404).json({
         success: false,
         error: "not_found",
@@ -2692,11 +2683,21 @@ export async function restoreAgreement(req, res) {
       });
     }
 
-    const successMessage = restoredCount === 1
-      ? "1 item restored successfully"
-      : `${restoredCount} items restored successfully`;
+    console.log(`♻️ [BULK RESTORE] Agreement "${agreement.payload?.headerTitle}" restored in ${totalTime}ms:`);
+    console.log(`   • Agreement: ${agreementRestored}`);
+    console.log(`   • Version PDFs: ${versionResult.modifiedCount}`);
+    console.log(`   • Attached files: ${manualResult.modifiedCount}`);
+    console.log(`   • Version logs: ${logResult.modifiedCount}`);
+    console.log(`   • Total: ${totalRestored} items`);
 
-    console.log(`♻️ [RESTORE] Total restored for agreement ${agreementId}: ${restoredItems.join(', ')}`);
+    // ⚡ OPTIMIZED: Set cache-busting headers
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const successMessage = totalRestored === 1
+      ? "1 item restored successfully"
+      : `${totalRestored} items restored successfully`;
 
     res.json({
       success: true,
@@ -2705,8 +2706,13 @@ export async function restoreAgreement(req, res) {
         id: agreement._id,
         title: agreement.payload?.headerTitle || 'Untitled Agreement'
       },
-      restoredCount,
-      restoredItems
+      restoredCount: totalRestored,
+      breakdown: {
+        agreement: agreementRestored,
+        versionPdfs: versionResult.modifiedCount,
+        attachedFiles: manualResult.modifiedCount,
+        versionLogs: logResult.modifiedCount
+      }
     });
 
   } catch (err) {
