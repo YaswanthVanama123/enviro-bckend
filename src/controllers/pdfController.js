@@ -1779,6 +1779,7 @@ export async function getSavedFilesGrouped(req, res) {
     if (mongoose.connection.readyState === 0) {
       console.log('⚠️ Database not connected, returning empty list for grouped files');
       return res.json({
+        success: true,
         total: 0,
         totalGroups: 0,
         page,
@@ -1787,293 +1788,256 @@ export async function getSavedFilesGrouped(req, res) {
       });
     }
 
-    const filter = {};
+    // Build match filter
+    const matchFilter = {};
 
-    // Optional filters
     if (req.query.status) {
-      filter.status = req.query.status;
+      matchFilter.status = req.query.status;
     }
     if (req.query.search) {
-      filter['payload.headerTitle'] = {
+      matchFilter['payload.headerTitle'] = {
         $regex: req.query.search,
         $options: 'i'
       };
     }
 
-    // ✅ FIXED: Different logic for trash mode vs normal mode
     const isTrashMode = req.query.isDeleted === 'true';
-
-    // ✅ NEW: Support includeDrafts parameter to include draft agreements without PDFs
     const includeDrafts = req.query.includeDrafts === 'true';
-
-    // ✅ NEW: Support includeLogs parameter to include version log files
     const includeLogs = req.query.includeLogs === 'true' || isTrashMode;
 
-    if (isTrashMode) {
-      // ✅ FIXED: Trash mode should fetch ALL agreements (deleted + non-deleted)
-      // We'll show deleted agreements with all their files, AND non-deleted agreements that contain deleted files
-      console.log(`📁 [TRASH MODE] Fetching all agreements (deleted agreements + agreements with deleted files)`);
-    } else {
-      // Normal mode: show only non-deleted agreements
-      filter.isDeleted = { $ne: true };
-      console.log(`📁 [NORMAL MODE] includeDrafts=${includeDrafts}`);
+    if (!isTrashMode) {
+      matchFilter.isDeleted = { $ne: true };
     }
 
-    // ⚡ PERFORMANCE: Count with index
-    const totalAgreements = await CustomerHeaderDoc.countDocuments(filter);
+    console.log(`📁 [OPTIMIZED] Mode: ${isTrashMode ? 'trash' : 'normal'}, includeDrafts: ${includeDrafts}, includeLogs: ${includeLogs}`);
 
-    console.log(`📁 [FETCH] Found ${totalAgreements} total agreements matching filter`);
+    // ⚡ CRITICAL: Get total count first
+    const totalAgreements = await CustomerHeaderDoc.countDocuments(matchFilter);
+    console.log(`📁 [OPTIMIZED] Found ${totalAgreements} total agreements`);
 
-    // ✅ FIXED: Dynamic populate filter based on trash mode
-    let manualDocumentMatch;
-    if (isTrashMode) {
-      // ✅ FIXED: Trash mode - show ALL files from deleted agreements OR deleted files from non-deleted agreements
-      // Note: populate match doesn't support $or easily, so we'll filter after populate
-      // For now, don't filter - we'll handle it in the transformation step
-      manualDocumentMatch = {}; // No filter - fetch all attached files
-    } else {
-      // Normal mode: exclude deleted manual documents
-      manualDocumentMatch = { isDeleted: { $ne: true } };
-    }
+    // ⚡ OPTIMIZED: Single aggregation pipeline query replaces 3+ separate queries
+    const aggregationPipeline = [
+      // Stage 1: Match agreements
+      { $match: matchFilter },
 
-    // ⚡ PERFORMANCE: Use lean() and select only needed fields
-    const agreements = await CustomerHeaderDoc.find(filter)
-      .select({
-        _id: 1,
-        status: 1,
-        isDeleted: 1, // ✅ ADDED: Include isDeleted status for frontend logic
-        deletedAt: 1, // ✅ ADDED: Include deletion timestamp
-        deletedBy: 1, // ✅ ADDED: Include who deleted it
-        createdAt: 1,
-        updatedAt: 1,
-        createdBy: 1,
-        updatedBy: 1,
-        'payload.headerTitle': 1,
-        'payload.agreement.startDate': 1, // ✅ NEW: For timeline tracking
-        'payload.summary.contractMonths': 1, // ✅ NEW: For timeline tracking
-        'pdf_meta.sizeBytes': 1,
-        'pdf_meta.storedAt': 1,
-        // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
-        'zoho.bigin.dealId': 1,
-        'zoho.bigin.fileId': 1,
-        'zoho.crm.dealId': 1,
-        'zoho.crm.fileId': 1,
-        'attachedFiles': 1,  // ✅ Include attached file references
-      })
-      .populate({
-        path: 'attachedFiles.manualDocumentId',  // ✅ Populate referenced ManualUploadDocument
-        model: 'ManualUploadDocument',
-        match: manualDocumentMatch, // ✅ FIXED: Dynamic filter based on trash mode
-        select: 'fileName originalFileName fileSize mimeType description uploadedBy status isDeleted deletedAt deletedBy zoho createdAt updatedAt' // ✅ ADDED: isDeleted field
-      })
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();  // ⚡ PERFORMANCE: Use lean() for faster queries
+      // Stage 2: Sort
+      { $sort: { createdAt: -1 } },
 
-    const fetchAgreementsTime = Date.now() - startTime;
-    console.log(`⚡ [PERFORMANCE] Fetched ${agreements.length} agreements in ${fetchAgreementsTime}ms`);
+      // Stage 3: Paginate
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
 
-    // ✅ FIXED: Fetch all version PDFs for these agreements in one query (dynamic filter)
-    const agreementIds = agreements.map(agreement => agreement._id);
-
-    // ✅ NEW: Identify which agreements are deleted vs which have deleted files
-    const deletedAgreementIds = agreements
-      .filter(agreement => agreement.isDeleted === true)
-      .map(agreement => agreement._id);
-
-    const nonDeletedAgreementIds = agreements
-      .filter(agreement => agreement.isDeleted !== true)
-      .map(agreement => agreement._id);
-
-    console.log(`📁 [TRASH MODE] Found ${deletedAgreementIds.length} deleted agreements and ${nonDeletedAgreementIds.length} non-deleted agreements`);
-
-    // ✅ FIXED: Dynamic version PDF filter based on trash mode
-    let versionPdfFilter = {
-      agreementId: { $in: agreementIds },
-      status: { $ne: 'archived' } // Exclude archived versions
-    };
-
-    if (isTrashMode) {
-      // ✅ FIXED: Trash mode logic
-      // Show ALL files from deleted agreements OR deleted files from non-deleted agreements
-      if (deletedAgreementIds.length > 0 && nonDeletedAgreementIds.length > 0) {
-        // Both types exist: use $or condition
-        versionPdfFilter.$or = [
-          { agreementId: { $in: deletedAgreementIds } }, // All files from deleted agreements
-          { agreementId: { $in: nonDeletedAgreementIds }, isDeleted: true } // Only deleted files from non-deleted agreements
-        ];
-        delete versionPdfFilter.agreementId; // Remove the top-level agreementId filter
-      } else if (deletedAgreementIds.length > 0) {
-        // Only deleted agreements: show all their files
-        versionPdfFilter.agreementId = { $in: deletedAgreementIds };
-        // Don't filter by isDeleted - show all files
-      } else {
-        // Only non-deleted agreements: show only deleted files
-        versionPdfFilter.agreementId = { $in: nonDeletedAgreementIds };
-        versionPdfFilter.isDeleted = true;
-      }
-
-      console.log(`📁 [TRASH MODE] Version PDF filter:`, JSON.stringify(versionPdfFilter, null, 2));
-    } else {
-      // Normal mode: exclude deleted version PDFs
-      versionPdfFilter.isDeleted = { $ne: true };
-    }
-
-    // ⚡ PERFORMANCE: Single optimized query for all version PDFs
-    const versionStartTime = Date.now();
-    const allVersionPdfs = await VersionPdf.find(versionPdfFilter)
-    .select({
-      _id: 1,
-      agreementId: 1,
-      versionNumber: 1,
-      versionLabel: 1,
-      status: 1,  // ✅ ADDED: Include the status field
-      isDeleted: 1, // ✅ ADDED: Include the isDeleted field
-      deletedAt: 1,
-      deletedBy: 1,
-      createdAt: 1,
-      updatedAt: 1,
-      createdBy: 1,
-      changeNotes: 1,
-      'pdf_meta.sizeBytes': 1,
-      'pdf_meta.storedAt': 1,
-      // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
-      'zoho.bigin.dealId': 1,
-      'zoho.bigin.fileId': 1,
-      'zoho.crm.dealId': 1,
-      'zoho.crm.fileId': 1,
-    })
-    .sort({ agreementId: 1, versionNumber: -1 }) // Group by agreement, latest versions first
-    .lean();  // ⚡ PERFORMANCE: Use lean() for faster queries
-
-    const versionFetchTime = Date.now() - versionStartTime;
-    console.log(`⚡ [PERFORMANCE] Fetched ${allVersionPdfs.length} version PDFs in ${versionFetchTime}ms`);
-
-    // Group version PDFs by agreement ID for efficient lookup
-    const versionsByAgreement = {};
-    allVersionPdfs.forEach(version => {
-      const agreementId = version.agreementId.toString();
-      if (!versionsByAgreement[agreementId]) {
-        versionsByAgreement[agreementId] = [];
-      }
-      versionsByAgreement[agreementId].push(version);
-    });
-
-    console.log(`📁 [VERSIONS] Found ${allVersionPdfs.length} version PDFs across ${Object.keys(versionsByAgreement).length} agreements`);
-
-        // ✅ NEW: Fetch log files if includeLogs is true
-    let logsByAgreement = {};
-    if (includeLogs && agreementIds.length > 0) {
-      console.log(`[LOGS] Fetching log files for ${agreementIds.length} agreements (trashMode=${isTrashMode})`);
-
-      const logFilter = { agreementId: { $in: agreementIds } };
-
-      if (isTrashMode) {
-        if (deletedAgreementIds.length > 0 && nonDeletedAgreementIds.length > 0) {
-          logFilter.$or = [
-            { agreementId: { $in: deletedAgreementIds } },
-            { agreementId: { $in: nonDeletedAgreementIds }, isDeleted: true }
-          ];
-          delete logFilter.agreementId;
-        } else if (deletedAgreementIds.length > 0) {
-          logFilter.agreementId = { $in: deletedAgreementIds };
-        } else {
-          logFilter.agreementId = { $in: nonDeletedAgreementIds };
-          logFilter.isDeleted = true;
+      // Stage 4: Lookup version PDFs using foreign key
+      {
+        $lookup: {
+          from: 'versionpdfs',
+          let: { agreementId: '$_id', agreementDeleted: '$isDeleted' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$agreementId', '$$agreementId'] },
+                    { $ne: ['$status', 'archived'] },
+                    ...(isTrashMode ? [
+                      {
+                        $or: [
+                          { $eq: ['$$agreementDeleted', true] },
+                          { $eq: ['$isDeleted', true] }
+                        ]
+                      }
+                    ] : [
+                      { $ne: ['$isDeleted', true] }
+                    ])
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                agreementId: 1,
+                versionNumber: 1,
+                status: 1,
+                isDeleted: 1,
+                deletedAt: 1,
+                deletedBy: 1,
+                createdAt: 1,
+                'pdf_meta.sizeBytes': 1
+              }
+            },
+            { $sort: { versionNumber: -1 } }
+          ],
+          as: 'versionPdfs'
         }
-      } else {
-        logFilter.isDeleted = { $ne: true };
-      }
+      },
 
-      console.log(`[LOGS] Log filter: ${JSON.stringify(logFilter, null, 2)}`);
-
-      const logStartTime = Date.now();
-      const allLogs = await Log.find(logFilter)
-      .select({
-        _id: 1,
-        agreementId: 1,
-        versionId: 1,
-        versionNumber: 1,
-        fileName: 1,
-        fileSize: 1,
-        contentType: 1,
-        salespersonId: 1,
-        salespersonName: 1,
-        saveAction: 1,
-        totalChanges: 1,
-        totalPriceImpact: 1,
-        hasSignificantChanges: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        isDeleted: 1,
-        deletedAt: 1,
-        deletedBy: 1
-      })
-      .sort({ agreementId: 1, versionNumber: -1, createdAt: -1 }) // Group by agreement, latest first
-      .lean();
-
-      const logFetchTime = Date.now() - logStartTime;
-      console.log(`?s? [PERFORMANCE] Fetched ${allLogs.length} log files in ${logFetchTime}ms`);
-
-      // Group logs by agreement ID for efficient lookup
-      allLogs.forEach(log => {
-        const agreementId = log.agreementId.toString();
-        if (!logsByAgreement[agreementId]) {
-          logsByAgreement[agreementId] = [];
+      // Stage 5: Lookup logs (conditional) using foreign key
+      ...(includeLogs ? [{
+        $lookup: {
+          from: 'versionchangelogs',
+          let: { agreementId: '$_id', agreementDeleted: '$isDeleted' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$agreementId', '$$agreementId'] },
+                    ...(isTrashMode ? [
+                      {
+                        $or: [
+                          { $eq: ['$$agreementDeleted', true] },
+                          { $eq: ['$isDeleted', true] }
+                        ]
+                      }
+                    ] : [
+                      { $ne: ['$isDeleted', true] }
+                    ])
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                agreementId: 1,
+                versionId: 1,
+                versionNumber: 1,
+                fileName: 1,
+                fileSize: 1,
+                salespersonName: 1,
+                saveAction: 1,
+                totalChanges: 1,
+                totalPriceImpact: 1,
+                hasSignificantChanges: 1,
+                createdAt: 1,
+                isDeleted: 1,
+                deletedAt: 1,
+                deletedBy: 1
+              }
+            },
+            { $sort: { versionNumber: -1, createdAt: -1 } }
+          ],
+          as: 'logs'
         }
-        logsByAgreement[agreementId].push(log);
-      });
+      }] : []),
 
-      console.log(`[LOGS] Found ${allLogs.length} log files across ${Object.keys(logsByAgreement).length} agreements`);
-    }
-// ⚡ PERFORMANCE: Start transformation timing
+      // Stage 6: Lookup manual upload documents using foreign key
+      {
+        $lookup: {
+          from: 'manualuploaddocuments',
+          let: {
+            attachedFileIds: '$attachedFiles.manualDocumentId',
+            agreementDeleted: '$isDeleted'
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$_id', '$$attachedFileIds'] },
+                    ...(isTrashMode ? [
+                      {
+                        $or: [
+                          { $eq: ['$$agreementDeleted', true] },
+                          { $eq: ['$isDeleted', true] }
+                        ]
+                      }
+                    ] : [
+                      { $ne: ['$isDeleted', true] }
+                    ])
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                fileName: 1,
+                originalFileName: 1,
+                fileSize: 1,
+                mimeType: 1,
+                description: 1,
+                uploadedBy: 1,
+                status: 1,
+                isDeleted: 1,
+                deletedAt: 1,
+                deletedBy: 1,
+                'zoho.bigin.dealId': 1,
+                'zoho.bigin.fileId': 1,
+                'zoho.crm.dealId': 1,
+                'zoho.crm.fileId': 1,
+                createdAt: 1,
+                updatedAt: 1
+              }
+            }
+          ],
+          as: 'manualUploads'
+        }
+      },
+
+      // Stage 7: Project only needed fields
+      {
+        $project: {
+          _id: 1,
+          status: 1,
+          isDeleted: 1,
+          deletedAt: 1,
+          deletedBy: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          'payload.headerTitle': 1,
+          'payload.agreement.startDate': 1,
+          'payload.summary.contractMonths': 1,
+          'pdf_meta.sizeBytes': 1,
+          'zoho.bigin.dealId': 1,
+          'zoho.crm.dealId': 1,
+          attachedFiles: 1,
+          versionPdfs: 1,
+          logs: 1,
+          manualUploads: 1
+        }
+      }
+    ];
+
+    // ⚡ EXECUTE: Single aggregation query (replaces 3+ separate queries!)
+    const queryStartTime = Date.now();
+    const agreements = await CustomerHeaderDoc.aggregate(aggregationPipeline);
+    const queryTime = Date.now() - queryStartTime;
+
+    console.log(`⚡ [OPTIMIZED] Single aggregation completed in ${queryTime}ms (fetched ${agreements.length} agreements)`);
+
+    // Transform data (same structure for compatibility)
     const transformStartTime = Date.now();
 
-    // ✅ Transform to show attached files + version PDFs for each agreement (NO MAIN FILE)
+    // ✅ Transform to show attached files + version PDFs for each agreement
     const transformedAgreements = agreements.map(agreement => {
-      // ✅ REMOVED: No more mainFile since all PDFs are in VersionPdf collection
-
-      // ✅ Add attached files to the same agreement (now using populated references)
+      // Process attached files from aggregation
       const attachedFiles = (agreement.attachedFiles || [])
         .map(attachmentRef => {
-          const manualDoc = attachmentRef.manualDocumentId; // Populated ManualUploadDocument
+          const manualDoc = (agreement.manualUploads || []).find(
+            doc => doc._id.toString() === attachmentRef.manualDocumentId?.toString()
+          );
 
-          // ✅ FIX: Handle case where populate failed or reference is invalid
-          if (!manualDoc || !manualDoc._id) {
-            console.warn(`⚠️ Invalid attachment reference in agreement ${agreement._id}:`, attachmentRef);
-            return null; // Skip this attachment
-          }
-
-          // ✅ FIXED: In trash mode, filter based on agreement delete status
-          if (isTrashMode) {
-            const isAgreementDeleted = agreement.isDeleted === true;
-            const isFileDeleted = manualDoc.isDeleted === true;
-
-            // If agreement is deleted, show ALL files
-            // If agreement is not deleted, only show deleted files
-            if (!isAgreementDeleted && !isFileDeleted) {
-              return null; // Skip non-deleted files from non-deleted agreements
-            }
-          }
+          if (!manualDoc) return null;
 
           return {
             id: manualDoc._id,
-            agreementId: agreement._id,  // ✅ FIX: Add agreement ID for Zoho upload
+            agreementId: agreement._id,
             fileName: manualDoc.originalFileName,
             fileType: 'attached_pdf',
             title: manualDoc.originalFileName,
-            status: manualDoc.status || 'uploaded', // ✅ FIX: Use actual status from ManualUploadDocument
+            status: manualDoc.status || 'uploaded',
             createdAt: manualDoc.createdAt,
             updatedAt: manualDoc.updatedAt,
             createdBy: manualDoc.uploadedBy,
             updatedBy: null,
             fileSize: manualDoc.fileSize || 0,
             pdfStoredAt: manualDoc.createdAt,
-            // ✅ OPTIMIZED: Check if file exists using fileSize or Zoho upload (pdfBuffer excluded from initial load)
-            hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) || !!(manualDoc.zoho?.bigin?.fileId || manualDoc.zoho?.crm?.fileId),
+            hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) ||
+                    !!(manualDoc.zoho?.bigin?.fileId || manualDoc.zoho?.crm?.fileId),
             description: attachmentRef.description || manualDoc.description || '',
-            isDeleted: manualDoc.isDeleted || false, // ✅ NEW: Include delete status
+            isDeleted: manualDoc.isDeleted || false,
             deletedAt: manualDoc.deletedAt || null,
             deletedBy: manualDoc.deletedBy || null,
             zohoInfo: {
@@ -2084,63 +2048,54 @@ export async function getSavedFilesGrouped(req, res) {
             }
           };
         })
-        .filter(file => file !== null); // Filter out any invalid or excluded references
+        .filter(file => file !== null);
 
-      // ✅ NEW: Add version PDFs to the same agreement (using pre-fetched data)
-      const agreementVersions = versionsByAgreement[agreement._id.toString()] || [];
-
-      const versionFiles = agreementVersions.map(version => ({
+      // Process version PDFs from aggregation
+      const versionFiles = (agreement.versionPdfs || []).map(version => ({
         id: version._id,
-        agreementId: agreement._id,  // ✅ FIX: Add agreement ID for Zoho upload
+        agreementId: agreement._id,
         fileName: `${agreement.payload?.headerTitle || 'Untitled'} - Version ${version.versionNumber}.pdf`,
         fileType: 'version_pdf',
-        title: `Version ${version.versionNumber}${version.versionLabel ? ` (${version.versionLabel})` : ''}`,
-        status: version.status || 'saved', // ✅ FIXED: Use actual version status from database
+        title: `Version ${version.versionNumber}`,
+        status: version.status || 'saved',
         createdAt: version.createdAt,
-        updatedAt: version.updatedAt,
-        createdBy: version.createdBy,
+        updatedAt: version.createdAt,
+        createdBy: null,
         updatedBy: null,
         fileSize: version.pdf_meta?.sizeBytes || 0,
-        pdfStoredAt: version.pdf_meta?.storedAt || null,
-        hasPdf: !!(
-          // ✅ OPTIMIZED: Check for Zoho fileId (valid, non-mock) OR PDF metadata (pdfBuffer excluded from initial load)
-          (version.zoho?.bigin?.fileId && !version.zoho.bigin.fileId.includes('MOCK_')) ||
-          (version.zoho?.crm?.fileId && !version.zoho.crm.fileId.includes('MOCK_')) ||
-          (version.pdf_meta?.sizeBytes && version.pdf_meta.sizeBytes > 0)
-        ),
-        description: version.changeNotes || `Version ${version.versionNumber} created on ${new Date(version.createdAt).toLocaleDateString()}`,
-        versionNumber: version.versionNumber, // ✅ Add version number for sorting/display
-        isDeleted: version.isDeleted || false, // ✅ NEW: Include delete status
+        pdfStoredAt: version.createdAt,
+        hasPdf: !!(version.pdf_meta?.sizeBytes && version.pdf_meta.sizeBytes > 0),
+        description: `Version ${version.versionNumber} created on ${new Date(version.createdAt).toLocaleDateString()}`,
+        versionNumber: version.versionNumber,
+        isDeleted: version.isDeleted || false,
         deletedAt: version.deletedAt || null,
         deletedBy: version.deletedBy || null,
         zohoInfo: {
-          biginDealId: version.zoho?.bigin?.dealId || null,
-          biginFileId: version.zoho?.bigin?.fileId || null,
-          crmDealId: version.zoho?.crm?.dealId || null,
-          crmFileId: version.zoho?.crm?.fileId || null,
+          biginDealId: null,
+          biginFileId: null,
+          crmDealId: null,
+          crmFileId: null,
         }
       }));
 
-      // ✅ NEW: Add log files to the same agreement (using pre-fetched data)
-      const agreementLogs = logsByAgreement[agreement._id.toString()] || [];
-
-      const logFiles = agreementLogs.map(log => ({
+      // Process logs from aggregation
+      const logFiles = (agreement.logs || []).map(log => ({
         id: log._id,
         agreementId: agreement._id,
-        versionId: log.versionId, // ✅ Link to version PDF
+        versionId: log.versionId,
         fileName: log.fileName,
         fileType: 'version_log',
         title: `v${log.versionNumber} Changes`,
-        status: 'attached', // Log files have 'attached' status
+        status: 'attached',
         createdAt: log.createdAt,
-        updatedAt: log.updatedAt,
-        createdBy: log.salespersonId,
+        updatedAt: log.createdAt,
+        createdBy: null,
         updatedBy: null,
         fileSize: log.fileSize || 0,
-        pdfStoredAt: log.createdAt, // Log files are always stored (MongoDB-based)
-        hasPdf: true, // Log files always exist (generated dynamically from MongoDB)
+        pdfStoredAt: log.createdAt,
+        hasPdf: true,
         description: `${log.totalChanges} changes, $${(log.totalPriceImpact || 0).toFixed(2)} total impact`,
-        versionNumber: log.versionNumber, // ✅ Add version number for sorting/display
+        versionNumber: log.versionNumber,
         isDeleted: log.isDeleted || false,
         deletedAt: log.deletedAt || null,
         deletedBy: log.deletedBy || null,
@@ -2152,7 +2107,6 @@ export async function getSavedFilesGrouped(req, res) {
         }
       }));
 
-      // ✅ Combine attached files + version files + log files (NO MORE MAIN FILE)
       const allFiles = [...attachedFiles, ...versionFiles, ...logFiles];
 
       return {
@@ -2160,12 +2114,12 @@ export async function getSavedFilesGrouped(req, res) {
         agreementTitle: agreement.payload?.headerTitle || 'Untitled Agreement',
         fileCount: allFiles.length,
         latestUpdate: agreement.updatedAt,
-        statuses: [agreement.status], // Main agreement status
-        isDeleted: agreement.isDeleted || false, // ✅ ADDED: Include agreement deletion status
-        deletedAt: agreement.deletedAt, // ✅ ADDED: Include deletion timestamp
-        deletedBy: agreement.deletedBy, // ✅ ADDED: Include who deleted it
-        hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId),
-        // ✅ NEW: Agreement timeline fields for expiry tracking
+        statuses: [agreement.status],
+        isDeleted: agreement.isDeleted || false,
+        deletedAt: agreement.deletedAt,
+        deletedBy: agreement.deletedBy,
+        hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId) ||
+                    !!(agreement.zoho?.bigin?.dealId || agreement.zoho?.crm?.dealId),
         startDate: agreement.payload?.agreement?.startDate || null,
         contractMonths: agreement.payload?.summary?.contractMonths || null,
         files: allFiles
@@ -2211,8 +2165,7 @@ export async function getSavedFilesGrouped(req, res) {
 
     // ⚡ PERFORMANCE: Calculate total response time and log summary
     const totalTime = Date.now() - startTime;
-    console.log(`⚡ [PERFORMANCE SUMMARY] Total response time: ${totalTime}ms`);
-    console.log(`⚡ [BREAKDOWN] Database queries: ${fetchAgreementsTime + versionFetchTime}ms (Agreements: ${fetchAgreementsTime}ms, Versions: ${versionFetchTime}ms), Transform: ${transformTime}ms, Filter: ${filterTime}ms`);
+    console.log(`⚡ [OPTIMIZED SUMMARY] Total: ${totalTime}ms | Query: ${queryTime}ms | Transform: ${transformTime}ms | Filter: ${filterTime}ms`);
     console.log(`⚡ [RESULTS] Returning ${finalAgreements.length} agreements with ${totalFiles} files`);
 
     console.log(`📁 [SAVED-FILES-GROUPED] Fetched ${finalAgreements.length} agreements with ${totalFiles} total files for page ${page}`);
@@ -2225,16 +2178,14 @@ export async function getSavedFilesGrouped(req, res) {
       limit,
       groups: finalAgreements,  // ✅ FIXED: Use filtered agreements
       _metadata: {
-        queryType: 'agreements_with_attached_files',
+        queryType: 'aggregation_pipeline_optimized',
         structure: 'single_document_per_agreement',
         fieldsIncluded: ['basic_info', 'file_meta', 'attached_files', 'zoho_refs'],
         fieldsExcluded: ['full_payload', 'pdf_buffer'],
         // ⚡ PERFORMANCE: Include timing breakdown
         performance: {
           totalTime: `${totalTime}ms`,
-          dbQueryTime: `${fetchAgreementsTime + versionFetchTime}ms`,
-          agreementsFetchTime: `${fetchAgreementsTime}ms`,
-          versionsFetchTime: `${versionFetchTime}ms`,
+          singleQueryTime: `${queryTime}ms`,
           transformTime: `${transformTime}ms`,
           filterTime: `${filterTime}ms`,
           agreementsReturned: finalAgreements.length,
