@@ -427,7 +427,14 @@ export async function getCustomerHeaderById(req, res) {
       });
     }
 
-    const doc = await CustomerHeaderDoc.findById(id).lean();
+    // ⚡ OPTIMIZED: Exclude heavy fields not needed for viewing
+    // - pdf_meta.pdfBuffer: Large binary PDF data (can be MBs) - not needed, frontend uses /pdf/view endpoint
+    // - attachedFiles: Not needed for main document view
+    // - versions: Version history not needed for main view
+    // - zoho: Integration data not needed for viewing
+    const doc = await CustomerHeaderDoc.findById(id)
+      .select('-pdf_meta.pdfBuffer -attachedFiles -versions -zoho')
+      .lean();
     if (!doc) {
       return res
         .status(404)
@@ -474,7 +481,14 @@ export async function getCustomerHeaderForEdit(req, res) {
         .json({ error: "bad_request", detail: "Invalid id" });
     }
 
-    const doc = await CustomerHeaderDoc.findById(id).lean();
+    // ⚡ OPTIMIZED: Exclude heavy fields not needed for editing
+    // - pdf_meta.pdfBuffer: Large binary PDF data (can be MBs)
+    // - attachedFiles: Not needed for editing the main form
+    // - versions: Version history not needed for editing current document
+    // - zoho: Integration data not needed for editing
+    const doc = await CustomerHeaderDoc.findById(id)
+      .select('-pdf_meta.pdfBuffer -attachedFiles -versions -zoho')
+      .lean();
     if (!doc) {
       return res
         .status(404)
@@ -916,7 +930,9 @@ export async function updateCustomerHeader(req, res) {
     const body = req.body || {};
     const recompile = req.query.recompile === "true";
 
-    const doc = await CustomerHeaderDoc.findById(id);
+    // ⚡ OPTIMIZED: Exclude heavy pdfBuffer field initially
+    // We'll only write a new buffer if recompiling, so no need to load the old one
+    const doc = await CustomerHeaderDoc.findById(id).select('-pdf_meta.pdfBuffer');
     if (!doc) {
       return res
         .status(404)
@@ -1014,12 +1030,8 @@ export async function updateCustomerHeader(req, res) {
 
     console.log(`Document ${id} updated, status: ${doc.status}, compiled: ${shouldCompilePdf}`);
 
-    // DEBUG: Log what was actually saved in the update
-    const updatedDoc = await CustomerHeaderDoc.findById(id).lean();
-    // console.log("🐛 [UPDATE DEBUG] UPDATED DOC SERVICES:", JSON.stringify(updatedDoc.payload.services, null, 2));
-    if (updatedDoc.payload.services?.refreshPowerScrub) {
-      // console.log("🐛 [UPDATE DEBUG] UPDATED REFRESH POWER SCRUB:", JSON.stringify(updatedDoc.payload.services.refreshPowerScrub, null, 2));
-    }
+    // ⚡ OPTIMIZED: Removed unnecessary second database fetch (was only for debugging)
+    // The updated doc data is already in memory from the save() operation
 
     // ✅ SIMPLIFIED: Return response based on whether PDF was compiled (no Zoho dependency)
     if (buffer) {
@@ -1029,16 +1041,14 @@ export async function updateCustomerHeader(req, res) {
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
       return res.send(buffer);
     } else {
-      // Return JSON for non-PDF updates
+      // ⚡ OPTIMIZED RESPONSE: Return only essential fields for non-PDF updates
       return res.json({
         success: true,
         doc: {
           _id: doc._id,
           status: doc.status,
-          updatedAt: doc.updatedAt,
-          pdf_meta: doc.pdf_meta,
-          zoho: doc.zoho,
-        },
+          updatedAt: doc.updatedAt
+        }
       });
     }
   } catch (err) {
@@ -1079,7 +1089,8 @@ export async function updateCustomerHeaderStatus(req, res) {
         });
     }
 
-    const doc = await CustomerHeaderDoc.findById(id);
+    // ⚡ OPTIMIZED: Exclude heavy pdfBuffer field - not needed for status update
+    const doc = await CustomerHeaderDoc.findById(id).select('-pdf_meta.pdfBuffer');
     if (!doc) {
       return res
         .status(404)
@@ -1194,11 +1205,15 @@ export async function getAdminHeaderById(req, res) {
         .json({ error: "Not found", detail: "AdminHeaderDoc not found" });
     }
 
-    // Fetch service configs where adminByDisplay is true and isActive is true
+    // ⚡ OPTIMIZED: Fetch service configs with only needed fields
+    // Exclude heavy fields: config (huge pricing JSON), defaultFormState (large form data)
+    // Only fetch: serviceId, label, description, tags
     const activeServices = await ServiceConfig.find({
       isActive: true,
       adminByDisplay: { $ne: false }
-    }).lean();
+    })
+    .select('serviceId label description tags')
+    .lean();
 
     // Map to service metadata (serviceId, label, description)
     const serviceMetadata = activeServices.map(service => ({

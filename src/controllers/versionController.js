@@ -409,8 +409,11 @@ export async function checkVersionStatus(req, res) {
       });
     }
 
-    // Get agreement
-    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    // ⚡ OPTIMIZED: Only fetch minimal fields needed from agreement
+    // Exclude: pdf_meta.pdfBuffer (MBs), attachedFiles, versions, zoho, full payload
+    const agreement = await CustomerHeaderDoc.findById(agreementId)
+      .select('_id payload.headerTitle status currentVersionNumber pdf_meta.sizeBytes')
+      .lean();
     if (!agreement) {
       return res.status(404).json({
         success: false,
@@ -418,29 +421,46 @@ export async function checkVersionStatus(req, res) {
       });
     }
 
+    // ⚡ OPTIMIZED: Exclude heavy fields from version queries
+    // - pdf_meta.pdfBuffer: Large binary PDF (can be MBs per version)
+    // - payloadSnapshot: Full form data snapshot (10s-100s of KB)
+    // - zoho: Integration data not needed for status check
+    const versionSelectFields = '_id versionNumber versionLabel createdAt createdBy status pdf_meta.sizeBytes';
+
     // Get existing versions (non-deleted)
     const versions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: { $ne: true }
-    }).sort({ versionNumber: -1 });
+    })
+    .select(versionSelectFields)
+    .sort({ versionNumber: -1 })
+    .lean();
 
     // ✅ NEW: Also get deleted versions to inform user about trash
     const deletedVersions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: true
-    }).sort({ versionNumber: -1 });
+    })
+    .select('_id versionNumber versionLabel deletedAt')
+    .sort({ versionNumber: -1 })
+    .lean();
 
-    // ✅ NEW: Get highest version number from ALL versions (to show what the next version will be)
+    // ⚡ OPTIMIZED: Get highest version number efficiently
+    // Only fetch versionNumber field, limit to 1 result
     const allVersionsForCount = await VersionPdf.find({
       agreementId: agreementId
-    }).sort({ versionNumber: -1 }).limit(1);
+    })
+    .select('versionNumber')
+    .sort({ versionNumber: -1 })
+    .limit(1)
+    .lean();
 
     const highestVersionNumber = allVersionsForCount.length > 0 ? allVersionsForCount[0].versionNumber : 0;
     const nextVersionNumber = highestVersionNumber + 1;
 
     const totalVersions = versions.length;
     const latestVersion = versions[0];
-    const hasMainPdf = !!(agreement.pdf_meta?.pdfBuffer);
+    const hasMainPdf = agreement.pdf_meta?.sizeBytes > 0; // Check if main PDF exists by size
     const isFirstTime = totalVersions === 0 && !hasMainPdf;
 
     let suggestedAction = 'create_version';
@@ -451,37 +471,28 @@ export async function checkVersionStatus(req, res) {
       suggestedAction = 'suggest_replace';
     }
 
+    // ⚡ OPTIMIZED RESPONSE: Return only essential fields to reduce payload size
     const versionStatus = {
       success: true,
       isFirstTime,
       hasMainPdf,
       totalVersions,
-      deletedVersionsCount: deletedVersions.length, // ✅ NEW: Show count of deleted versions
-      nextVersionNumber, // ✅ NEW: Show what the next version number will be
+      nextVersionNumber,
       latestVersionNumber: latestVersion?.versionNumber || 0,
       suggestedAction,
       canCreateVersion: true,
       canReplace: totalVersions > 0,
+      // ⚡ MINIMAL: Only return essential version fields
       versions: versions.map(v => ({
         id: v._id,
         versionNumber: v.versionNumber,
-        versionLabel: v.versionLabel,
-        createdAt: v.createdAt,
-        createdBy: v.createdBy,
         status: v.status,
-        sizeBytes: v.pdf_meta?.sizeBytes || 0
-      })),
-      deletedVersions: deletedVersions.map(v => ({ // ✅ NEW: Show deleted versions info
-        id: v._id,
-        versionNumber: v.versionNumber,
-        versionLabel: v.versionLabel,
-        deletedAt: v.deletedAt
+        createdAt: v.createdAt
       })),
       agreement: {
         id: agreement._id,
         headerTitle: agreement.payload?.headerTitle || 'Untitled Agreement',
-        status: agreement.status,
-        currentVersionNumber: agreement.currentVersionNumber || 0
+        status: agreement.status
       }
     };
 
@@ -520,8 +531,11 @@ export async function createVersion(req, res) {
       isFirstTime
     });
 
-    // Get agreement
-    const agreement = await CustomerHeaderDoc.findById(agreementId);
+    // ⚡ OPTIMIZED: Exclude pdfBuffer - we're generating a new PDF anyway
+    // Only fetch fields needed: payload (for compilation), status, versions, currentVersionNumber, totalVersions
+    const agreement = await CustomerHeaderDoc.findById(agreementId)
+      .select('-pdf_meta.pdfBuffer -attachedFiles -zoho')
+      .lean();
     if (!agreement) {
       return res.status(404).json({
         success: false,
@@ -529,16 +543,24 @@ export async function createVersion(req, res) {
       });
     }
 
-    // Get existing versions (excluding deleted for display, but we need to check all for version numbering)
+    // ⚡ OPTIMIZED: Only fetch minimal fields for version checking
+    // We only need: versionNumber, _id, createdAt, status for determining what to do
     const existingVersions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: { $ne: true }
-    }).sort({ versionNumber: -1 });
+    })
+    .select('_id versionNumber createdAt status')
+    .sort({ versionNumber: -1 })
+    .lean();
 
-    // ✅ FIX: Get highest version number from ALL versions (including deleted) to avoid conflicts
+    // ⚡ OPTIMIZED: Get highest version number efficiently - only fetch versionNumber
     const allVersions = await VersionPdf.find({
       agreementId: agreementId
-    }).sort({ versionNumber: -1 }).limit(1);
+    })
+    .select('versionNumber')
+    .sort({ versionNumber: -1 })
+    .limit(1)
+    .lean();
 
     const highestVersionNumber = allVersions.length > 0 ? allVersions[0].versionNumber : 0;
 
@@ -610,12 +632,26 @@ export async function createVersion(req, res) {
     let wasReplacement = false;
 
     if (replaceRecent && latestVersion && versionNumber === latestVersion.versionNumber) {
-      // Replace existing version
-      Object.assign(latestVersion, versionData);
-      latestVersion.updatedAt = new Date();
-      version = await latestVersion.save();
-      wasReplacement = true;
-      console.log(`🔄 [VERSION-CREATE] Replaced version ${versionNumber}`);
+      // ⚡ ULTRA-OPTIMIZED: Use findByIdAndUpdate to replace without loading heavy fields
+      // This avoids loading the full document (with pdfBuffer and payloadSnapshot)
+      version = await VersionPdf.findByIdAndUpdate(
+        latestVersion._id,
+        {
+          ...versionData,
+          updatedAt: new Date()
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (version) {
+        wasReplacement = true;
+        console.log(`🔄 [VERSION-CREATE] Replaced version ${versionNumber} (atomic update)`);
+      } else {
+        // Fallback: create new if replacement target not found
+        version = new VersionPdf(versionData);
+        version = await version.save();
+        console.log(`✅ [VERSION-CREATE] Created new version ${versionNumber} (replacement target not found)`);
+      }
     } else {
       // Create new version
       version = new VersionPdf(versionData);
@@ -623,31 +659,37 @@ export async function createVersion(req, res) {
       console.log(`✅ [VERSION-CREATE] Created new version ${versionNumber}`);
     }
 
-    // Update agreement version tracking
-    agreement.currentVersionNumber = versionNumber;
-    agreement.totalVersions = wasReplacement ? totalVersions : totalVersions + 1;
+    // ⚡ OPTIMIZED: Update agreement using findByIdAndUpdate to avoid loading heavy fields
+    // This updates the document in one atomic operation without loading pdfBuffer
+    const updateData = {
+      currentVersionNumber: versionNumber,
+      totalVersions: wasReplacement ? totalVersions : totalVersions + 1
+    };
 
     // Add to versions array if not replacing
     if (!wasReplacement) {
-      agreement.versions.push({
-        versionId: version._id,
-        versionNumber: versionNumber,
-        versionLabel: `v${versionNumber}`,
-        createdAt: version.createdAt,
-        createdBy: createdBy || null,
-        changeNotes: changeNotes || '',
-        status: 'active'
-      });
+      updateData.$push = {
+        versions: {
+          versionId: version._id,
+          versionNumber: versionNumber,
+          versionLabel: `v${versionNumber}`,
+          createdAt: version.createdAt,
+          createdBy: createdBy || null,
+          changeNotes: changeNotes || '',
+          status: 'active'
+        }
+      };
 
+      // ⚡ OPTIMIZED: Auto-update previous draft status efficiently
       if (latestVersion && latestVersion.status === 'draft') {
-        latestVersion.status = 'saved';
-        await latestVersion.save();
-        console.log(`ÐY"õ [VERSION-CREATE] Auto-updated previous draft (v${latestVersion.versionNumber}) to saved after creating v${versionNumber}`);
+        await VersionPdf.findByIdAndUpdate(latestVersion._id, { status: 'saved' });
+        console.log(`✅ [VERSION-CREATE] Auto-updated previous draft (v${latestVersion.versionNumber}) to saved after creating v${versionNumber}`);
       }
     }
 
-    await agreement.save();
+    await CustomerHeaderDoc.findByIdAndUpdate(agreementId, updateData);
 
+    // ⚡ OPTIMIZED RESPONSE: Return only essential fields
     res.json({
       success: true,
       message: wasReplacement ?
@@ -656,16 +698,8 @@ export async function createVersion(req, res) {
       version: {
         id: version._id,
         versionNumber: version.versionNumber,
-        versionLabel: version.versionLabel,
-        sizeBytes: version.pdf_meta.sizeBytes,
-        createdAt: version.createdAt,
-        createdBy: version.createdBy,
-        changeNotes: version.changeNotes,
-        fileName: version.fileName
-      },
-      totalVersions: agreement.totalVersions,
-      wasReplacement,
-      isFirstVersion: versionNumber === 1
+        status: version.status
+      }
     });
 
   } catch (error) {
