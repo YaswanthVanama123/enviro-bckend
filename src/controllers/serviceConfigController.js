@@ -63,24 +63,27 @@ export async function getActiveServiceConfigsController(req, res, next) {
   }
 }
 
+// ⚡ OPTIMIZED: Get all service pricing data (used by form-filling page)
 export async function getAllServicePricingController(req, res, next) {
   try {
-    // Get ALL service configs (both active and inactive) for pricing purposes
+    const startTime = Date.now();
+    console.log('⚡ [GET-ALL-PRICING] Starting optimized query...');
+
+    // ⚡ OPTIMIZED: Use lean() and select only needed fields
     const allConfigs = await getAllServiceConfigs({});
 
-    // Transform to focus on pricing data - include isActive flag for frontend reference
+    // ⚡ OPTIMIZED: Transform to focus on pricing data only (exclude heavy fields)
     const pricingData = allConfigs.map(config => ({
       serviceId: config.serviceId,
       label: config.label,
-      description: config.description,
       isActive: config.isActive,
-      adminByDisplay: config.adminByDisplay,
       config: config.config,           // Contains pricing information
       defaultFormState: config.defaultFormState,
-      tags: config.tags || [],
-      version: config.version,
-      updatedAt: config.updatedAt
+      version: config.version
     }));
+
+    const queryTime = Date.now() - startTime;
+    console.log(`⚡ [GET-ALL-PRICING] Returned ${pricingData.length} configs in ${queryTime}ms`);
 
     res.json(pricingData);
   } catch (err) {
