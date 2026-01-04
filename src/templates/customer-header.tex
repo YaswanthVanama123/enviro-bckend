@@ -422,13 +422,20 @@
 
 {{#summaryExists}}
 \vspace{2.5em}
+% ✅ FIXED: Ensure AGREEMENT SUMMARY section fits on one page without breaking
+\needspace{7\baselineskip}
 \serviceSection{AGREEMENT SUMMARY}
 \vspace{0.3em}
+\nopagebreak[4]
 \serviceLine{Contract Months:}{\strut {{{summaryContractMonthsDisplay}}}}
+\nopagebreak[4]
 \serviceLine{Trip Charge:}{\strut {{{summaryTripChargeLabel}}}}
+\nopagebreak[4]
 \serviceLine{Parking Charge:}{\strut {{{summaryParkingChargeLabel}}}}
-\serviceLineWide{Service Agreement Total:}{\strut {{{summaryServiceAgreementTotal}}}}
-\serviceLineWide{Product Totals:}{\strut {{{summaryProductTotalsLabel}}}}
+\nopagebreak[4]
+\serviceLine{Services Total:}{\strut {{{summaryServiceAgreementTotal}}}}
+\nopagebreak[4]
+\serviceLine{Products Total:}{\strut {{{summaryProductTotalsLabel}}}}
 {{/summaryExists}}
 
 \vspace{0.8em}
