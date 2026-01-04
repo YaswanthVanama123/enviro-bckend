@@ -123,10 +123,10 @@ router.get("/approval-documents/grouped", getApprovalDocumentsGrouped); // ✅ N
 
 /* ---- NEW: delete and restore API ---- */
 // ✅ SECURE: All trash operations require admin authentication
-router.patch("/agreements/:agreementId/restore", requireAdminAuth, restoreAgreement); // Restore agreement from trash
-router.patch("/files/:fileId/restore", requireAdminAuth, restoreFile); // Restore file from trash
-router.patch("/agreements/:agreementId/delete", requireAdminAuth, deleteAgreement); // Soft delete agreement (move to trash)
-router.patch("/files/:fileId/delete", requireAdminAuth, deleteFile); // Soft delete file (move to trash)
+router.patch("/agreements/:agreementId/restore", restoreAgreement); // Restore agreement from trash
+router.patch("/files/:fileId/restore", restoreFile); // Restore file from trash
+router.patch("/agreements/:agreementId/delete", deleteAgreement); // Soft delete agreement (move to trash)
+router.patch("/files/:fileId/delete", deleteFile); // Soft delete file (move to trash)
 // ✅ SECURE: Permanent delete operations require admin authentication (CRITICAL - IRREVERSIBLE)
 router.delete("/agreements/:agreementId/permanent-delete", requireAdminAuth, permanentlyDeleteAgreement); // Permanent delete agreement with cascade
 router.delete("/files/:fileId/permanent-delete", requireAdminAuth, permanentlyDeleteFile); // Permanent delete file with cleanup
