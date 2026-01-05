@@ -67,7 +67,68 @@ if (process.env.NODE_ENV !== 'production') {
 
 app.use(express.json({ limit: `${PDF_MAX_BODY_MB}mb` }));
 
-app.get('/health', (_req, res) => res.json({ ok: true }));
+// ✅ PRODUCTION: Enhanced health check endpoint with detailed monitoring
+app.get('/health', async (req, res) => {
+  const healthCheck = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    service: 'enviro-backend',
+    version: process.env.npm_package_version || '1.0.0'
+  };
+
+  // Check database connection
+  try {
+    const mongoose = await import('mongoose');
+    if (mongoose.default.connection.readyState === 1) {
+      healthCheck.database = {
+        status: 'connected',
+        name: mongoose.default.connection.name
+      };
+    } else {
+      healthCheck.database = {
+        status: 'disconnected',
+        message: 'Database connection not ready'
+      };
+      healthCheck.status = 'degraded';
+    }
+  } catch (error) {
+    healthCheck.database = {
+      status: 'error',
+      message: error.message
+    };
+    healthCheck.status = 'degraded';
+  }
+
+  // Memory usage
+  const memUsage = process.memoryUsage();
+  healthCheck.memory = {
+    rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
+    heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
+    heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`
+  };
+
+  // CPU usage (simple check)
+  healthCheck.cpu = {
+    usage: process.cpuUsage()
+  };
+
+  // Response time
+  healthCheck.responseTime = `${Date.now() - req._startTime}ms`;
+
+  // Set appropriate HTTP status code
+  const httpStatus = healthCheck.status === 'ok' ? 200 : 503;
+
+  res.status(httpStatus).json(healthCheck);
+});
+
+// Middleware to track request start time for health check
+app.use((req, _res, next) => {
+  req._startTime = Date.now();
+  next();
+});
+
 
 app.use('/api/proposals', proposalRoutes);
 // app.use("/api/prices",    priceFixRoutes);

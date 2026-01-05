@@ -1,0 +1,175 @@
+# ============================================
+# EnviroMaster Backend - CI/CD Pipeline
+# ============================================
+# Automatically deploy to Digital Ocean when pushing to main branch
+
+name: Deploy to Digital Ocean
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  NODE_VERSION: '20.x'
+  REGISTRY: registry.digitalocean.com
+  IMAGE_NAME: enviro-backend
+
+jobs:
+  # Job 1: Run tests and linting
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for syntax errors
+        run: |
+          echo "Checking JavaScript syntax..."
+          find . -name "*.js" -not -path "./node_modules/*" -exec node -c {} \;
+
+      - name: Run tests (if available)
+        run: npm test --if-present
+        continue-on-error: true
+
+  # Job 2: Build and push Docker image to Digital Ocean Container Registry
+  build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install doctl (Digital Ocean CLI)
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to Digital Ocean Container Registry
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag ${{ env.REGISTRY }}/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:latest \
+            --tag ${{ env.REGISTRY }}/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --file Dockerfile \
+            .
+
+      - name: Push Docker image to registry
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Clean up old images from registry
+        run: |
+          doctl registry garbage-collection start --include-untagged-manifests --force
+
+  # Job 3: Deploy to Digital Ocean App Platform
+  deploy-app-platform:
+    name: Deploy to App Platform
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ vars.USE_APP_PLATFORM == 'true' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Deploy to App Platform
+        run: |
+          doctl apps create-deployment ${{ secrets.DIGITALOCEAN_APP_ID }} --wait
+
+      - name: Get deployment URL
+        id: app-url
+        run: |
+          APP_URL=$(doctl apps get ${{ secrets.DIGITALOCEAN_APP_ID }} --format DefaultIngress --no-header)
+          echo "url=$APP_URL" >> $GITHUB_OUTPUT
+
+      - name: Health check
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+          curl -f ${{ steps.app-url.outputs.url }}/health || exit 1
+
+  # Job 4: Deploy to Digital Ocean Droplet (Alternative to App Platform)
+  deploy-droplet:
+    name: Deploy to Droplet
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ vars.USE_APP_PLATFORM != 'true' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Droplet via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USERNAME }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          port: ${{ secrets.DROPLET_PORT || 22 }}
+          script: |
+            # Navigate to application directory
+            cd /var/www/enviro-backend
+
+            # Pull latest code
+            git fetch origin
+            git reset --hard origin/main
+
+            # Install dependencies
+            npm ci --production
+
+            # Restart PM2 process
+            pm2 reload ecosystem.config.cjs --env production
+
+            # Show status
+            pm2 status
+
+      - name: Health check
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 15
+          curl -f http://${{ secrets.DROPLET_HOST }}:5000/health || exit 1
+
+  # Job 5: Notify deployment status
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-app-platform, deploy-droplet]
+    if: always()
+
+    steps:
+      - name: Deployment succeeded
+        if: ${{ needs.deploy-app-platform.result == 'success' || needs.deploy-droplet.result == 'success' }}
+        run: |
+          echo "✅ Deployment successful!"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Deployed by: ${{ github.actor }}"
+
+      - name: Deployment failed
+        if: ${{ needs.deploy-app-platform.result == 'failure' || needs.deploy-droplet.result == 'failure' }}
+        run: |
+          echo "❌ Deployment failed!"
+          exit 1
