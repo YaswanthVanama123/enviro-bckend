@@ -8,13 +8,15 @@ import {
   getAdminDashboard,
   getAdminRecentDocuments,
   getAdminDashboardStatusCounts,
+  resetAdminPassword,
 } from "../controllers/adminAuthController.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 
 const router = Router();
 
-// Login (no token)
+// Public routes (no authentication required)
 router.post("/login", adminLogin);
+router.post("/reset-password", resetAdminPassword);
 
 // Authenticated routes
 router.get("/me", requireAdminAuth, getAdminProfile);

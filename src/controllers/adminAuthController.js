@@ -669,3 +669,82 @@ export async function getAdminDashboardStatusCounts(req, res) {
     });
   }
 }
+
+/**
+ * POST /api/admin/auth/reset-password
+ * Body: { developerName, newPassword }
+ * No authentication required - protected by developer name check
+ * Only allows developer "Hanitha" to reset the admin password
+ */
+export async function resetAdminPassword(req, res) {
+  try {
+    const { developerName, newPassword } = req.body || {};
+
+    // Validate required fields
+    if (!developerName || !newPassword) {
+      return res
+        .status(400)
+        .json({
+          error: "Bad Request",
+          message: "Developer name and new password are required"
+        });
+    }
+
+    // Validate developer name (case-insensitive check)
+    if (developerName.trim().toLowerCase() !== "hanitha") {
+      return res
+        .status(403)
+        .json({
+          error: "Forbidden",
+          message: "Only authorized developers can reset passwords"
+        });
+    }
+
+    // Validate password length
+    if (newPassword.length < 6) {
+      return res
+        .status(400)
+        .json({
+          error: "Bad Request",
+          message: "Password must be at least 6 characters long"
+        });
+    }
+
+    // Find the default admin user (envimaster)
+    const admin = await AdminUser.findOne({ username: "envimaster" }).exec();
+
+    if (!admin) {
+      return res
+        .status(404)
+        .json({
+          error: "Not Found",
+          message: "Admin user not found"
+        });
+    }
+
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    // Update the admin password
+    admin.passwordHash = passwordHash;
+    admin.passwordChangedAt = new Date();
+    await admin.save();
+
+    console.log(`[ADMIN-AUTH] Password reset by developer: ${developerName}`);
+
+    res.json({
+      success: true,
+      message: "Password reset successfully"
+    });
+
+  } catch (err) {
+    console.error("resetAdminPassword error:", err);
+    res
+      .status(500)
+      .json({
+        error: "Password reset failed",
+        message: "An error occurred while resetting the password",
+        detail: String(err)
+      });
+  }
+}
