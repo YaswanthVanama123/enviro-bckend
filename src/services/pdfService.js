@@ -224,11 +224,6 @@ ${escape(agreementData.noteText || '')}
 
   ${escape(agreementData.emDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.emSignatureDate || '')}}
 \\end{minipage}
-
-\\vspace{1em}
-
-\\begin{center}
-\\end{center}
 `;
 }
 
