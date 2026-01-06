@@ -125,7 +125,7 @@ const ServicesSchema = new mongoose.Schema(
 const ServiceAgreementSchema = new mongoose.Schema(
   {
     includeInPdf: { type: Boolean, default: false },
-    retainDispensers: { type: Boolean, default: false },
+    retainDispensers: { type: Boolean, default: true }, // ✅ CHANGED: Default to checked
     disposeDispensers: { type: Boolean, default: false },
     customerContactName: { type: String, default: "" },
     customerSignature: { type: String, default: "" },
