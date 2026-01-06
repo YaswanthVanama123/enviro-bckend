@@ -6,6 +6,7 @@ import {
 } from "../validations/serviceConfigValidation.js";
 
 import mongoose from "mongoose";
+import ServiceAgreementTemplate from '../models/ServiceAgreementTemplate.js';
 
 import {
   createServiceConfig,
@@ -63,14 +64,31 @@ export async function getActiveServiceConfigsController(req, res, next) {
   }
 }
 
-// ⚡ OPTIMIZED: Get all service pricing data (used by form-filling page)
+// ⚡ OPTIMIZED: Get all service pricing data + service agreement template (used by form-filling page)
 export async function getAllServicePricingController(req, res, next) {
   try {
     const startTime = Date.now();
     console.log('⚡ [GET-ALL-PRICING] Starting optimized query...');
 
-    // ⚡ OPTIMIZED: Use lean() and select only needed fields
-    const allConfigs = await getAllServiceConfigs({});
+    // ⚡ OPTIMIZED: Fetch both service configs and service agreement template in parallel
+    const [allConfigs, serviceAgreementTemplate] = await Promise.all([
+      getAllServiceConfigs({}),
+      ServiceAgreementTemplate.findOne({ isActive: true })
+        .select('-__v')
+        .lean()
+        .exec()
+    ]);
+
+    // ⚡ If no template exists, create default one
+    let template = serviceAgreementTemplate;
+    if (!template) {
+      console.log('📝 [GET-ALL-PRICING] No template found, creating default...');
+      const newTemplate = await ServiceAgreementTemplate.create({
+        name: 'default',
+        isActive: true
+      });
+      template = newTemplate.toObject();
+    }
 
     // ⚡ OPTIMIZED: Transform to focus on pricing data only (exclude heavy fields)
     const pricingData = allConfigs.map(config => ({
@@ -83,9 +101,40 @@ export async function getAllServicePricingController(req, res, next) {
     }));
 
     const queryTime = Date.now() - startTime;
-    console.log(`⚡ [GET-ALL-PRICING] Returned ${pricingData.length} configs in ${queryTime}ms`);
+    console.log(`⚡ [GET-ALL-PRICING] Returned ${pricingData.length} configs + service agreement template in ${queryTime}ms`);
 
-    res.json(pricingData);
+    // ⚡ Return both service configs and service agreement template in one response
+    res.json({
+      serviceConfigs: pricingData,
+      serviceAgreementTemplate: {
+        id: template._id,
+        name: template.name,
+        term1: template.term1,
+        term2: template.term2,
+        term3: template.term3,
+        term4: template.term4,
+        term5: template.term5,
+        term6: template.term6,
+        term7: template.term7,
+        noteText: template.noteText,
+        titleText: template.titleText,
+        subtitleText: template.subtitleText,
+        retainDispensersLabel: template.retainDispensersLabel,
+        disposeDispensersLabel: template.disposeDispensersLabel,
+        emSalesRepLabel: template.emSalesRepLabel,
+        insideSalesRepLabel: template.insideSalesRepLabel,
+        authorityText: template.authorityText,
+        customerContactLabel: template.customerContactLabel,
+        customerSignatureLabel: template.customerSignatureLabel,
+        customerDateLabel: template.customerDateLabel,
+        emFranchiseeLabel: template.emFranchiseeLabel,
+        emSignatureLabel: template.emSignatureLabel,
+        emDateLabel: template.emDateLabel,
+        pageNumberText: template.pageNumberText,
+        isActive: template.isActive,
+        updatedAt: template.updatedAt
+      }
+    });
   } catch (err) {
     next(err);
   }
