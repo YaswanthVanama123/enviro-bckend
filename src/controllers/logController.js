@@ -19,7 +19,9 @@ export const createVersionLog = async (req, res) => {
       salespersonName,
       saveAction,
       documentTitle,
-      changes,
+      changes, // ✅ Backward compatibility
+      currentChanges, // ✅ NEW: Current version changes only
+      allPreviousChanges, // ✅ NEW: All changes from previous versions
       overwriteExisting,
       overwriteReason
     } = req.body;
@@ -28,9 +30,15 @@ export const createVersionLog = async (req, res) => {
       agreementId,
       versionId,
       versionNumber,
-      changesCount: changes?.length || 0,
+      currentChangesCount: currentChanges?.length || changes?.length || 0,
+      previousChangesCount: allPreviousChanges?.length || 0,
+      totalHistoricalChanges: (currentChanges?.length || changes?.length || 0) + (allPreviousChanges?.length || 0),
       saveAction,
-      overwriteExisting
+      overwriteExisting,
+      // ✅ NEW: Log actual data for debugging
+      hasCurrentChanges: !!(currentChanges && currentChanges.length > 0),
+      hasChanges: !!(changes && changes.length > 0),
+      hasPreviousChanges: !!(allPreviousChanges && allPreviousChanges.length > 0)
     });
 
     // ✅ FIXED: If versionNumber is missing but versionId is provided, look it up
@@ -88,8 +96,10 @@ export const createVersionLog = async (req, res) => {
       if (existingLog) {
         console.log(`📝 [LOG-CONTROLLER] Found existing log, updating: ${existingLog._id}`);
 
-        // Update existing log
-        existingLog.changes = changes || [];
+        // ✅ UPDATED: Update with new cumulative history fields
+        existingLog.changes = changes || currentChanges || []; // Backward compatibility
+        existingLog.currentChanges = currentChanges || changes || [];
+        existingLog.allPreviousChanges = allPreviousChanges || [];
         existingLog.agreementTitle = agreementTitle; // ✅ NEW: Update agreement title
         existingLog.salespersonId = salespersonId;
         existingLog.salespersonName = salespersonName;
@@ -128,13 +138,23 @@ export const createVersionLog = async (req, res) => {
       salespersonName,
       saveAction,
       documentTitle,
-      changes: changes || []
+      changes: changes || currentChanges || [], // ✅ Backward compatibility
+      currentChanges: currentChanges || changes || [], // ✅ NEW: Current version changes
+      allPreviousChanges: allPreviousChanges || [] // ✅ NEW: All previous changes
     });
 
     // Save to MongoDB
     await logDoc.save();
 
-    console.log('✅ [LOG-CONTROLLER] Log created successfully:', logDoc._id);
+    console.log('✅ [LOG-CONTROLLER] Log created successfully:', {
+      logId: logDoc._id,
+      versionNumber: logDoc.versionNumber,
+      changesStored: logDoc.changes?.length || 0,
+      currentChangesStored: logDoc.currentChanges?.length || 0,
+      allPreviousChangesStored: logDoc.allPreviousChanges?.length || 0,
+      totalChanges: logDoc.totalChanges,
+      totalPriceImpact: logDoc.totalPriceImpact
+    });
 
     // Return response
     res.status(201).json({
@@ -217,6 +237,10 @@ export const getVersionLogs = async (req, res) => {
       totalChanges: log.totalChanges,
       totalPriceImpact: log.totalPriceImpact,
       hasSignificantChanges: log.hasSignificantChanges,
+      // ✅ NEW: Include change arrays for cumulative history
+      changes: log.changes || [],
+      currentChanges: log.currentChanges || [],
+      allPreviousChanges: log.allPreviousChanges || [],
       createdAt: log.createdAt,
       updatedAt: log.updatedAt
     }));

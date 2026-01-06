@@ -17,7 +17,7 @@ const FieldChangeSchema = new mongoose.Schema({
 
   productType: {
     type: String,
-    enum: ['product', 'dispenser', 'service'],
+    enum: ['product', 'dispenser', 'service', 'agreement_text'],
     required: [true, 'Product type is required']
   },
 
@@ -32,25 +32,43 @@ const FieldChangeSchema = new mongoose.Schema({
     required: [true, 'Field display name is required']
   },
 
-  // Value changes
+  // ✅ NEW: Change type to distinguish numeric vs text changes
+  changeType: {
+    type: String,
+    enum: ['numeric', 'text'],
+    default: 'numeric'
+  },
+
+  // Numeric value changes
   originalValue: {
     type: Number,
-    required: [true, 'Original value is required']
+    required: false // ✅ UPDATED: Not required for text changes
   },
 
   newValue: {
     type: Number,
-    required: [true, 'New value is required']
+    required: false // ✅ UPDATED: Not required for text changes
   },
 
   changeAmount: {
     type: Number,
-    required: [true, 'Change amount is required']
+    default: 0
   },
 
   changePercentage: {
     type: Number,
-    required: [true, 'Change percentage is required']
+    default: 0
+  },
+
+  // ✅ NEW: Text value changes
+  originalText: {
+    type: String,
+    default: ''
+  },
+
+  newText: {
+    type: String,
+    default: ''
   },
 
   // Context information
@@ -132,6 +150,19 @@ const LogSchema = new mongoose.Schema(
       default: []
     },
 
+    // ✅ NEW: Cumulative change history support
+    // Current version changes only (what changed in THIS version)
+    currentChanges: {
+      type: [FieldChangeSchema],
+      default: []
+    },
+
+    // All changes from previous versions (cumulative history)
+    allPreviousChanges: {
+      type: [FieldChangeSchema],
+      default: []
+    },
+
     // Summary statistics
     totalChanges: {
       type: Number,
@@ -191,16 +222,21 @@ const LogSchema = new mongoose.Schema(
 
 // Pre-save middleware to calculate summary statistics and file metadata
 LogSchema.pre('save', function(next) {
-  if (this.changes && this.changes.length > 0) {
-    this.totalChanges = this.changes.length;
+  // ✅ UPDATED: Use currentChanges if available, otherwise fall back to changes
+  const changesArray = this.currentChanges && this.currentChanges.length > 0
+    ? this.currentChanges
+    : this.changes;
+
+  if (changesArray && changesArray.length > 0) {
+    this.totalChanges = changesArray.length;
 
     // Calculate total price impact
-    this.totalPriceImpact = this.changes.reduce((total, change) => {
+    this.totalPriceImpact = changesArray.reduce((total, change) => {
       return total + Math.abs(change.changeAmount);
     }, 0);
 
     // Check for significant changes (>15% or >$50)
-    this.hasSignificantChanges = this.changes.some(change => {
+    this.hasSignificantChanges = changesArray.some(change => {
       return Math.abs(change.changePercentage) > 15 || Math.abs(change.changeAmount) > 50;
     });
   }
@@ -218,7 +254,7 @@ LogSchema.pre('save', function(next) {
   next();
 });
 
-// Method to generate TXT file content
+// Method to generate TXT file content with cumulative history support
 LogSchema.methods.generateTextContent = function() {
   const timestamp = new Date(this.createdAt || Date.now()).toISOString();
   const date = new Date(this.createdAt || Date.now()).toLocaleDateString('en-US', {
@@ -228,6 +264,13 @@ LogSchema.methods.generateTextContent = function() {
     hour: '2-digit',
     minute: '2-digit'
   });
+
+  // ✅ UPDATED: Use currentChanges if available, otherwise fall back to changes
+  const currentChangesArray = this.currentChanges && this.currentChanges.length > 0
+    ? this.currentChanges
+    : this.changes;
+
+  const previousChangesArray = this.allPreviousChanges || [];
 
   let content = '';
   content += '='.repeat(80) + '\n';
@@ -249,68 +292,33 @@ LogSchema.methods.generateTextContent = function() {
   content += `Timestamp: ${date}\n`;
   content += `Salesperson: ${this.salespersonName} (${this.salespersonId})\n\n`;
 
-  // Summary Statistics
-  const totalChanges = this.changes.length;
+  // Summary Statistics (based on current changes)
+  const totalCurrentChanges = currentChangesArray.length;
   const totalPriceImpact = this.totalPriceImpact || 0;
-  const significantChanges = this.changes.filter(change =>
+  const significantChanges = currentChangesArray.filter(change =>
     Math.abs(change.changeAmount || 0) >= 50 || Math.abs(change.changePercentage || 0) >= 15
   );
 
   content += '-'.repeat(80) + '\n';
   content += '                        SUMMARY\n';
   content += '-'.repeat(80) + '\n';
-  content += `Total Changes Made: ${totalChanges}\n`;
+  content += `Total Changes Made: ${totalCurrentChanges}\n`;
   content += `Total Price Impact: $${totalPriceImpact.toFixed(2)}\n`;
   content += `Significant Changes: ${significantChanges.length} (≥$50 or ≥15%)\n`;
   content += `Review Status: ${significantChanges.length > 0 ? 'REQUIRES REVIEW' : 'AUTO-APPROVED'}\n\n`;
 
-  if (this.changes.length === 0) {
+  // ✅ SECTION 1: CURRENT CHANGES (This Version)
+  if (currentChangesArray.length === 0) {
     content += '-'.repeat(80) + '\n';
     content += '                     NO CHANGES DETECTED\n';
     content += '-'.repeat(80) + '\n';
     content += 'No price overrides or modifications were made during this save.\n\n';
   } else {
-    // Detailed Changes
     content += '-'.repeat(80) + '\n';
-    content += '                    DETAILED CHANGES\n';
+    content += '                    CURRENT CHANGES (This Version)\n';
     content += '-'.repeat(80) + '\n\n';
 
-    // Group changes by product/service
-    const changesByProduct = {};
-    this.changes.forEach(change => {
-      if (!changesByProduct[change.productName]) {
-        changesByProduct[change.productName] = [];
-      }
-      changesByProduct[change.productName].push(change);
-    });
-
-    let changeIndex = 1;
-    Object.keys(changesByProduct).forEach(productName => {
-      const productChanges = changesByProduct[productName];
-
-      content += `${changeIndex}. ${productName}\n`;
-      content += `   Type: ${productChanges[0].productType.toUpperCase()}\n`;
-      if (productChanges[0].quantity) {
-        content += `   Quantity: ${productChanges[0].quantity}\n`;
-      }
-      if (productChanges[0].frequency) {
-        content += `   Frequency: ${productChanges[0].frequency}\n`;
-      }
-      content += '\n';
-
-      productChanges.forEach(change => {
-        const isSignificant = Math.abs(change.changeAmount || 0) >= 50 || Math.abs(change.changePercentage || 0) >= 15;
-        const indicator = isSignificant ? '⚠️  SIGNIFICANT' : '✓  Minor';
-
-        content += `   • ${change.fieldDisplayName}:\n`;
-        content += `     Original: $${(change.originalValue || 0).toFixed(2)}\n`;
-        content += `     New: $${(change.newValue || 0).toFixed(2)}\n`;
-        content += `     Change: ${change.changeAmount >= 0 ? '+' : ''}$${(change.changeAmount || 0).toFixed(2)} `;
-        content += `(${change.changeAmount >= 0 ? '+' : ''}${(change.changePercentage || 0).toFixed(1)}%) ${indicator}\n\n`;
-      });
-
-      changeIndex++;
-    });
+    content += this._formatChangesSection(currentChangesArray);
 
     // Significant Changes Warning
     if (significantChanges.length > 0) {
@@ -329,12 +337,80 @@ LogSchema.methods.generateTextContent = function() {
     }
   }
 
+  // ✅ SECTION 2: ALL PREVIOUS CHANGES (Cumulative History)
+  if (previousChangesArray.length > 0) {
+    content += '='.repeat(80) + '\n';
+    content += '           ALL PREVIOUS CHANGES (Cumulative History)\n';
+    content += '='.repeat(80) + '\n\n';
+
+    content += `Total Historical Changes: ${previousChangesArray.length}\n`;
+    content += `From Versions: v1 to v${this.versionNumber - 1}\n\n`;
+
+    content += this._formatChangesSection(previousChangesArray);
+  }
+
   // Footer
   content += '='.repeat(80) + '\n';
   content += '                      END OF LOG\n';
   content += '='.repeat(80) + '\n';
   content += `Generated on: ${timestamp}\n`;
   content += 'This log file contains a complete record of all pricing changes made during form editing.\n';
+
+  return content;
+};
+
+// ✅ NEW: Helper method to format changes section (DRY principle)
+LogSchema.methods._formatChangesSection = function(changesArray) {
+  let content = '';
+
+  // Group changes by product/service
+  const changesByProduct = {};
+  changesArray.forEach(change => {
+    if (!changesByProduct[change.productName]) {
+      changesByProduct[change.productName] = [];
+    }
+    changesByProduct[change.productName].push(change);
+  });
+
+  let changeIndex = 1;
+  Object.keys(changesByProduct).forEach(productName => {
+    const productChanges = changesByProduct[productName];
+
+    content += `${changeIndex}. ${productName}\n`;
+    content += `   Type: ${productChanges[0].productType.toUpperCase()}\n`;
+    if (productChanges[0].quantity) {
+      content += `   Quantity: ${productChanges[0].quantity}\n`;
+    }
+    if (productChanges[0].frequency) {
+      content += `   Frequency: ${productChanges[0].frequency}\n`;
+    }
+    content += '\n';
+
+    productChanges.forEach(change => {
+      // ✅ NEW: Handle text changes differently from numeric changes
+      if (change.changeType === 'text') {
+        // Format text changes
+        content += `   • ${change.fieldDisplayName}:\n`;
+        content += `     Original Text:\n`;
+        content += `     "${change.originalText || '(empty)'}"\n\n`;
+        content += `     Changed To:\n`;
+        content += `     "${change.newText || '(empty)'}"\n\n`;
+        content += `     [TEXT CHANGE]\n\n`;
+      } else {
+        // Format numeric changes (existing logic)
+        const isSignificant = Math.abs(change.changeAmount || 0) >= 50 || Math.abs(change.changePercentage || 0) >= 15;
+        const indicator = isSignificant ? '⚠️  SIGNIFICANT' : '✓  Minor';
+
+        content += `   • ${change.fieldDisplayName}:\n`;
+        content += `     Original: $${(change.originalValue || 0).toFixed(2)}\n`;
+        content += `     New: $${(change.newValue || 0).toFixed(2)}\n`;
+        content += `     Change: ${change.changeAmount >= 0 ? '+' : ''}$${(change.changeAmount || 0).toFixed(2)} `;
+        content += `(${change.changeAmount >= 0 ? '+' : ''}${(change.changePercentage || 0).toFixed(1)}%) ${indicator}\n\n`;
+      }
+    });
+
+    changeIndex++;
+  });
 
   return content;
 };
