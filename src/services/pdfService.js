@@ -129,6 +129,7 @@ function buildServiceAgreementLatex(agreementData = {}) {
   const checkbox = (checked) => checked ? '{[\\textbf{X}]}' : '{[~~]}';
 
   // Build the LaTeX content for the service agreement on a new page
+  // ⚡ OPTIMIZED: Reduced vertical spacing to fit on single page
   return `
 \\newpage
 
@@ -144,7 +145,7 @@ function buildServiceAgreementLatex(agreementData = {}) {
   \\begin{minipage}[c]{\\linewidth}
     \\centering
     {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
-    \\vspace{0.5em}
+    \\vspace{0.3em}
 
     {\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
   \\end{minipage} &
@@ -152,7 +153,7 @@ function buildServiceAgreementLatex(agreementData = {}) {
   \\vspace{0pt}
 \\end{tabular}
 
-\\vspace{1em}
+\\vspace{0.5em}
 
 % Terms
 \\begin{enumerate}
@@ -171,7 +172,7 @@ function buildServiceAgreementLatex(agreementData = {}) {
   \\item ${escape(agreementData.term7 || '')}
 \\end{enumerate}
 
-\\vspace{1em}
+\\vspace{0.5em}
 
 % Dispenser options
 \\noindent
@@ -179,35 +180,35 @@ ${checkbox(agreementData.retainDispensers)} ${escape(agreementData.retainDispens
 \\hspace{2em}
 ${checkbox(agreementData.disposeDispensers)} ${escape(agreementData.disposeDispensersLabel || 'Customer desires to dispose of existing dispensers')}
 
-\\vspace{1em}
+\\vspace{0.5em}
 
 \\noindent
 ${escape(agreementData.noteText || '')}
 
-\\vspace{1em}
+\\vspace{0.5em}
 
 % Representatives
   \\noindent
   ${escape(agreementData.emSalesRepLabel || 'EM Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(agreementData.emSalesRepresentative || '')}} \\hspace{2em}
   ${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(agreementData.insideSalesRepresentative || '')}}
 
-\\vspace{1em}
+\\vspace{0.5em}
 
 \\noindent
 {\\bfseries ${escape(agreementData.authorityText || 'I HEREBY REPRESENT THAT I HAVE THE AUTHORITY TO SIGN THIS AGREEMENT:')}}
 
-\\vspace{1.5em}
+\\vspace{0.8em}
 
 % Signatures
 \\noindent
 \\begin{minipage}[t]{0.48\\textwidth}
   ${escape(agreementData.customerContactLabel || 'Customer Contact Name:')}: \\filledlineleftlim[5.5cm]{${escape(agreementData.customerContactName || '')}}
 
-  \\vspace{1em}
+  \\vspace{0.6em}
 
   ${escape(agreementData.customerSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(agreementData.customerSignature || '')}}
 
-  \\vspace{1em}
+  \\vspace{0.6em}
 
   ${escape(agreementData.customerDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.customerSignatureDate || '')}}
 \\end{minipage}%
@@ -215,16 +216,16 @@ ${escape(agreementData.noteText || '')}
 \\begin{minipage}[t]{0.48\\textwidth}
   ${escape(agreementData.emFranchiseeLabel || 'EM Franchisee:')}: \\filledlineleftlim[5.5cm]{${escape(agreementData.emFranchisee || '')}}
 
-  \\vspace{1em}
+  \\vspace{0.6em}
 
   ${escape(agreementData.emSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(agreementData.emSignature || '')}}
 
-  \\vspace{1em}
+  \\vspace{0.6em}
 
   ${escape(agreementData.emDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.emSignatureDate || '')}}
 \\end{minipage}
 
-\\vspace{2em}
+\\vspace{1em}
 
 \\begin{center}
 \\end{center}
