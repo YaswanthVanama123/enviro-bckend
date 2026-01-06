@@ -94,21 +94,25 @@ export async function sendEmailWithPdf(req, res) {
             .lean();
 
           if (manualUpload?.pdfBuffer) {
-            pdfBuffer = manualUpload.pdfBuffer;
+            // ✅ FIX: Convert MongoDB Binary to Buffer explicitly
+            pdfBuffer = manualUpload.pdfBuffer.buffer
+              ? Buffer.from(manualUpload.pdfBuffer.buffer)  // MongoDB Binary type
+              : Buffer.isBuffer(manualUpload.pdfBuffer)
+                ? manualUpload.pdfBuffer  // Already a Buffer
+                : Buffer.from(manualUpload.pdfBuffer);  // Fallback conversion
+
             fileName = manualUpload.fileName;
             attachmentContentType = manualUpload.mimeType || "application/pdf";
             skipVersionCompile = true;
-            console.log(`✅ [EMAIL-CONTROLLER] Found as manual upload`);
+            console.log(`✅ [EMAIL-CONTROLLER] Found as manual upload (${pdfBuffer.length} bytes)`);
           } else {
-            // Try log file
-            const logDoc = await Log.findById(documentId).lean();
+            // Try log file - ✅ FIX: Don't use .lean() so methods are available
+            const logDoc = await Log.findById(documentId);
             if (logDoc) {
-              const logContent = typeof logDoc.generateTextContent === 'function'
-                ? logDoc.generateTextContent()
-                : '';
+              const logContent = logDoc.generateTextContent();
               pdfBuffer = Buffer.from(logContent || '', 'utf8');
               fileName = logDoc.fileName || `Version_${logDoc.versionNumber}_Changes.txt`;
-              attachmentContentType = logDoc.contentType || 'text/plain';
+              attachmentContentType = logDoc.contentType || 'text/plain; charset=utf-8';
               skipVersionCompile = true;
               console.log(`✅ [EMAIL-CONTROLLER] Found as log file`);
             } else {
@@ -143,25 +147,29 @@ export async function sendEmailWithPdf(req, res) {
           throw new Error('File buffer not found');
         }
 
-        pdfBuffer = manualUpload.pdfBuffer;
+        // ✅ FIX: Convert MongoDB Binary to Buffer explicitly
+        pdfBuffer = manualUpload.pdfBuffer.buffer
+          ? Buffer.from(manualUpload.pdfBuffer.buffer)  // MongoDB Binary type
+          : Buffer.isBuffer(manualUpload.pdfBuffer)
+            ? manualUpload.pdfBuffer  // Already a Buffer
+            : Buffer.from(manualUpload.pdfBuffer);  // Fallback conversion
+
         fileName = manualUpload.fileName;
         attachmentContentType = manualUpload.mimeType || "application/pdf";
-        console.log(`📄 [EMAIL-CONTROLLER] Loaded manual upload: ${fileName}`);
+        console.log(`📄 [EMAIL-CONTROLLER] Loaded manual upload: ${fileName} (${pdfBuffer.length} bytes)`);
 
       } else if (requestedCategory === 'log') {
-        const logDoc = await Log.findById(documentId).lean();
+        // ✅ FIX: Don't use .lean() so methods are available
+        const logDoc = await Log.findById(documentId);
         if (!logDoc) {
           throw new Error(`Version log not found with ID: ${documentId}`);
         }
 
-        const logContent = typeof logDoc.generateTextContent === 'function'
-          ? logDoc.generateTextContent()
-          : '';
-
+        const logContent = logDoc.generateTextContent();
         pdfBuffer = Buffer.from(logContent || '', 'utf8');
         fileName = logDoc.fileName || `Version_${logDoc.versionNumber}_Changes.txt`;
-        attachmentContentType = logDoc.contentType || 'text/plain';
-        console.log(`📄 [EMAIL-CONTROLLER] Loaded log file: ${fileName}`);
+        attachmentContentType = logDoc.contentType || 'text/plain; charset=utf-8';
+        console.log(`📄 [EMAIL-CONTROLLER] Loaded log file: ${fileName} (${pdfBuffer.length} bytes)`);
 
       } else if (requestedCategory === 'agreement') {
         // ⚡ OPTIMIZED: Only select needed fields
@@ -197,9 +205,16 @@ export async function sendEmailWithPdf(req, res) {
             throw new Error('PDF not available. Please generate it first.');
           }
 
-          pdfBuffer = agreement.pdf_meta.pdfBuffer;
+          // ✅ FIX: Convert MongoDB Binary to Buffer explicitly
+          const rawBuffer = agreement.pdf_meta.pdfBuffer;
+          pdfBuffer = rawBuffer.buffer
+            ? Buffer.from(rawBuffer.buffer)  // MongoDB Binary type
+            : Buffer.isBuffer(rawBuffer)
+              ? rawBuffer  // Already a Buffer
+              : Buffer.from(rawBuffer);  // Fallback conversion
+
           fileName = `${agreement.payload?.headerTitle || 'Agreement'}.pdf`;
-          console.log(`📄 [EMAIL-CONTROLLER] Loaded agreement PDF: ${fileName}`);
+          console.log(`📄 [EMAIL-CONTROLLER] Loaded agreement PDF: ${fileName} (${pdfBuffer.length} bytes)`);
         }
       } else {
         throw new Error('Invalid document type');
