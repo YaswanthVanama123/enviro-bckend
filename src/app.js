@@ -4,6 +4,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from "compression";
 import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 import proposalRoutes from './routes/proposalRoutes.js';
 import priceFixRoutes from "./routes/priceFixRoutes.js";
 import pdfRoutes from "./routes/pdfRoutes.js";
@@ -25,6 +28,14 @@ import serviceAgreementTemplateRoutes from './routes/serviceAgreementTemplateRou
 // import { ensureDefaultAdmin } from "./models/AdminUser.js";
 
 const app = express();
+
+// Ensure uploads directory exists at startup
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.join(__dirname, '../../uploads/service-images');
+fs.mkdirSync(uploadsDir, { recursive: true });
+
+// Serve uploaded files as static assets
+app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
 // ✅ PRODUCTION: Security headers with Helmet
 app.use(helmet({

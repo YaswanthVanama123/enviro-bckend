@@ -34,6 +34,22 @@ const ServiceConfigSchema = new mongoose.Schema(
 
     // Optional tags (e.g. ["restroom", "drain", "add-on"])
     tags: [{ type: String }],
+
+    // Reference images shown in the Services Reference panel
+    images: [
+      {
+        url:     { type: String, required: true },
+        caption: { type: String, default: "" },
+      },
+    ],
+
+    // Reference links shown in the Services Reference panel
+    links: [
+      {
+        label: { type: String, required: true },
+        url:   { type: String, required: true },
+      },
+    ],
   },
   {
     timestamps: true,

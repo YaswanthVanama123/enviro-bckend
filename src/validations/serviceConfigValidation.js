@@ -18,6 +18,12 @@ const baseSchema = {
   isActive: Joi.boolean().optional(),
   adminByDisplay: Joi.boolean().optional(), // ✅ Added missing field
   tags: Joi.array().items(Joi.string()).optional(),
+  images: Joi.array().items(
+    Joi.object({ url: Joi.string().uri().required(), caption: Joi.string().allow("").optional() })
+  ).optional(),
+  links: Joi.array().items(
+    Joi.object({ label: Joi.string().required(), url: Joi.string().uri().required() })
+  ).optional(),
 };
 
 const createServiceConfigSchema = Joi.object(baseSchema);
@@ -34,6 +40,12 @@ const partialUpdateServiceConfigSchema = Joi.object({
   isActive: Joi.boolean().optional(),
   adminByDisplay: Joi.boolean().optional(), // ✅ Added missing field
   tags: Joi.array().items(Joi.string()).optional(),
+  images: Joi.array().items(
+    Joi.object({ url: Joi.string().uri().required(), caption: Joi.string().allow("").optional() })
+  ).optional(),
+  links: Joi.array().items(
+    Joi.object({ label: Joi.string().required(), url: Joi.string().uri().required() })
+  ).optional(),
 }).min(1); // at least one field must be present
 
 export function validateCreateServiceConfig(payload) {

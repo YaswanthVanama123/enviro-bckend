@@ -141,6 +141,16 @@ export async function mergeServiceConfig(id, partial) {
     existing.adminByDisplay = partial.adminByDisplay;
   }
 
+  // Handle images array (full replace)
+  if (Array.isArray(partial.images)) {
+    existing.images = partial.images;
+  }
+
+  // Handle links array (full replace)
+  if (Array.isArray(partial.links)) {
+    existing.links = partial.links;
+  }
+
   return existing.save();
 }
 

@@ -1,8 +1,31 @@
 import express from "express";
+import multer from "multer";
+import path from "path";
+import { fileURLToPath } from "url";
 import * as serviceConfigController from "../controllers/serviceConfigController.js";
 import PricingChangeDetector from "../middleware/pricingChangeDetector.js";
 
 const router = express.Router();
+
+// ── Multer — save uploads to /uploads/service-images/ ──────────────────────
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.join(__dirname, "../../../uploads/service-images");
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `svc-${Date.now()}${ext}`);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true);
+    else cb(new Error("Only image files are allowed."));
+  },
+});
 
 // Create new service config (for a serviceId)
 router.post(
@@ -67,6 +90,13 @@ router.delete(
 router.delete(
   "/service/:serviceId",
   serviceConfigController.deleteServiceConfigsByServiceIdController
+);
+
+// Upload an image for a service config
+router.post(
+  "/:id/upload-image",
+  upload.single("image"),
+  serviceConfigController.uploadServiceImageController
 );
 
 export default router;

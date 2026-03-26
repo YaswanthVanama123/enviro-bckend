@@ -6,6 +6,7 @@ import {
 } from "../validations/serviceConfigValidation.js";
 
 import mongoose from "mongoose";
+import path from "path";
 import ServiceAgreementTemplate from '../models/ServiceAgreementTemplate.js';
 
 import {
@@ -272,6 +273,42 @@ export async function deleteServiceConfigsByServiceIdController(req, res, next) 
       serviceId: serviceId,
       deletedCount: result.deletedCount,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Upload an image for a service config.
+ * Multer is applied on the route — this controller just saves the URL.
+ * POST /api/service-configs/:id/upload-image
+ */
+export async function uploadServiceImageController(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided." });
+    }
+    const { id } = req.params;
+    const caption = req.body.caption ?? "";
+
+    // Build a public URL from the saved filename
+    const publicUrl = `/uploads/service-images/${req.file.filename}`;
+
+    // Pull existing doc and push new image
+    const { getServiceConfigById, mergeServiceConfig } = await import(
+      "../services/serviceConfigService.js"
+    );
+    const existing = await getServiceConfigById(id);
+    if (!existing) {
+      return res.status(404).json({ message: "Service config not found." });
+    }
+
+    const currentImages = Array.isArray(existing.images) ? existing.images : [];
+    const updated = await mergeServiceConfig(id, {
+      images: [...currentImages, { url: publicUrl, caption }],
+    });
+
+    res.json({ success: true, url: publicUrl, serviceConfig: updated });
   } catch (err) {
     next(err);
   }
