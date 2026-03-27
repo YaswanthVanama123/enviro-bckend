@@ -436,7 +436,21 @@
 \serviceLine{Services Total:}{\strut {{{summaryServiceAgreementTotal}}}}
 \nopagebreak[4]
 \serviceLine{Products Total:}{\strut {{{summaryProductTotalsLabel}}}}
+\nopagebreak[4]
+\serviceLine{Payment Method:}{\strut {{{agreementPaymentOption}}}}
 {{/summaryExists}}
+
+{{#agreementPaymentNote}}
+\vspace{0.5em}
+\needspace{3\baselineskip}
+\nopagebreak[4]
+\serviceSection{PAYMENT NOTE}
+\vspace{0.3em}
+\nopagebreak[4]
+\begin{minipage}{\textwidth}
+  \small {{{agreementPaymentNote}}}
+\end{minipage}
+{{/agreementPaymentNote}}
 
 \vspace{0.8em}
 

@@ -174,6 +174,7 @@ const AgreementSchema = new mongoose.Schema(
       enum: ["online", "cash", "others"],
       default: "online"
     },
+    paymentNote: { type: String, default: "" },
     // ✅ NEW: Timeline tracking for agreement expiry
     startDate: { type: String, default: null }  // ISO date string for agreement start date
   },

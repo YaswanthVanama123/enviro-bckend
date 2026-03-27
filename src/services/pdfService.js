@@ -3061,6 +3061,12 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     agreementEnviroOf: latexEscape(body.agreement?.enviroOf || ""),
     agreementExecutedOn: latexEscape(body.agreement?.customerExecutedOn || ""),
     agreementAdditionalMonths: latexEscape(body.agreement?.additionalMonths || ""),
+    agreementPaymentOption: latexEscape(
+      body.agreement?.paymentOption === "online" ? "Online" :
+      body.agreement?.paymentOption === "cash"   ? "Cash"   :
+      body.agreement?.paymentOption === "others" ? "Other"  : ""
+    ),
+    agreementPaymentNote: latexEscape(body.agreement?.paymentNote || ""),
     ...buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] }),
     ...buildServicesLatex(body.services || {}),
     // ✅ NEW: Add watermark flag to view for template
