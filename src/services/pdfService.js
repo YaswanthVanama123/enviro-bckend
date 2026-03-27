@@ -2157,171 +2157,171 @@ function transformCustomServiceToColumn(customService) {
   };
 }
 
-function buildServicesLatex(services = {}) {
-  // Helper: unwrap nested formData.formData... and return the deepest "data" object
-  const resolveServiceData = (serviceData) => {
-    if (!serviceData) return null;
-    let data = serviceData;
-    const seen = new Set();
-    while (data && data.formData && !seen.has(data)) {
-      seen.add(data);
-      data = data.formData;
-    }
-    return data || serviceData;
-  };
+// Keys that are not individual services (skip when scanning for per-service notes)
+const NON_SERVICE_KEYS = new Set([
+  'notes', 'topRow', 'bottomRow', 'secondRow', 'refreshPowerScrub', 'customServices',
+]);
 
-  // Helper: Decide whether a service should be shown
-  const isServiceUsed = (serviceData) => {
-    if (!serviceData) return false;
+// Service key → human-readable label
+const SERVICE_DISPLAY_NAMES = {
+  saniclean:         'Saniclean',
+  foamingDrain:      'Foaming Drain',
+  saniscrub:         'SaniScrub',
+  microfiberMopping: 'Microfiber Mopping',
+  rpmWindows:        'RPM Windows',
+  sanipod:           'SaniPod',
+  carpetclean:       'Carpet Cleaning',
+  pureJanitorial:    'Janitorial',
+  janitorial:        'Janitorial',
+  stripwax:          'Strip & Wax',
+  greaseTrap:        'Grease Trap',
+  electrostaticSpray:'Electrostatic Spray',
+};
+
+// Unwrap nested formData.formData... and return the deepest "data" object
+function resolveServiceData(serviceData) {
+  if (!serviceData) return null;
+  let data = serviceData;
+  const seen = new Set();
+  while (data && data.formData && !seen.has(data)) {
+    seen.add(data);
+    data = data.formData;
+  }
+  return data || serviceData;
+}
+
+// Decide whether a service should be shown in the PDF
+function isServiceUsed(serviceData) {
+  if (!serviceData) return false;
+  const data = resolveServiceData(serviceData);
+  if (!data) return false;
+
+  // Respect isActive at wrapper or data level
+  if (serviceData.isActive === false) return false;
+  if (data.isActive === false) return false;
+
+  // Core totals — old flat format
+  if (
+    (data.weeklyTotal && (typeof data.weeklyTotal === 'number' ? data.weeklyTotal > 0 : parseFloat(data.weeklyTotal) > 0)) ||
+    (data.monthlyTotal && (typeof data.monthlyTotal === 'number' ? data.monthlyTotal > 0 : parseFloat(data.monthlyTotal) > 0)) ||
+    (data.contractTotal && (typeof data.contractTotal === 'number' ? data.contractTotal > 0 : parseFloat(data.contractTotal) > 0)) ||
+    (data.firstVisit && (typeof data.firstVisit === 'number' ? data.firstVisit > 0 : parseFloat(data.firstVisit) > 0)) ||
+    (data.ongoingMonthly && (typeof data.ongoingMonthly === 'number' ? data.ongoingMonthly > 0 : parseFloat(data.ongoingMonthly) > 0))
+  ) {
+    return true;
+  }
+
+  // New structured totals format
+  if (data.totals) {
+    if (
+      (data.totals.weekly && data.totals.weekly.amount) ||
+      (data.totals.monthly && data.totals.monthly.amount) ||
+      (data.totals.monthlyRecurring && data.totals.monthlyRecurring.amount) ||
+      (data.totals.contract && data.totals.contract.amount) ||
+      (data.totals.firstMonth && data.totals.firstMonth.amount) ||
+      (data.totals.perVisit && data.totals.perVisit.amount) ||
+      (data.totals.annual && data.totals.annual.amount)
+    ) {
+      return true;
+    }
+  }
+
+  if (data.total || data.amount || data.charge) return true;
+
+  // Specific field checks for various service types
+  if (
+    (data.fixtureCount && data.fixtureCount > 0) ||
+    (data.drainCount && data.drainCount > 0) ||
+    (data.squareFeet && data.squareFeet > 0) ||
+    (data.quantity && data.quantity > 0) ||
+    (data.trapCount && data.trapCount > 0) ||
+    (data.hoursPerWeek && data.hoursPerWeek > 0) ||
+    (data.windowCount && data.windowCount > 0)
+  ) {
+    return true;
+  }
+
+  // Refresh Power Scrub areas
+  if (data.serviceId === 'refreshPowerScrub') {
+    const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
+    for (const area of refreshAreas) {
+      if (data[area] && typeof data[area] === 'object') {
+        const areaData = data[area];
+        if ((areaData.total && areaData.total > 0) || (areaData.qty && areaData.qty > 0)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // Custom fields
+  if (Array.isArray(data.customFields) && data.customFields.length > 0) {
+    const hasCustomValue = data.customFields.some((field) => {
+      if (!field) return false;
+      const v = field.value;
+      if (v === null || v === undefined) return false;
+      if (typeof v === 'number') return v !== 0;
+      if (typeof v === 'string') return v.trim() !== '' && v !== '0';
+      return true;
+    });
+    if (hasCustomValue) return true;
+  }
+
+  // Generic numeric/string fields; ignore pure config keys
+  const ignoreKeys = new Set([
+    'serviceId', 'pricingMode', 'location', 'frequency',
+    'rateTier', 'contractMonths', 'notes', 'method',
+  ]);
+  for (const key of Object.keys(data)) {
+    if (ignoreKeys.has(key)) continue;
+    const val = data[key];
+    if (typeof val === 'number' && val > 0) return true;
+    if (typeof val === 'string' && val.trim() !== '' && val !== '0') return true;
+  }
+
+  return false;
+}
+
+/**
+ * Collect per-service `notes` strings and render them as a SERVICE NOTES
+ * section in the PDF. Only services with a non-empty notes string are included.
+ */
+function buildPerServiceNotesLatex(services = {}) {
+  const entries = [];
+
+  Object.entries(services).forEach(([key, serviceData]) => {
+    if (NON_SERVICE_KEYS.has(key)) return;
+    if (!serviceData) return;
+
+    // Support both flat and nested { formData: {...} } shapes
     const data = resolveServiceData(serviceData);
-    if (!data) return false;
+    const notesText = typeof data.notes === 'string' ? data.notes.trim() : '';
+    if (!notesText) return;
 
-    // Special debugging for refreshPowerScrub only
-    if (data.serviceId === 'refreshPowerScrub') {
-      // console.log('🔍 [REFRESH POWER SCRUB DEBUG] Service detection:');
-      // console.log('  └ isActive:', data.isActive);
-      // console.log('  └ totals.perVisit.amount:', data.totals?.perVisit?.amount);
+    const label = SERVICE_DISPLAY_NAMES[key] || data.displayName || key;
+    entries.push({ label, notesText });
+  });
 
-      // Check individual areas
-      const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
-      for (const area of refreshAreas) {
-        if (data[area]) {
-          // console.log(`  └ ${area}: qty=${data[area].qty}, total=${data[area].total}`);
-        }
-      }
+  if (entries.length === 0) return '';
+
+  let latex = '\\vspace{1.0em}\n';
+  latex += `\\serviceSection{SERVICE NOTES}\n`;
+  latex += '\\vspace{0.35em}\n';
+
+  for (const { label, notesText } of entries) {
+    latex += `\\serviceBigHeading{${latexEscape(label)}:}\n`;
+    const lines = notesText.split('\n').filter(l => l.trim() !== '');
+    for (const line of lines) {
+      latex += `\\filledlineleft{ ${latexEscape(line)} }\\\\[0.4em]\n`;
     }
+    latex += '\\vspace{0.3em}\n';
+  }
 
-    // Respect isActive at wrapper or data level
-    if (serviceData.isActive === false) return false;
-    if (data.isActive === false) return false;
+  return latex;
+}
 
-    // Core totals we care about - FIXED: Check for numeric values > 0
-    // Check both old flat format and new structured format
-    if (
-      (data.weeklyTotal && (typeof data.weeklyTotal === 'number' ? data.weeklyTotal > 0 : parseFloat(data.weeklyTotal) > 0)) ||
-      (data.monthlyTotal && (typeof data.monthlyTotal === 'number' ? data.monthlyTotal > 0 : parseFloat(data.monthlyTotal) > 0)) ||
-      (data.contractTotal && (typeof data.contractTotal === 'number' ? data.contractTotal > 0 : parseFloat(data.contractTotal) > 0)) ||
-      (data.firstVisit && (typeof data.firstVisit === 'number' ? data.firstVisit > 0 : parseFloat(data.firstVisit) > 0)) ||
-      (data.ongoingMonthly && (typeof data.ongoingMonthly === 'number' ? data.ongoingMonthly > 0 : parseFloat(data.ongoingMonthly) > 0))
-    ) {
-      if (data.serviceId === 'refreshPowerScrub') {
-        // console.log('  └ DETECTED via old format totals ✓');
-      }
-      return true;
-    }
-
-    // Check NEW structured totals format
-    if (data.totals) {
-      if (
-        (data.totals.weekly && data.totals.weekly.amount) ||
-        (data.totals.monthly && data.totals.monthly.amount) ||
-        (data.totals.monthlyRecurring && data.totals.monthlyRecurring.amount) ||
-        (data.totals.contract && data.totals.contract.amount) ||
-        (data.totals.firstMonth && data.totals.firstMonth.amount) ||
-        (data.totals.perVisit && data.totals.perVisit.amount) ||
-        (data.totals.annual && data.totals.annual.amount)
-      ) {
-        if (data.serviceId === 'refreshPowerScrub') {
-          // console.log('  └ DETECTED via new structured totals ✓');
-        }
-        return true;
-      }
-    }
-
-    if (data.total || data.amount || data.charge) {
-      if (data.serviceId === 'refreshPowerScrub') {
-        // console.log('  └ DETECTED via data.total/amount/charge ✓');
-      }
-      return true;
-    }
-
-    // Additional specific field checks for various service types
-    if (
-      (data.fixtureCount && data.fixtureCount > 0) ||
-      (data.drainCount && data.drainCount > 0) ||
-      (data.squareFeet && data.squareFeet > 0) ||
-      (data.quantity && data.quantity > 0) ||
-      (data.trapCount && data.trapCount > 0) ||
-      (data.hoursPerWeek && data.hoursPerWeek > 0) ||
-      (data.windowCount && data.windowCount > 0)
-    ) {
-      if (data.serviceId === 'refreshPowerScrub') {
-        // console.log('  └ DETECTED via specific field checks ✓');
-      }
-      return true;
-    }
-
-    // Check Refresh Power Scrub areas specifically
-    if (data.serviceId === 'refreshPowerScrub') {
-      const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
-      for (const area of refreshAreas) {
-        if (data[area] && typeof data[area] === 'object') {
-          const areaData = data[area];
-          if (areaData.total && areaData.total > 0) {
-            // console.log(`  └ DETECTED via ${area} total: ${areaData.total} ✓`);
-            return true;
-          }
-          if (areaData.qty && areaData.qty > 0) {
-            // console.log(`  └ DETECTED via ${area} qty: ${areaData.qty} ✓`);
-            return true;
-          }
-        }
-      }
-    }
-
-    // Custom fields (e.g. equipment rental, deep cleaning premium, etc.)
-    if (Array.isArray(data.customFields) && data.customFields.length > 0) {
-      const hasCustomValue = data.customFields.some((field) => {
-        if (!field) return false;
-        const v = field.value;
-        if (v === null || v === undefined) return false;
-        if (typeof v === "number") return v !== 0;
-        if (typeof v === "string") return v.trim() !== "" && v !== "0";
-        return true;
-      });
-      if (hasCustomValue) {
-        if (data.serviceId === 'refreshPowerScrub') {
-          // console.log('  └ DETECTED via custom fields ✓');
-        }
-        return true;
-      }
-    }
-
-    // Generic numeric/string fields; ignore pure config keys
-    const ignoreKeys = new Set([
-      "serviceId",
-      "pricingMode",
-      "location",
-      "frequency",
-      "rateTier",
-      "contractMonths",
-      "notes",
-      "method",
-    ]);
-
-    for (const key of Object.keys(data)) {
-      if (ignoreKeys.has(key)) continue;
-      const val = data[key];
-      if (typeof val === "number" && val > 0) {
-        if (data.serviceId === 'refreshPowerScrub') {
-          // console.log(`  └ DETECTED via numeric field ${key}: ${val} ✓`);
-        }
-        return true;
-      }
-      if (typeof val === "string" && val.trim() !== "" && val !== "0") {
-        if (data.serviceId === 'refreshPowerScrub') {
-          // console.log(`  └ DETECTED via string field ${key}: ${val} ✓`);
-        }
-        return true;
-      }
-    }
-
-    if (data.serviceId === 'refreshPowerScrub') {
-      // console.log('  └ NOT DETECTED - returning false ❌');
-    }
-
-    return false;
-  };
+function buildServicesLatex(services = {}) {
+  // resolveServiceData and isServiceUsed are now module-level functions above
 
   // Helper used for both topRow/bottomRow and transformed branch
   const filterServiceColumns = (cols) => {
@@ -2415,6 +2415,9 @@ function buildServicesLatex(services = {}) {
         }
       }
     }
+
+    // Per-service manual notes (entered by salesperson on each service)
+    serviceNotesLatex += buildPerServiceNotesLatex(services);
 
     return {
       servicesTopRowLatex,
@@ -2898,6 +2901,9 @@ function buildServicesLatex(services = {}) {
       }
     }
   }
+
+  // Per-service manual notes (entered by salesperson on each service)
+  serviceNotesLatex += buildPerServiceNotesLatex(services);
 
   // Final debug summary only for Refresh Power Scrub
   // if (refreshPowerScrubUsed || services.refreshPowerScrub) {
