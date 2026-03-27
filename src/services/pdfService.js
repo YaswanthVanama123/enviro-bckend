@@ -3058,6 +3058,17 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   const hasSummaryData = summaryData && Object.keys(summaryData).length > 0;
   const summaryExists = Boolean(hasSummaryData);
 
+  // Determine if all active services are one-time (suppress Contract Months if so)
+  const activeServiceEntries = Object.values(body.services || {}).filter(sd => isServiceUsed(sd));
+  const allServicesOneTime =
+    activeServiceEntries.length > 0 &&
+    activeServiceEntries.every(sd => {
+      const data = sd && sd.formData ? sd.formData : sd;
+      const freqKey = detectServiceFrequencyKey(data);
+      return freqKey === 'oneTime';
+    });
+  const showContractMonths = summaryExists && !allServicesOneTime;
+
 
   const view = {
     headerTitle: latexEscape(body.headerTitle || ""),
@@ -3087,6 +3098,7 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     summaryServiceAgreementTotal,
     summaryProductTotalsLabel,
     summaryExists,
+    showContractMonths,
   };
 
   // console.log('🔍 [TEMPLATE DEBUG] Template view data generated:', {
