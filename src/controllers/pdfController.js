@@ -200,6 +200,7 @@ export async function compileAndStoreCustomerHeader(req, res) {
       agreement: body.agreement || {},
       serviceAgreement: body.serviceAgreement || null, // ✅ Save Service Agreement data
       summary: body.summary || null,
+      includeProductsTable: body.includeProductsTable !== false,
     };
 
     // DEBUG: Log the products structure being sent from frontend
@@ -964,6 +965,7 @@ export async function updateCustomerHeader(req, res) {
     if (body.customColumns !== undefined) doc.payload.customColumns = body.customColumns; // Update custom columns
     if (body.serviceAgreement !== undefined) doc.payload.serviceAgreement = body.serviceAgreement; // ✅ Save Service Agreement data
     if (body.summary !== undefined) doc.payload.summary = body.summary;
+    if (body.includeProductsTable !== undefined) doc.payload.includeProductsTable = body.includeProductsTable;
     doc.status = newStatus;
 
     // Update Zoho references if provided
@@ -1005,6 +1007,7 @@ export async function updateCustomerHeader(req, res) {
         customColumns: doc.payload.products?.customColumns || body.products?.customColumns || { products: [], dispensers: [] }, // Pass custom columns from products section
         serviceAgreement: body.serviceAgreement || doc.payload.serviceAgreement, // ✅ Pass Service Agreement data to PDF compiler
         summary: body.summary || doc.payload.summary,
+        includeProductsTable: doc.payload.includeProductsTable !== false,
       });
 
       buffer = pdfResult.buffer;

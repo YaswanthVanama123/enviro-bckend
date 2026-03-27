@@ -3076,6 +3076,7 @@ export async function compileCustomerHeader(body = {}, options = {}) {
       body.agreement?.paymentOption === "others" ? "Other"  : ""
     ),
     agreementPaymentNote: latexEscape(body.agreement?.paymentNote || ""),
+    includeProductsTable: body.includeProductsTable !== false,
     ...buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] }),
     ...buildServicesLatex(body.services || {}),
     // ✅ NEW: Add watermark flag to view for template

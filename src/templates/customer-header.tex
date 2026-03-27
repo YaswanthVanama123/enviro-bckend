@@ -372,6 +372,7 @@
 
 %==================== PRODUCTS TITLE BAR ============================
 
+{{#includeProductsTable}}
 \noindent
 \fcolorbox{black}{emred}{%
   \parbox{\dimexpr\textwidth-2\fboxsep\relax}{%
@@ -380,7 +381,7 @@
     {\bfseries\fontsize{1.2em}{1.6em}\selectfont\textcolor{white}{PRODUCTS}}% Changed from \footnotesize to \normalsize
     \vspace{0.2em}%
   }%
-}%  
+}%
 \vspace{0.5em}%
 %==================== PRODUCTS TABLE (dynamic, wrapping) ============
 
@@ -404,6 +405,7 @@
 
   {{{productsBodyRowsLatex}}}
 \end{longtable}
+{{/includeProductsTable}}
 
 %==================== SERVICES SECTION ============================
 
