@@ -678,6 +678,15 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   const toStr = (v) =>
     v === null || v === undefined ? "" : String(v);
 
+  // Filter out empty product rows — skip any row where qty is 0 or not set
+  const isEmptyProduct = (p) => {
+    const qty = pick(p, ["qty", "quantity"]);
+    return !qty || Number(qty) === 0;
+  };
+
+  mergedProducts = mergedProducts.filter(p => !isEmptyProduct(p));
+  dispensers = dispensers.filter(d => !isEmptyProduct(d));
+
   // How many rows? (zip the two arrays: products + dispensers)
   const rowCount = Math.max(
     mergedProducts.length,
