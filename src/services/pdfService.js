@@ -1876,8 +1876,15 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         ? { amount: data.totalPrice, label: "Total Price" }
         : null;
 
+      // contractTotal always holds perVisit + all custom field totals (calc + dollar).
+      // Use it as the authoritative oneTime total so custom fields are always reflected.
+      const totalPriceFromContractTotal = typeof data.contractTotal === "number" && data.contractTotal > 0
+        ? { amount: data.contractTotal, label: "Total Price" }
+        : null;
+
       const addPrimaryVisitTotal = () => {
         const primaryCandidates = [
+          totalPriceFromContractTotal,
           data.totals.totalPrice,
           totalPriceFieldFromRoot,
           data.totals.perVisit,
@@ -2070,7 +2077,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
   if (data.contractTotal !== undefined && data.contractTotal !== null && data.contractTotal !== 0) {
     const value = typeof data.contractTotal === 'number' ? `$${data.contractTotal.toFixed(2)}` : String(data.contractTotal);
-    rows.push({ type: 'bold', label: 'Contract Total', value });
+    const contractTotalLabel = data.frequency === 'oneTime' ? 'Total Price' : 'Contract Total';
+    rows.push({ type: 'bold', label: contractTotalLabel, value });
   }
 
   // Add custom fields if present (OLD format)
