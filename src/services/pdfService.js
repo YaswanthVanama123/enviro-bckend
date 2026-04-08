@@ -704,8 +704,8 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   }
 
   // Build dynamic headers based on custom columns
-  const baseProductHeaders = ["Products", "Qty", "Unit Price/Amount", "Frequency", "Total"];
-  const baseDispenserHeaders = ["Dispensers", "Qty", "Warranty Rate", "Replacement Rate/Install", "Frequency", "Total"];
+  const baseProductHeaders = ["Products", "Qty", "Unit Price/Amount", "Charge Type", "Frequency", "Total"];
+  const baseDispenserHeaders = ["Dispensers", "Qty", "Warranty Rate", "Replacement Rate/Install", "Charge Type", "Frequency", "Total"];
 
   // Add custom column headers for products
   const productCustomHeaders = (customColumns.products || []).map(col => col.label || col.id);
@@ -803,7 +803,9 @@ const productsHeaderRowLatex =
       "frequencyOfService",
       "frequencyLabel",
     ]) || "";
-    const leftFreq = sanitizeString(leftFreqRaw);  // ✅ Sanitize frequency
+    const leftCostType = mp.costType || "warranty"; // default: warranty (recurring)
+    const leftChargeLabel = leftCostType === "productCost" ? "Direct" : "Warranty";
+    const leftFreq = leftCostType === "productCost" ? "—" : sanitizeString(leftFreqRaw);  // hide freq for direct price
 
     const leftTotal = pick(mp, [
       "total",
@@ -840,7 +842,9 @@ const productsHeaderRowLatex =
       "frequencyOfService",
       "frequencyLabel",
     ]) || "";
-    const rightFreq = sanitizeString(rightFreqRaw);  // ✅ Sanitize dispenser frequency
+    const rightCostType = dp.costType || "productCost"; // default: productCost (one-time)
+    const rightChargeLabel = rightCostType === "productCost" ? "Direct" : "Warranty";
+    const rightFreq = rightCostType === "productCost" ? "—" : sanitizeString(rightFreqRaw);  // hide freq for direct price
 
     const rightTotal = pick(dp, [
       "total",
@@ -935,6 +939,7 @@ const productsHeaderRowLatex =
       grayCell(latexEscape(leftName)),
       latexEscape(toStr(leftQty)),
       latexEscape(fmtDollar(leftAmount)),
+      latexEscape(leftChargeLabel),
       latexEscape(leftFreq),
       latexEscape(fmtDollar(leftTotal)),
 
@@ -944,6 +949,7 @@ const productsHeaderRowLatex =
       latexEscape(toStr(rightQty)),
       latexEscape(fmtDollar(rightWarranty)),
       latexEscape(fmtDollar(rightReplacement)),
+      latexEscape(rightChargeLabel),
       latexEscape(rightFreq),
       latexEscape(fmtDollar(rightTotal)),
 
