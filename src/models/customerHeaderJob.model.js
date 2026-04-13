@@ -7,7 +7,7 @@ const HeaderRowSchema = new mongoose.Schema(
     labelRight: { type: String, default: "" },
     valueRight: { type: String, default: "" },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ProductsSchema = new mongoose.Schema(
@@ -17,7 +17,7 @@ const ProductsSchema = new mongoose.Schema(
     // We’ll accept anything JSON-ish: use Mixed.
     rows: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ServiceRowSchema = new mongoose.Schema(
@@ -29,7 +29,7 @@ const ServiceRowSchema = new mongoose.Schema(
     v2: { type: String, default: "" },
     v3: { type: String, default: "" },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ServiceColumnSchema = new mongoose.Schema(
@@ -38,7 +38,7 @@ const ServiceColumnSchema = new mongoose.Schema(
     rows: { type: [ServiceRowSchema], default: [] },
     sections: { type: [mongoose.Schema.Types.Mixed], default: [] }, // keep flexible
   },
-  { _id: false }
+  { _id: false },
 );
 
 const RefreshPowerScrubSchema = new mongoose.Schema(
@@ -47,7 +47,7 @@ const RefreshPowerScrubSchema = new mongoose.Schema(
     columns: { type: [String], default: [] },
     freqLabels: { type: [String], default: [] },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ServiceNotesSchema = new mongoose.Schema(
@@ -56,7 +56,7 @@ const ServiceNotesSchema = new mongoose.Schema(
     lines: { type: Number, default: 3 },
     textLines: { type: [String], default: [] },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ServicesSchema = new mongoose.Schema(
@@ -66,7 +66,7 @@ const ServicesSchema = new mongoose.Schema(
     refreshPowerScrub: { type: RefreshPowerScrubSchema, default: undefined },
     notes: { type: ServiceNotesSchema, default: undefined },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const AgreementSchema = new mongoose.Schema(
@@ -75,7 +75,7 @@ const AgreementSchema = new mongoose.Schema(
     customerExecutedOn: { type: String, default: "" },
     additionalMonths: { type: String, default: "" },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const CustomerHeaderPayloadSchema = new mongoose.Schema(
@@ -86,7 +86,7 @@ const CustomerHeaderPayloadSchema = new mongoose.Schema(
     services: { type: ServicesSchema, default: undefined },
     agreement: { type: AgreementSchema, default: undefined },
   },
-  { _id: false, minimize: false }
+  { _id: false, minimize: false },
 );
 
 const PdfMetaSchema = new mongoose.Schema(
@@ -95,18 +95,18 @@ const PdfMetaSchema = new mongoose.Schema(
     sizeBytes: { type: Number, default: 0 },
     mimeType: { type: String, default: "application/pdf" },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const RemoteCompilerSchema = new mongoose.Schema(
   {
-    base: { type: String, default: "" },       // e.g., http://142.93.213.187:3000
-    endpoint: { type: String, default: "" },   // e.g., /pdf/compile or /pdf/compile-bundle
+    base: { type: String, default: "" }, // e.g., http://45.55.208.199:3000
+    endpoint: { type: String, default: "" }, // e.g., /pdf/compile or /pdf/compile-bundle
     durationMs: { type: Number, default: 0 },
     ok: { type: Boolean, default: true },
     error: { type: String, default: "" },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const CustomerHeaderJobSchema = new mongoose.Schema(
@@ -122,11 +122,14 @@ const CustomerHeaderJobSchema = new mongoose.Schema(
     // If you later want to store the PDF (small files), uncomment:
     // pdfBase64: { type: String, default: "" },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 CustomerHeaderJobSchema.index({ createdAt: -1 });
 CustomerHeaderJobSchema.index({ kind: 1 });
 
-const CustomerHeaderJob = mongoose.model("CustomerHeaderJob", CustomerHeaderJobSchema);
+const CustomerHeaderJob = mongoose.model(
+  "CustomerHeaderJob",
+  CustomerHeaderJobSchema,
+);
 export default CustomerHeaderJob;
