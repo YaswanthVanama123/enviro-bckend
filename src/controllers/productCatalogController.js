@@ -1,5 +1,3 @@
-// src/controllers/productCatalogController.js
-
 import ProductCatalog from "../models/ProductCatalog.js";
 
 import {
@@ -18,9 +16,6 @@ import {
   getFamilyFromActive,
 } from "../services/productCatalogService.js";
 
-// ------------------------------------------------------------
-// CREATE CATALOG
-// ------------------------------------------------------------
 export async function createCatalogController(req, res, next) {
   try {
     const { error, value } = validateCreateCatalog(req.body);
@@ -38,9 +33,6 @@ export async function createCatalogController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// GET ALL CATALOGS
-// ------------------------------------------------------------
 export async function getAllCatalogsController(req, res, next) {
   try {
     const docs = await ProductCatalog.find()
@@ -52,9 +44,6 @@ export async function getAllCatalogsController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// GET ACTIVE CATALOG
-// ------------------------------------------------------------
 export async function getActiveCatalogController(req, res, next) {
   try {
     const catalog = await getActiveCatalog();
@@ -67,9 +56,6 @@ export async function getActiveCatalogController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// GET CATALOG BY ID
-// ------------------------------------------------------------
 export async function getCatalogByIdController(req, res, next) {
   try {
     const { id } = req.params;
@@ -83,9 +69,6 @@ export async function getCatalogByIdController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// REPLACE CATALOG (PUT)
-// ------------------------------------------------------------
 export async function replaceCatalogController(req, res, next) {
   try {
     const { id } = req.params;
@@ -109,9 +92,6 @@ export async function replaceCatalogController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// PARTIAL UPDATE
-// ------------------------------------------------------------
 export async function partialUpdateCatalogController(req, res, next) {
   try {
     const { id } = req.params;
@@ -135,9 +115,6 @@ export async function partialUpdateCatalogController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// GET FAMILY (CATEGORY) FROM ACTIVE CATALOG
-// ------------------------------------------------------------
 export async function getByCategoryController(req, res, next) {
   try {
     const { familyKey } = req.params;
@@ -155,9 +132,6 @@ export async function getByCategoryController(req, res, next) {
   }
 }
 
-// ------------------------------------------------------------
-// SEARCH PRODUCTS WITH MULTIPLE FILTERS
-// ------------------------------------------------------------
 export async function searchProductsController(req, res, next) {
   try {
     const { familyKey, kind, key } = req.query;

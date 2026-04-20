@@ -4,9 +4,8 @@ import { fileURLToPath } from "url";
 import { PDF_OUTPUT_DIR } from "../config/storagePaths.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// ✅ FIX: Correct path to src/tmp where LaTeX compilation creates temp files
-const TMP_ROOT = path.join(__dirname, "..", "tmp");  // Changed from "..", "..", "tmp"
-const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+const TMP_ROOT = path.join(__dirname, "..", "tmp");
+const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000;
 
 async function cleanupDirectory(dirPath, options) {
   const { maxAgeMs, purgeAll } = options;
@@ -55,10 +54,6 @@ async function cleanupDirectory(dirPath, options) {
   }
 }
 
-/**
- * Deletes temporary directories/files under ./tmp and ./tmp/pdfs.
- * @param {{ maxAgeMs?: number; purgeAll?: boolean }} options
- */
 export async function cleanupTemporaryArtifacts(options = {}) {
   const maxAgeMs = typeof options.maxAgeMs === "number" ? options.maxAgeMs : DEFAULT_MAX_AGE_MS;
   const purgeAll = Boolean(options.purgeAll);

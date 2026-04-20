@@ -1,4 +1,3 @@
-// src/services/pdfService.js
 import fs from "fs/promises";
 import path from "path";
 import Mustache from "mustache";
@@ -10,7 +9,6 @@ import {
 } from "../config/pdfConfig.js";
 import { cleanupTemporaryArtifacts } from "../utils/tmpCleanup.js";
 
-/* ---------------- HTTP helpers ---------------- */
 async function remotePostPdf(
   pathname,
   body = {},
@@ -52,11 +50,9 @@ async function remotePostMultipart(
     console.log(`📡 [REMOTE PDF] Calling remote PDF service: ${url}`);
 
     const fd = new FormData();
-    // simple fields (e.g., assetsManifest)
     for (const [k, v] of Object.entries(extraFields || {})) {
       fd.append(k, typeof v === "string" ? v : JSON.stringify(v));
     }
-    // files
     for (const f of files) {
       const filename = String(f.name).replace(/\\/g, "/");
       fd.append(
@@ -70,7 +66,6 @@ async function remotePostMultipart(
       const txt = await resp.text().catch(() => "");
       console.error(`❌ [REMOTE PDF] Remote compile failed with status ${resp.status}:`, txt.slice(0, 500));
 
-      // ✅ ENHANCED: Create detailed error for frontend
       const err = new Error(`Remote PDF service failed: ${resp.status} ${resp.statusText}`);
       err.detail = txt;
       err.httpStatus = resp.status;
@@ -84,7 +79,6 @@ async function remotePostMultipart(
   } catch (error) {
     clearTimeout(to);
 
-    // ✅ ENHANCED: Catch ALL errors (network, timeout, abort, etc.) and send details to frontend
     console.error(`❌ [REMOTE PDF] Error during PDF compilation:`, {
       name: error.name,
       message: error.message,
@@ -92,7 +86,6 @@ async function remotePostMultipart(
       timeout: timeoutMs
     });
 
-    // Create comprehensive error object
     const enhancedError = new Error(error.message || 'PDF compilation failed');
     enhancedError.originalError = error.message;
     enhancedError.errorName = error.name;
@@ -117,7 +110,6 @@ async function tidyTempArtifacts(options = {}) {
   }
 }
 
-/* ---------------- Service Agreement LaTeX Builder ---------------- */
 function buildServiceAgreementLatex(agreementData = {}) {
   if (!agreementData || !agreementData.includeInPdf) {
     return '';
@@ -125,11 +117,8 @@ function buildServiceAgreementLatex(agreementData = {}) {
 
   const escape = latexEscape;
 
-  // Helper for checkbox - using simple text boxes that don't require special packages
   const checkbox = (checked) => checked ? '{[\\textbf{X}]}' : '{[~~]}';
 
-  // Build the LaTeX content for the service agreement on a new page
-  // ⚡ OPTIMIZED: Reduced vertical spacing to fit on single page
   return `
 \\newpage
 
@@ -227,16 +216,6 @@ ${escape(agreementData.noteText || '')}
 `;
 }
 
-/* ---------------- Watermark LaTeX Builder ---------------- */
-/**
- * ✅ NEW: Builds LaTeX code for "DRAFT" watermark overlay
- * Uses TikZ to place diagonal watermark on every page
- * Watermark is semi-transparent gray, centered, rotated 45 degrees
- *
- * Returns object with:
- *  - preamble: packages to be inserted before \begin{document}
- *  - command: watermark command to be inserted after \begin{document}
- */
 function buildWatermarkLatex() {
   const preamble = `
 % ====== DRAFT WATERMARK PACKAGES ======================================
@@ -264,9 +243,6 @@ function buildWatermarkLatex() {
   return { preamble, command };
 }
 
-/* ---------------- LaTeX helpers ---------------- */
-
-// ✅ NEW: Validate payload for corrupted data
 function validatePayloadData(body) {
   const issues = [];
 
@@ -282,7 +258,6 @@ function validatePayloadData(body) {
     }
   };
 
-  // Check header data
   if (body.headerTitle) checkValue('headerTitle', body.headerTitle);
   if (body.headerRows) {
     body.headerRows.forEach((row, i) => {
@@ -293,14 +268,12 @@ function validatePayloadData(body) {
     });
   }
 
-  // Check service notes
   if (body.services?.notes?.textLines) {
     body.services.notes.textLines.forEach((line, i) => {
       checkValue(`services.notes.textLines[${i}]`, line);
     });
   }
 
-  // Check service agreement
   if (body.serviceAgreement) {
     const sa = body.serviceAgreement;
     Object.keys(sa).forEach(key => {
@@ -318,15 +291,11 @@ function validatePayloadData(body) {
   return issues;
 }
 
-// ✅ NEW: Deep sanitization function to clean ALL string values in an object recursively
-// ✅ FIXED: Now handles circular references to prevent stack overflow
 function deepSanitizeObject(obj, visited = new WeakSet(), path = '') {
   if (obj === null || obj === undefined) return obj;
 
-  // Primitives: strings, numbers, booleans
   if (typeof obj !== 'object') {
     if (typeof obj === 'string') {
-      // ✅ ENHANCED: Check for problematic characters BEFORE sanitization
       const hasProblems = /[\x00-\x1F\x7F-\xFF\uFFFD]/.test(obj);
       if (hasProblems) {
         console.warn(`⚠️ [SANITIZE] Corrupted data found at path: "${path}"`, {
@@ -338,85 +307,66 @@ function deepSanitizeObject(obj, visited = new WeakSet(), path = '') {
         });
       }
 
-      // ✅ FIXED: REPLACE problematic characters instead of REMOVING them
-      // This prevents data corruption (e.g., "Silver" becoming "ver" if it contains 0xD7)
       const cleaned = obj
-        // Step 0: Fix Latin-1/Windows-1252 encoded characters (MUST BE FIRST)
-        .replace(/\xd7/g, 'x')    // Multiplication sign (0xd7 in Latin-1)
-        .replace(/\xf7/g, '/')    // Division sign (0xf7 in Latin-1)
-        .replace(/\xd0/g, '-')    // Em dash variants
-        .replace(/\xa0/g, ' ')    // Non-breaking space
-        // Step 1: Replace smart quotes with regular quotes
-        .replace(/[\u201C\u201D]/g, '"')    // " " → "
-        .replace(/[\u2018\u2019]/g, "'")    // ' ' → '
-        // Step 2: Replace special dashes with regular hyphen
-        .replace(/[\u2013\u2014\u2212]/g, '-')  // – — − → -
-        // Step 3: Replace special bullets/symbols with safe alternatives
-        .replace(/\u2022/g, '*')            // • → *
-        .replace(/\u2023/g, '*')            // ‣ → *
-        .replace(/\u25E6/g, '*')            // ◦ → *
-        .replace(/\u00B7/g, '*')            // · (middle dot) → *
-        .replace(/\u2219/g, '*')            // ∙ → *
-        // Step 4: Replace math symbols with ASCII equivalents (Unicode versions)
-        .replace(/\u00D7/g, 'x')            // × (multiplication Unicode) → x
-        .replace(/\u00F7/g, '/')            // ÷ (division Unicode) → /
-        .replace(/\u2260/g, '!=')           // ≠ → !=
-        // Step 5: Replace special punctuation
-        .replace(/\u2026/g, '...')          // … (ellipsis) → ...
-        .replace(/\u00A9/g, '(c)')          // © → (c)
-        .replace(/\u00AE/g, '(R)')          // ® → (R)
-        .replace(/\u2122/g, '(TM)')         // ™ → (TM)
-        // Step 6: Remove emojis (LaTeX cannot handle them)
-        .replace(/[\u{1F600}-\u{1F64F}]/gu, '')  // Emoticons
-        .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')  // Misc Symbols and Pictographs
-        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')  // Transport and Map
-        .replace(/[\u{1F700}-\u{1F77F}]/gu, '')  // Alchemical Symbols
-        .replace(/[\u{1F780}-\u{1F7FF}]/gu, '')  // Geometric Shapes Extended
-        .replace(/[\u{1F800}-\u{1F8FF}]/gu, '')  // Supplemental Arrows-C
-        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')  // Supplemental Symbols and Pictographs
-        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '')  // Chess Symbols
-        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '')  // Symbols and Pictographs Extended-A
-        .replace(/[\u{2600}-\u{26FF}]/gu, '')    // Misc symbols
-        .replace(/[\u{2700}-\u{27BF}]/gu, '')    // Dingbats
-        // Step 7: Remove control characters (0x00-0x1F)
+        .replace(/\xd7/g, 'x')
+        .replace(/\xf7/g, '/')
+        .replace(/\xd0/g, '-')
+        .replace(/\xa0/g, ' ')
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u2013\u2014\u2212]/g, '-')
+        .replace(/\u2022/g, '*')
+        .replace(/\u2023/g, '*')
+        .replace(/\u25E6/g, '*')
+        .replace(/\u00B7/g, '*')
+        .replace(/\u2219/g, '*')
+        .replace(/\u00D7/g, 'x')
+        .replace(/\u00F7/g, '/')
+        .replace(/\u2260/g, '!=')
+        .replace(/\u2026/g, '...')
+        .replace(/\u00A9/g, '(c)')
+        .replace(/\u00AE/g, '(R)')
+        .replace(/\u2122/g, '(TM)')
+        .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+        .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+        .replace(/[\u{1F700}-\u{1F77F}]/gu, '')
+        .replace(/[\u{1F780}-\u{1F7FF}]/gu, '')
+        .replace(/[\u{1F800}-\u{1F8FF}]/gu, '')
+        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '')
+        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '')
+        .replace(/[\u{2600}-\u{26FF}]/gu, '')
+        .replace(/[\u{2700}-\u{27BF}]/gu, '')
         .replace(/[\x00-\x1F]/g, '')
-        // Step 8: Remove invalid UTF-8 replacement character
         .replace(/\uFFFD/g, '')
-        // Step 9: Remove zero-width characters
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // Step 10: Remove any remaining high-bit characters that weren't caught above
         .replace(/[\x7F-\xFF]/g, (char) => {
-          // Log unhandled characters for future improvement
           const code = char.charCodeAt(0).toString(16).padStart(2, '0');
           console.warn(`⚠️ [SANITIZE] Unhandled high-bit character at "${path}": 0x${code}`);
-          return '';  // Remove if not specifically handled above
+          return '';
         })
-        // Step 11: Final cleanup - keep only printable ASCII + newlines/tabs
         .replace(/[^\x20-\x7E\n\r\t]/g, '')
         .trim();
 
-      // ✅ ENHANCED: Warn if sanitization removed all content
       if (cleaned.length === 0 && obj.length > 0) {
         console.warn(`⚠️ [SANITIZE] Field completely removed (was corrupted): "${path}" (original: ${obj.length} chars)`);
       }
 
       return cleaned;
     }
-    return obj; // Numbers, booleans, etc.
+    return obj; 
   }
 
-  // ✅ FIX: Check for circular references
   if (visited.has(obj)) {
-    return obj; // Already processed, return as-is to avoid infinite loop
+    return obj;
   }
   visited.add(obj);
 
-  // Handle arrays
   if (Array.isArray(obj)) {
     return obj.map((item, index) => deepSanitizeObject(item, visited, `${path}[${index}]`));
   }
 
-  // Handle objects
   const sanitized = {};
   for (const [key, value] of Object.entries(obj)) {
     const newPath = path ? `${path}.${key}` : key;
@@ -426,98 +376,69 @@ function deepSanitizeObject(obj, visited = new WeakSet(), path = '') {
 }
 
 function latexEscape(value = "") {
-  // ✅ SECURITY FIX: Aggressive sanitization to remove ALL non-printable and invalid characters
-  // This prevents LaTeX compilation errors from corrupted/binary data
   const original = String(value);
 
-  // ✅ ENHANCED: More aggressive detection of problematic characters
   const hasControlChars = /[\x00-\x1F\x7F-\xFF]/.test(original);
   const hasInvalidUTF8 = /\uFFFD/.test(original);
   const hasBinaryData = /[\x00-\x08\x0E-\x1F]/.test(original);
 
-  // Log detailed warnings with actual problematic data
   if (hasControlChars || hasInvalidUTF8 || hasBinaryData) {
     console.warn('⚠️ [LATEX-ESCAPE] PROBLEMATIC INPUT DETECTED:', {
       hasControlChars,
       hasInvalidUTF8,
       hasBinaryData,
       originalLength: original.length,
-      // Show hex representation of problematic characters
       hexDump: Array.from(original.slice(0, 50)).map(c =>
         c.charCodeAt(0).toString(16).padStart(2, '0')
       ).join(' '),
-      // Show first 100 chars for debugging
       preview: original.slice(0, 100).replace(/[\x00-\x1F\x7F-\xFF]/g, '?')
     });
   }
 
-  // ✅ FIXED: REPLACE problematic characters instead of removing (matches deepSanitizeObject)
   let sanitized = original
-    // Step 0: Fix Latin-1/Windows-1252 encoded characters (MUST BE FIRST)
-    .replace(/\xd7/g, 'x')    // Multiplication sign (0xd7 in Latin-1)
-    .replace(/\xf7/g, '/')    // Division sign (0xf7 in Latin-1)
-    .replace(/\xd0/g, '-')    // Em dash variants
-    .replace(/\xa0/g, ' ')    // Non-breaking space
-    // Step 1: Replace smart quotes
+    .replace(/\xd7/g, 'x')
+    .replace(/\xf7/g, '/')
+    .replace(/\xd0/g, '-')
+    .replace(/\xa0/g, ' ')
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
-    // Step 2: Replace dashes
     .replace(/[\u2013\u2014\u2212]/g, '-')
-    // Step 3: Replace bullets/symbols
     .replace(/\u2022/g, '*')
     .replace(/\u2023/g, '*')
     .replace(/\u25E6/g, '*')
-    .replace(/\u00B7/g, '*')  // Middle dot
+    .replace(/\u00B7/g, '*')
     .replace(/\u2219/g, '*')
-    // Step 4: Replace math symbols (Unicode versions)
-    .replace(/\u00D7/g, 'x')  // Multiplication (Unicode)
-    .replace(/\u00F7/g, '/')  // Division (Unicode)
-    // Step 5: Replace special punctuation
+    .replace(/\u00D7/g, 'x')
+    .replace(/\u00F7/g, '/')
+    .replace(/\u2260/g, '!=')
     .replace(/\u2026/g, '...')
     .replace(/\u00A9/g, '(c)')
     .replace(/\u00AE/g, '(R)')
     .replace(/\u2122/g, '(TM)')
-    // Step 6: Remove emojis
     .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
     .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
     .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
     .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
     .replace(/[\u{2600}-\u{26FF}]/gu, '')
-    // Step 7: Remove control characters
     .replace(/[\x00-\x1F]/g, '')
-    // Step 8: Remove invalid UTF-8
     .replace(/\uFFFD/g, '')
-    // Step 9: Remove zero-width characters
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    // Step 10: Remove any remaining high-bit chars (BUT this should NOT catch 0xD7 anymore!)
     .replace(/[\x7F-\xFF]/g, (char) => {
       const code = char.charCodeAt(0).toString(16).padStart(2, '0');
-      // Only warn if it's NOT one we already handled
       if (code !== 'd7' && code !== 'f7' && code !== 'd0' && code !== 'a0') {
         console.warn(`⚠️ [LATEX-ESCAPE] Unhandled high-bit character: 0x${code}`);
       }
       return '';
     })
-    // Step 11: Final cleanup
     .replace(/[^\x20-\x7E\n\r\t]/g, '')
     .normalize('NFC')
     .trim();
 
-  // ✅ DEBUG: Log the sanitization result to verify replacement worked
-  if (original !== sanitized && original.includes('\xd7')) {
-    console.log('✅ [LATEX-ESCAPE] Sanitization replaced multiplication sign:', {
-      before: original,
-      after: sanitized
-    });
-  }
-
-  // ✅ ENHANCED: If sanitization removed everything, return empty string
   if (sanitized.length === 0 && original.length > 0) {
     console.warn('⚠️ [LATEX-ESCAPE] Sanitization removed all content! Original had:', original.length, 'chars');
     return '';
   }
 
-  // ✅ ENHANCED: If sanitization removed significant content, log warning
   if (sanitized.length < original.length * 0.5 && original.length > 10) {
     console.warn('⚠️ [LATEX-ESCAPE] Sanitization removed', original.length - sanitized.length, 'characters');
   }
@@ -530,63 +451,48 @@ function latexEscape(value = "") {
     .replace(/~/g, "\\textasciitilde{}");
 }
 
-// ✅ NEW: Special escape for table headers - makes slashes breakable and allows word breaks
 function latexEscapeHeader(value = "") {
-  // ✅ FIXED: Use same REPLACE strategy as latexEscape (not removal)
   let sanitized = String(value)
-    // Step 0: Fix Latin-1/Windows-1252 encoded characters (MUST BE FIRST)
-    .replace(/\xd7/g, 'x')    // Multiplication sign (0xd7 in Latin-1)
-    .replace(/\xf7/g, '/')    // Division sign (0xf7 in Latin-1)
-    .replace(/\xd0/g, '-')    // Em dash variants
-    .replace(/\xa0/g, ' ')    // Non-breaking space
-    // Step 1: Replace smart quotes
+    .replace(/\xd7/g, 'x')
+    .replace(/\xf7/g, '/')
+    .replace(/\xd0/g, '-')
+    .replace(/\xa0/g, ' ')
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
-    // Step 2: Replace dashes
     .replace(/[\u2013\u2014\u2212]/g, '-')
-    // Step 3: Replace bullets/symbols
     .replace(/\u2022/g, '*')
-    .replace(/\u00B7/g, '*')  // Middle dot
-    // Step 4: Replace math symbols (Unicode versions)
-    .replace(/\u00D7/g, 'x')  // Multiplication (Unicode)
-    .replace(/\u00F7/g, '/')  // Division (Unicode)
-    // Step 5: Replace special punctuation
+    .replace(/\u00B7/g, '*')
+    .replace(/\u00D7/g, 'x')
+    .replace(/\u00F7/g, '/')
     .replace(/\u2026/g, '...')
     .replace(/\u00A9/g, '(c)')
     .replace(/\u00AE/g, '(R)')
     .replace(/\u2122/g, '(TM)')
-    // Step 6: Remove emojis
     .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
     .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
     .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
     .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
     .replace(/[\u{2600}-\u{26FF}]/gu, '')
-    // Step 7: Remove control characters
     .replace(/[\x00-\x1F]/g, '')
-    // Step 8: Remove invalid UTF-8
     .replace(/\uFFFD/g, '')
-    // Step 9: Remove zero-width characters
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    // Step 10: Remove remaining high-bit chars
     .replace(/[\x7F-\xFF]/g, '')
     .normalize('NFC')
     .trim();
 
-  // ✅ FIX: Do word breaks FIRST, before any escaping
   let result = sanitized
-    .replace(/Replacement/g, "Replace-ment")  // Use regular hyphen, not LaTeX \-
+    .replace(/Replacement/g, "Replace-ment")
     .replace(/Warranty/g, "War-ranty")
     .replace(/Frequency/g, "Fre-quency")
     .replace(/Install/g, "In-stall");
 
-  // Then do standard LaTeX escaping
   result = result
     .replace(/\\/g, "\\textbackslash{}")
     .replace(/([{}%&_#])/g, "\\$1")
     .replace(/\$/g, "\\$")
     .replace(/\^/g, "\\textasciicircum{}")
     .replace(/~/g, "\\textasciitilde{}")
-    .replace(/\//g, "/\\allowbreak{}"); // ✅ Allow line breaks after slashes
+    .replace(/\//g, "/");
 
   return result;
 }
@@ -631,43 +537,32 @@ function formatChargeLabel(amount, frequency) {
 }
 
 function buildProductsLatex(products = {}, customColumns = { products: [], dispensers: [] }) {
-  // Handle BOTH payload formats:
-  // 1. Original frontend format: { smallProducts: [...], dispensers: [...], bigProducts: [...] }
-  // 2. Transformed format: { products: [...], dispensers: [...] }
-
   let mergedProducts = [];
   let dispensers = [];
 
-  // Check which format we're receiving
   if (products.products && Array.isArray(products.products)) {
-    // Format 2: Already merged products array (from frontend transformer)
     mergedProducts = products.products;
     dispensers = products.dispensers || [];
   } else {
-    // Format 1: Separate smallProducts + bigProducts (original format)
     const { smallProducts = [], bigProducts = [] } = products;
     mergedProducts = [...smallProducts, ...bigProducts];
     dispensers = products.dispensers || [];
   }
 
   const fmtDollar = (v) => {
-    // Handle both number and string inputs
     if (v === null || v === undefined || v === "") return "";
     const num = typeof v === "number" ? v : parseFloat(v);
     if (!isNaN(num)) {
       return `$${num.toFixed(2)}`;
     }
-    // Fallback for non-numeric strings
     return `$${v}`;
   };
   const grayCell = (value) => `\\cellcolor[RGB]{217,217,217}${value}`;
 
-  // Helper: pick first non-null value from a list of keys
   const pick = (obj, keys) => {
     if (!obj) return null;
     for (const k of keys) {
       const val = obj[k];
-      // Handle 0 as a valid value, but reject empty string, null, undefined
       if (val !== undefined && val !== null && val !== "") {
         return val;
       }
@@ -678,7 +573,6 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   const toStr = (v) =>
     v === null || v === undefined ? "" : String(v);
 
-  // Filter out empty product rows — skip any row where qty is 0 or not set
   const isEmptyProduct = (p) => {
     const qty = pick(p, ["qty", "quantity"]);
     return !qty || Number(qty) === 0;
@@ -687,33 +581,27 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
   mergedProducts = mergedProducts.filter(p => !isEmptyProduct(p));
   dispensers = dispensers.filter(d => !isEmptyProduct(d));
 
-  // How many rows? (zip the two arrays: products + dispensers)
   const rowCount = Math.max(
     mergedProducts.length,
     dispensers.length
   );
 
   if (rowCount === 0) {
-    // ✅ FIX: Return proper longtable column spec (not "Y" which only works with tabularx)
     return {
-      productsColTypeDefinition: "",  // No column type needed for empty table
+      productsColTypeDefinition: "",
       productsColSpecLatex: "p{\\textwidth}",
       productsHeaderRowLatex: "",
       productsBodyRowsLatex: "",
     };
   }
 
-  // Build dynamic headers based on custom columns
   const baseProductHeaders = ["Products", "Qty", "Unit Price/Amount", "Charge Type", "Frequency", "Total"];
   const baseDispenserHeaders = ["Dispensers", "Qty", "Warranty Rate", "Replacement Rate/Install", "Charge Type", "Frequency", "Total"];
 
-  // Add custom column headers for products
   const productCustomHeaders = (customColumns.products || []).map(col => col.label || col.id);
 
-  // Add custom column headers for dispensers
   const dispenserCustomHeaders = (customColumns.dispensers || []).map(col => col.label || col.id);
 
-  // Combine all headers: Products (5) + Product Custom Columns + Dispensers (6) + Dispenser Custom Columns
   const headers = [
     ...baseProductHeaders,
     ...productCustomHeaders,
@@ -721,19 +609,13 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     ...dispenserCustomHeaders,
   ];
 
-  // Calculate column width for longtable
   const numCols = headers.length;
   const colWidth = `\\dimexpr\\textwidth/${numCols}-2\\tabcolsep-1.5\\arrayrulewidth\\relax`;
 
-  // ✅ FIX: Define a custom column type to avoid repeating long specification
-  // LaTeX has trouble parsing very long column specs (989 chars causes "Illegal parameter number" error)
-  // Solution: Define column type once, reuse it
   const productsColTypeDefinition = `\\newcolumntype{C}{>{\\centering\\arraybackslash}m{${colWidth}}}`;
 
-  // Use the custom column type instead of repeating the full specification
   const productsColSpecLatex = headers.map(() => 'C').join("|");
 
-  // ✅ DEBUG: Log the column specification
   console.log('🔍 [PRODUCTS-TABLE] Column specification:', {
     numCols,
     colWidthFormula: colWidth,
@@ -742,9 +624,6 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     colSpecLength: productsColSpecLatex.length
   });
 
-  // ✅ FIX: Headers with breakable slashes and word breaks
-  // latexEscapeHeader makes slashes breakable with \allowbreak
-  // \hspace{0pt} allows hyphenation at any position for long words
 const headerCell = (header) =>
   `\\cellcolor[RGB]{218,233,247}\\textbf{\\textcolor{emred}{\\hspace{0pt}${latexEscapeHeader(header)}}}`;
 
@@ -759,38 +638,32 @@ const productsHeaderRowLatex =
   "\\arrayrulecolor{black}\n";
 
 
-
-
   let productsBodyRowsLatex = "";
 
-  // ✅ FIX: Helper function to sanitize string values (remove control chars & binary data)
   const sanitizeString = (val) => {
     if (val === undefined || val === null || val === "") return "";
     const str = String(val);
-    // Remove ALL control characters, DEL, and high-bit characters that cause ^^X errors
     return str
-      .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars (0x00-0x1F) & non-ASCII (0x7F-0xFF)
-      .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8 replacement character �
-      .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII (space to ~)
+      .replace(/[\x00-\x1F\x7F-\xFF]/g, '')
+      .replace(/\uFFFD/g, '')
+      .replace(/[^\x20-\x7E\n\r\t]/g, '')
       .trim();
   };
 
   for (let i = 0; i < rowCount; i++) {
-    const mp = mergedProducts[i] || {}; // merged product (small or big)
+    const mp = mergedProducts[i] || {};
     const dp = dispensers[i] || {};
 
-    // ----- LEFT BLOCK: merged products (Products / Qty / Unit Price or Amount / Frequency / Total)
     const leftNameRaw =
       mp.customName ||
       mp.displayName ||
       mp.productName ||
       mp.productKey ||
       "";
-    const leftName = sanitizeString(leftNameRaw);  // ✅ Sanitize product name
+    const leftName = sanitizeString(leftNameRaw);
 
     const leftQty = pick(mp, ["qty", "quantity"]);
 
-    // For merged products, try both unitPrice (small) and amount (big)
     const leftAmount = pick(mp, [
       "unitPrice",
       "unitPriceOverride",
@@ -803,9 +676,9 @@ const productsHeaderRowLatex =
       "frequencyOfService",
       "frequencyLabel",
     ]) || "";
-    const leftCostType = mp.costType || "warranty"; // default: warranty (recurring)
+    const leftCostType = mp.costType || "warranty";
     const leftChargeLabel = leftCostType === "productCost" ? "Direct" : "Warranty";
-    const leftFreq = leftCostType === "productCost" ? "—" : sanitizeString(leftFreqRaw);  // hide freq for direct price
+    const leftFreq = leftCostType === "productCost" ? "—" : sanitizeString(leftFreqRaw);
 
     const leftTotal = pick(mp, [
       "total",
@@ -814,14 +687,13 @@ const productsHeaderRowLatex =
       "extPrice",
     ]);
 
-    // ----- RIGHT BLOCK: dispensers (Dispensers / Qty / Warranty / Replacement / Frequency / Total)
     const rightNameRaw =
       dp.customName ||
       dp.displayName ||
       dp.productName ||
       dp.productKey ||
       "";
-    const rightName = sanitizeString(rightNameRaw);  // ✅ Sanitize dispenser name
+    const rightName = sanitizeString(rightNameRaw);
 
     const rightQty = pick(dp, ["qty", "quantity"]);
 
@@ -842,9 +714,9 @@ const productsHeaderRowLatex =
       "frequencyOfService",
       "frequencyLabel",
     ]) || "";
-    const rightCostType = dp.costType || "productCost"; // default: productCost (one-time)
+    const rightCostType = dp.costType || "productCost";
     const rightChargeLabel = rightCostType === "productCost" ? "Direct" : "Warranty";
-    const rightFreq = rightCostType === "productCost" ? "—" : sanitizeString(rightFreqRaw);  // hide freq for direct price
+    const rightFreq = rightCostType === "productCost" ? "—" : sanitizeString(rightFreqRaw);
 
     const rightTotal = pick(dp, [
       "total",
@@ -853,86 +725,72 @@ const productsHeaderRowLatex =
       "extPrice",
     ]);
 
-    // Extract custom field values for products
     const leftCustomValues = (customColumns.products || []).map(col => {
       const value = mp.customFields?.[col.id];
 
-      // ✅ FIX: Extra sanitization to remove binary/corrupted data BEFORE processing
       const sanitizeValue = (val) => {
         if (val === undefined || val === null || val === "") return "";
         const str = String(val);
-        // Remove ALL control characters, DEL, and high-bit characters
         return str
-          .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars & non-ASCII
-          .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8 replacement char
-          .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII
+          .replace(/[\x00-\x1F\x7F-\xFF]/g, '')
+          .replace(/\uFFFD/g, '')
+          .replace(/[^\x20-\x7E\n\r\t]/g, '')
           .trim();
       };
 
       const sanitized = sanitizeValue(value);
 
-      // Handle different value types and empty values
       if (sanitized === "") {
         return latexEscape("");
       }
 
-      // For numeric values, format as dollar amount
       if (typeof value === "number") {
         return latexEscape(fmtDollar(value));
       }
 
-      // For string values, check if it's a numeric string
       if (typeof value === "string") {
         const numValue = parseFloat(sanitized);
         if (!isNaN(numValue)) {
           return latexEscape(fmtDollar(numValue));
         }
-        // Non-numeric string, return as-is
-        return latexEscape(sanitized);  // ✅ Use sanitized value
+        return latexEscape(sanitized);
       }
 
-      return latexEscape(sanitized);  // ✅ Use sanitized value
+      return latexEscape(sanitized);
     });
 
-    // Extract custom field values for dispensers
     const rightCustomValues = (customColumns.dispensers || []).map(col => {
       const value = dp.customFields?.[col.id];
 
-      // ✅ FIX: Extra sanitization to remove binary/corrupted data BEFORE processing
       const sanitizeValue = (val) => {
         if (val === undefined || val === null || val === "") return "";
         const str = String(val);
-        // Remove ALL control characters, DEL, and high-bit characters
         return str
-          .replace(/[\x00-\x1F\x7F-\xFF]/g, '')  // Remove control chars & non-ASCII
-          .replace(/\uFFFD/g, '')                 // Remove invalid UTF-8 replacement char
-          .replace(/[^\x20-\x7E\n\r\t]/g, '')     // Keep only printable ASCII
+          .replace(/[\x00-\x1F\x7F-\xFF]/g, '')
+          .replace(/\uFFFD/g, '')
+          .replace(/[^\x20-\x7E\n\r\t]/g, '')
           .trim();
       };
 
       const sanitized = sanitizeValue(value);
 
-      // Handle different value types and empty values
       if (sanitized === "") {
         return latexEscape("");
       }
 
-      // For numeric values, format as dollar amount
       if (typeof value === "number") {
         return latexEscape(fmtDollar(value));
       }
 
-      // For string values, check if it's a numeric string
       if (typeof value === "string") {
         const numValue = parseFloat(sanitized);
         if (!isNaN(numValue)) {
           return latexEscape(fmtDollar(numValue));
         }
-        // Non-numeric string, return as-is
-        return latexEscape(sanitized);  // ✅ Use sanitized value
+        return latexEscape(sanitized);
       }
 
-      return latexEscape(sanitized);  // ✅ Use sanitized value
+      return latexEscape(sanitized);
     });
 
     const rowCells = [
@@ -960,14 +818,12 @@ const productsHeaderRowLatex =
   }
 
   return {
-    productsColTypeDefinition,  // ✅ NEW: Column type definition to insert before table
+    productsColTypeDefinition,
     productsColSpecLatex,
     productsHeaderRowLatex,
     productsBodyRowsLatex,
   };
 }
-
-
 
 
 function buildServiceRows(rows = []) {
@@ -978,7 +834,6 @@ function buildServiceRows(rows = []) {
     const value = r.value || "";
     const gapSuffix = r.gap === "wide" ? "Wide" : "";
     if (type === "line") {
-      // バ. FIX: Remove space prefix before label for proper left alignment
       const lineCommand = "\\serviceLine";
       const command = gapSuffix ? `${lineCommand}${gapSuffix}` : lineCommand;
       if (gapSuffix) {
@@ -986,7 +841,6 @@ function buildServiceRows(rows = []) {
       }
       out += `${command}{${latexEscape(label)}}{${latexEscape(value)}}\n`;
     } else if (type === "bold") {
-      // Check if this is a total field and use appropriate command
       const lowerLabel = label.toLowerCase();
       const isTotal = lowerLabel.includes('total') ||
                      lowerLabel.includes('recurring') ||
@@ -1211,15 +1065,12 @@ function determineFrequencyGroup(key) {
   return undefined;
 }
 
-/* ---------------- Service Transformation Helper ---------------- */
 function transformServicesToPdfFormat(usedServices) {
   const topRow = [];
   const bottomRow = [];
 
-  // ✅ FIX: Collect all services in order, then distribute 2 per row
   const allServices = [];
 
-  // Service labels mapping
   const serviceLabels = {
     saniclean: 'RESTROOM & HYGIENE (SANICLEAN)',
     foamingDrain: 'FOAMING DRAIN',
@@ -1235,10 +1086,9 @@ function transformServicesToPdfFormat(usedServices) {
     refreshPowerScrub: 'REFRESH POWER SCRUB'
   };
 
-  // Transform each service into column format
   for (const [serviceKey, serviceData] of Object.entries(usedServices)) {
-    if (serviceKey === 'customServices') continue; // Handle custom services separately
-    if (serviceKey === 'refreshPowerScrub') continue; // Refresh is rendered as its own table
+    if (serviceKey === 'customServices') continue;
+    if (serviceKey === 'refreshPowerScrub') continue;
 
     const column = transformServiceToColumn(serviceKey, serviceData, serviceLabels[serviceKey]);
     if (column && column.rows && column.rows.length > 0) {
@@ -1246,7 +1096,6 @@ function transformServicesToPdfFormat(usedServices) {
     }
   }
 
-  // Handle custom services
   if (usedServices.customServices && Array.isArray(usedServices.customServices)) {
     for (const customService of usedServices.customServices) {
       const column = transformCustomServiceToColumn(customService);
@@ -1256,8 +1105,6 @@ function transformServicesToPdfFormat(usedServices) {
     }
   }
 
-  // ✅ FIX: Distribute services 2 per row automatically
-  // First 2 services go to topRow, next 2 to bottomRow, etc.
   for (let i = 0; i < allServices.length; i++) {
     if (i < 2) {
       topRow.push(allServices[i]);
@@ -1270,24 +1117,17 @@ function transformServicesToPdfFormat(usedServices) {
 }
 
 function transformServiceToColumn(serviceKey, serviceData, label) {
-  // Only log for refreshPowerScrub
   if (serviceKey === 'refreshPowerScrub') {
-    // console.log('🔧 [REFRESH POWER SCRUB DEBUG] Transforming service to column:');
-    // console.log('  └ Input serviceData keys:', Object.keys(serviceData));
   }
 
   const rows = [];
   const pushRow = (field, row) => rows.push(attachOrderNo(field, row));
 
-  // Extract formData if present (newer format)
   const data = serviceData.formData || serviceData;
 
   if (serviceKey === 'refreshPowerScrub') {
-    // console.log('  └ Resolved data keys:', Object.keys(data));
-    // console.log('  └ isActive:', data.isActive);
   }
 
-  // ✅ HELPER: Recalculate rate from total/qty to fix incorrect stored rates
   const getCorrectRate = (item) => {
     if (typeof item.total === 'number' && typeof item.qty === 'number' && item.qty > 0) {
       return item.total / item.qty;
@@ -1295,16 +1135,11 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     return item.rate;
   };
 
-  // Handle NEW structured format (with label/type/qty/rate/total objects)
-  // Check if this is the new structured format
   if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service || data.restroomFixtures || data.nonBathroomArea ||
-      // Refresh Power Scrub area keys
       data.dumpster || data.patio || data.walkway || data.foh || data.boh || data.other)) {
     if (serviceKey === 'refreshPowerScrub') {
-      // console.log('  └ Using NEW structured format');
     }
 
-    // Handle fixture breakdown (SaniClean)
     if (data.fixtureBreakdown && Array.isArray(data.fixtureBreakdown)) {
       for (const fixture of data.fixtureBreakdown) {
         if (!shouldDisplayField(fixture)) continue;
@@ -1321,12 +1156,10 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle drain breakdown (Foaming Drain)
     if (data.drainBreakdown && Array.isArray(data.drainBreakdown)) {
       for (const drain of data.drainBreakdown) {
         if (!shouldDisplayField(drain)) continue;
         if (drain.qty > 0) {
-          // Only add if we have meaningful data
           const hasRate = drain.rate != null && drain.rate !== '';
           const hasTotal = drain.total != null && drain.total !== '';
 
@@ -1341,7 +1174,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
               v3: typeof drain.total === 'number' ? `$${drain.total.toFixed(2)}` : String(drain.total || '')
             });
           } else {
-            // Just show quantity if no rate/total available
             rows.push({
               type: 'line',
               orderNo: drain.orderNo,
@@ -1353,14 +1185,16 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle service breakdown (Microfiber Mopping, etc.)
     if (data.serviceBreakdown && Array.isArray(data.serviceBreakdown)) {
       for (const item of data.serviceBreakdown) {
         if (!shouldDisplayField(item)) continue;
+        const qty = typeof item.qty === 'number' ? item.qty : parseFloat(item.qty) || 0;
+        const total = typeof item.total === 'number' ? item.total : parseFloat(item.total) || 0;
         const hasRate = item.rate != null && item.rate !== '';
         const hasTotal = item.total != null && item.total !== '';
 
         if (hasRate || hasTotal) {
+          if (qty === 0 && total === 0) continue;
           pushRow(item, {
             type: 'atCharge',
             label: item.label || '',
@@ -1369,7 +1203,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             v3: typeof item.total === 'number' ? `$${item.total.toFixed(2)}` : String(item.total || '')
           });
         } else if (item.qty) {
-          // Just show quantity if no rate/total available
           pushRow(item, {
             type: 'line',
             label: item.label || '',
@@ -1379,7 +1212,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle windows (RPM Windows)
     if (data.windows && Array.isArray(data.windows)) {
       for (const window of data.windows) {
         if (!shouldDisplayField(window)) continue;
@@ -1395,28 +1227,29 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle single service item (Carpet Clean, Strip & Wax, etc.)
     if (data.service && shouldDisplayField(data.service)) {
       const hasRate = data.service.rate != null && data.service.rate !== '';
       const hasTotal = data.service.total != null && data.service.total !== '';
+      const svcQty = typeof data.service.qty === 'number' ? data.service.qty : parseFloat(data.service.qty) || 0;
+      const svcTotal = typeof data.service.total === 'number' ? data.service.total : parseFloat(data.service.total) || 0;
 
       if (hasRate || hasTotal) {
-        // ✅ FIX: Recalculate rate from total/qty if both available (fixes incorrect stored rates)
-        let displayRate = data.service.rate;
-        if (typeof data.service.total === 'number' && typeof data.service.qty === 'number' && data.service.qty > 0) {
-          displayRate = data.service.total / data.service.qty;
-        }
+        if (svcQty > 0 || svcTotal > 0) {
+          let displayRate = data.service.rate;
+          if (typeof data.service.total === 'number' && typeof data.service.qty === 'number' && data.service.qty > 0) {
+            displayRate = data.service.total / data.service.qty;
+          }
 
-        rows.push({
-          type: 'atCharge',
-          orderNo: data.service.orderNo,
-          label: data.service.label || '',
-          v1: String(data.service.qty || ''),
-          v2: typeof displayRate === 'number' ? `$${displayRate.toFixed(2)}` : String(displayRate || ''),
-          v3: typeof data.service.total === 'number' ? `$${data.service.total.toFixed(2)}` : String(data.service.total || '')
-        });
+          rows.push({
+            type: 'atCharge',
+            orderNo: data.service.orderNo,
+            label: data.service.label || '',
+            v1: String(data.service.qty || ''),
+            v2: typeof displayRate === 'number' ? `$${displayRate.toFixed(2)}` : String(displayRate || ''),
+            v3: typeof data.service.total === 'number' ? `$${data.service.total.toFixed(2)}` : String(data.service.total || '')
+          });
+        }
       } else if (data.service.qty) {
-        // Just show quantity if no rate/total available
         rows.push({
           type: 'line',
           orderNo: data.service.orderNo,
@@ -1426,7 +1259,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle restroom fixtures (Saniscrub)
     if (data.restroomFixtures && shouldDisplayField(data.restroomFixtures) && data.restroomFixtures.qty) {
       const hasRate = data.restroomFixtures.rate != null && data.restroomFixtures.rate !== '';
       const hasTotal = data.restroomFixtures.total != null && data.restroomFixtures.total !== '';
@@ -1441,7 +1273,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           v3: typeof data.restroomFixtures.total === 'number' ? `$${data.restroomFixtures.total.toFixed(2)}` : String(data.restroomFixtures.total || '')
         });
       } else {
-        // Fallback: show quantity only
         rows.push({
           type: 'line',
           orderNo: data.restroomFixtures.orderNo,
@@ -1451,7 +1282,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle non-bathroom area (Saniscrub)
     if (data.nonBathroomArea && shouldDisplayField(data.nonBathroomArea) && data.nonBathroomArea.qty) {
       const hasRate = data.nonBathroomArea.rate != null && data.nonBathroomArea.rate !== '';
       const hasTotal = data.nonBathroomArea.total != null && data.nonBathroomArea.total !== '';
@@ -1466,7 +1296,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           v3: typeof data.nonBathroomArea.total === 'number' ? `$${data.nonBathroomArea.total.toFixed(2)}` : String(data.nonBathroomArea.total || '')
         });
       } else {
-        // Fallback: show quantity only
         rows.push({
           type: 'line',
           orderNo: data.nonBathroomArea.orderNo,
@@ -1476,7 +1305,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle Refresh Power Scrub area-based structure
     const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
       for (const areaKey of refreshAreas) {
         if (data[areaKey] && typeof data[areaKey] === 'object') {
@@ -1486,10 +1314,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           }
 
         if (serviceKey === 'refreshPowerScrub') {
-          // console.log(`  └ Processing ${areaKey}:`, JSON.stringify(area, null, 2));
         }
 
-        // Handle new calc-type format from frontend
         if (area.type === 'calc' && area.qty != null && area.rate != null && area.total != null) {
           rows.push({
             type: 'atCharge',
@@ -1499,14 +1325,12 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             v3: typeof area.total === 'number' ? `$${area.total.toFixed(2)}` : String(area.total || '')
           });
         }
-        // Handle legacy format
         else {
           const hasRate = area.rate != null && area.rate !== '';
           const hasTotal = area.total != null && area.total !== '';
           const hasQty = area.qty != null && area.qty !== '' && area.qty > 0;
 
           if (serviceKey === 'refreshPowerScrub') {
-            // console.log(`  └ Processing ${areaKey}: qty=${area.qty}, rate=${area.rate}, total=${area.total}`);
           }
 
           if (hasQty && (hasRate || hasTotal)) {
@@ -1518,7 +1342,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
               v3: typeof area.total === 'number' ? `$${area.total.toFixed(2)}` : String(area.total || '')
             });
           } else if (hasQty) {
-            // Just show quantity if no rate/total available
             rows.push({
               type: 'line',
               label: area.label || areaKey.charAt(0).toUpperCase() + areaKey.slice(1),
@@ -1529,7 +1352,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Add service info for Refresh Power Scrub
     if (data.serviceInfo && shouldDisplayField(data.serviceInfo) && data.serviceInfo.value) {
       pushRow(data.serviceInfo, {
         type: 'line',
@@ -1538,7 +1360,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Handle extra bags (SaniPod)
     if (data.extraBags && shouldDisplayField(data.extraBags) && data.extraBags.qty > 0) {
       const hasRate = data.extraBags.rate != null && data.extraBags.rate !== '';
       const hasTotal = data.extraBags.total != null && data.extraBags.total !== '';
@@ -1561,7 +1382,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Handle installation (structured format with qty/rate/total)
     if (data.installation && shouldDisplayField(data.installation) && data.installation.qty > 0) {
       const hasRate = data.installation.rate != null && data.installation.rate !== '';
       const hasTotal = data.installation.total != null && data.installation.total !== '';
@@ -1584,7 +1404,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Legacy installationFee format (for backward compatibility)
     if (data.installationFee && shouldDisplayField(data.installationFee) && data.installationFee.amount) {
       pushRow(data.installationFee, {
         type: 'line',
@@ -1593,7 +1412,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Handle trip charge (ElectrostaticSpray, Sani-Clean)
     if (data.tripCharge && shouldDisplayField(data.tripCharge) && data.tripCharge.amount != null && data.tripCharge.amount > 0) {
       pushRow(data.tripCharge, {
         type: 'line',
@@ -1602,7 +1420,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Add extras (warranty, luxury upgrades, etc.)
     if (data.warranty && shouldDisplayField(data.warranty) && data.warranty.qty) {
       const hasRate = data.warranty.rate != null && data.warranty.rate !== '';
       const hasTotal = data.warranty.total != null && data.warranty.total !== '';
@@ -1616,7 +1433,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           v3: typeof data.warranty.total === 'number' ? `$${data.warranty.total.toFixed(2)}` : String(data.warranty.total || '')
         });
       } else {
-        // Fallback: show quantity only
         pushRow(data.warranty, {
           type: 'line',
           label: data.warranty.label || 'Warranty',
@@ -1641,7 +1457,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Add pdfExtras (Saniclean additional rows)
     if (data.pdfExtras && Array.isArray(data.pdfExtras)) {
       for (const field of data.pdfExtras) {
         if (!shouldDisplayField(field)) continue;
@@ -1665,7 +1480,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Add metadata fields (pricing method, combined service, etc.)
     if (data.pricingMethod && shouldDisplayField(data.pricingMethod) && data.pricingMethod.value) {
       pushRow(data.pricingMethod, {
         type: 'line',
@@ -1698,7 +1512,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Add frequency/location info
     const formatFrequencyDisplayValue = (candidate) => {
       if (!candidate) return null;
       if (typeof candidate === "string") {
@@ -1799,7 +1612,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Handle janitorial-specific text fields
     if (data.serviceType && shouldDisplayField(data.serviceType) && data.serviceType.type === 'text' && data.serviceType.value) {
       pushRow(data.serviceType, {
         type: 'line',
@@ -1847,7 +1659,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       });
     }
 
-    // Add totals from new structured format
     if (data.totals) {
       const freqKey = detectServiceFrequencyKey(data);
       const freqGroup = determineFrequencyGroup(freqKey);
@@ -1867,6 +1678,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
       const addBoldTotal = (field, options = {}) => {
         if (!field || !shouldDisplayField(field) || field.amount == null) return;
+        const numAmount = Number(field.amount);
+        if (!isNaN(numAmount) && numAmount === 0) return;
         const label = field.label || options.label || "Total";
         const value = options.value ?? formatMoneyValue(field.amount);
         const gap = field.gap ?? options.gap;
@@ -1882,8 +1695,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         ? { amount: data.totalPrice, label: "Total Price" }
         : null;
 
-      // contractTotal always holds perVisit + all custom field totals (calc + dollar).
-      // Use it as the authoritative oneTime total so custom fields are always reflected.
       const totalPriceFromContractTotal = typeof data.contractTotal === "number" && data.contractTotal > 0
         ? { amount: data.contractTotal, label: "Total Price" }
         : null;
@@ -1964,74 +1775,71 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       }
     }
 
-    // Add custom fields from new format
     if (data.customFields && Array.isArray(data.customFields)) {
+      let customIdx = 0;
       for (const field of data.customFields) {
         if (!shouldDisplayField(field)) continue;
-        // Support both 'label' and 'name' properties
         const fieldLabel = field.label || field.name;
+        if (!field || !fieldLabel) continue;
 
-        if (field && fieldLabel) {
-          // Handle different custom field types
-          if (field.type === 'calc') {
-            // Handle calc fields with calcValues structure (left @ middle = right)
-            if (field.calcValues &&
-                (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
-              pushRow(field, {
+        const topOrderNo = -1000 + customIdx;
+
+        if (field.type === 'calc') {
+          if (field.calcValues) {
+            const total = parseFloat(field.calcValues.right) || 0;
+            if (total > 0) {
+              pushRow({ orderNo: topOrderNo }, {
                 type: 'atCharge',
                 label: fieldLabel,
                 v1: String(field.calcValues.left || ''),
                 v2: String(field.calcValues.middle || ''),
                 v3: String(field.calcValues.right || '')
               });
+              customIdx++;
             }
-            // Handle calc fields with legacy value structure (qty @ rate = total)
-            else if (field.value && typeof field.value === 'object') {
-              const calcValue = field.value;
-              if (calcValue.qty != null && calcValue.rate != null && calcValue.total != null) {
-                pushRow(field, {
-                  type: 'atCharge',
-                  label: fieldLabel,
-                  v1: String(calcValue.qty || ''),
-                  v2: typeof calcValue.rate === 'number' ? `$${calcValue.rate.toFixed(2)}` : String(calcValue.rate || ''),
-                  v3: typeof calcValue.total === 'number' ? `$${calcValue.total.toFixed(2)}` : String(calcValue.total || '')
-                });
-              }
-            }
-          } else if (field.type === 'money' || field.type === 'dollar') {
-            // Handle money/dollar fields
-            if (field.value !== undefined && field.value !== '') {
-              const amount = typeof field.value === 'number' ? field.value : parseFloat(field.value) || 0;
-              pushRow(field, {
-                type: 'line',
+          } else if (field.value && typeof field.value === 'object') {
+            const calcValue = field.value;
+            const total = typeof calcValue.total === 'number' ? calcValue.total : parseFloat(calcValue.total) || 0;
+            if (calcValue.qty != null && calcValue.rate != null && total > 0) {
+              pushRow({ orderNo: topOrderNo }, {
+                type: 'atCharge',
                 label: fieldLabel,
-                value: `$${amount.toFixed(2)}`
+                v1: String(calcValue.qty || ''),
+                v2: typeof calcValue.rate === 'number' ? `$${calcValue.rate.toFixed(2)}` : String(calcValue.rate || ''),
+                v3: typeof calcValue.total === 'number' ? `$${calcValue.total.toFixed(2)}` : String(calcValue.total || '')
               });
+              customIdx++;
             }
-          } else if (field.value !== undefined && field.value !== '') {
-            // Handle text and other field types
-            let value = String(field.value);
-            if (field.type === 'dollar' && typeof field.value === 'number') {
-              value = `$${field.value.toFixed(2)}`;
-            }
-            rows.push({
+          }
+        } else if (field.type === 'money' || field.type === 'dollar') {
+          const amount = typeof field.value === 'number' ? field.value : parseFloat(field.value) || 0;
+          if (amount > 0) {
+            pushRow({ orderNo: topOrderNo }, {
               type: 'line',
               label: fieldLabel,
-              value
+              value: `$${amount.toFixed(2)}`
             });
+            customIdx++;
+          }
+        } else {
+          const val = field.value !== undefined && field.value !== null ? String(field.value).trim() : '';
+          if (val !== '' && val !== '0') {
+            pushRow({ orderNo: topOrderNo }, {
+              type: 'line',
+              label: fieldLabel,
+              value: val
+            });
+            customIdx++;
           }
         }
       }
     }
 
-    // Add notes if present
     if (data.notes && data.notes.trim()) {
       rows.push({ type: 'line', label: 'Notes', value: data.notes });
     }
 
     if (serviceKey === 'refreshPowerScrub') {
-      // console.log(`  └ Generated ${rows.length} rows for Refresh Power Scrub`);
-      // console.log(`  └ Rows:`, rows);
     }
 
     return {
@@ -2040,8 +1848,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     };
   }
 
-  // OLD FORMAT handler (simplified logging)
-  // Common fields to look for
   const commonMappings = [
     { key: 'fixtureCount', label: 'Fixtures' },
     { key: 'fixtures', label: 'Fixtures' },
@@ -2058,11 +1864,9 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     { key: 'unitPrice', label: 'Unit Price' }
   ];
 
-  // Add data rows for common fields
   for (const mapping of commonMappings) {
     if (data[mapping.key] !== undefined && data[mapping.key] !== null && data[mapping.key] !== '') {
       let value = String(data[mapping.key]);
-      // Format currency if it's a rate or price
       if (mapping.key.includes('rate') || mapping.key.includes('Price')) {
         value = typeof data[mapping.key] === 'number' ? `$${data[mapping.key].toFixed(2)}` : value;
       }
@@ -2070,7 +1874,6 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
   }
 
-  // Add totals (always bold)
   if (data.weeklyTotal !== undefined && data.weeklyTotal !== null && data.weeklyTotal !== 0) {
     const value = typeof data.weeklyTotal === 'number' ? `$${data.weeklyTotal.toFixed(2)}` : String(data.weeklyTotal);
     rows.push({ type: 'bold', label: 'Weekly Total', value });
@@ -2087,32 +1890,63 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     rows.push({ type: 'bold', label: contractTotalLabel, value });
   }
 
-  // Add custom fields if present (OLD format)
   if (data.customFields && Array.isArray(data.customFields)) {
+    let customIdx = 0;
     for (const field of data.customFields) {
-      // Support both 'label' and 'name' properties for OLD format too
+      if (!field) continue;
       const fieldLabel = field.label || field.name;
-
-      if (field && fieldLabel) {
-        // Handle calc fields with calcValues structure
-        if (field.type === 'calc' && field.calcValues &&
-            (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
-          rows.push({
-            type: 'atCharge',
-            label: fieldLabel,
-            v1: String(field.calcValues.left || ''),
-            v2: String(field.calcValues.middle || ''),
-            v3: String(field.calcValues.right || '')
-          });
-        }
-        // Handle other field types with value property
-        else if (field.value !== undefined && field.value !== '') {
-          let value = String(field.value);
-          // Format based on field type
-          if (field.type === 'dollar' && typeof field.value === 'number') {
-            value = `$${field.value.toFixed(2)}`;
+      if (!fieldLabel) continue;
+      const topOrderNo = -1000 + customIdx;
+      if (field.type === 'calc') {
+        if (field.calcValues) {
+          const total = parseFloat(field.calcValues.right) || 0;
+          if (total > 0) {
+            rows.push({
+              orderNo: topOrderNo,
+              type: 'atCharge',
+              label: fieldLabel,
+              v1: String(field.calcValues.left || ''),
+              v2: String(field.calcValues.middle || ''),
+              v3: String(field.calcValues.right || '')
+            });
+            customIdx++;
           }
-          rows.push({ type: 'line', label: fieldLabel, value });
+        } else if (field.value !== undefined && field.value !== null && typeof field.value === 'object') {
+          const calcValue = field.value;
+          const total = typeof calcValue.total === 'number' ? calcValue.total : parseFloat(calcValue.total) || 0;
+          if (total > 0) {
+            rows.push({
+              orderNo: topOrderNo,
+              type: 'atCharge',
+              label: fieldLabel,
+              v1: String(calcValue.left || ''),
+              v2: String(calcValue.middle || ''),
+              v3: typeof calcValue.total === 'number' ? `$${calcValue.total.toFixed(2)}` : String(calcValue.total || '')
+            });
+            customIdx++;
+          }
+        }
+      } else if (field.type === 'money' || field.type === 'dollar') {
+        const amount = typeof field.value === 'number' ? field.value : parseFloat(field.value) || 0;
+        if (amount > 0) {
+          rows.push({
+            orderNo: topOrderNo,
+            type: 'line',
+            label: fieldLabel,
+            value: `$${amount.toFixed(2)}`
+          });
+          customIdx++;
+        }
+      } else {
+        const val = field.value !== undefined && field.value !== null ? String(field.value).trim() : '';
+        if (val !== '' && val !== '0') {
+          rows.push({
+            orderNo: topOrderNo,
+            type: 'line',
+            label: fieldLabel,
+            value: val
+          });
+          customIdx++;
         }
       }
     }
@@ -2132,11 +1966,9 @@ function transformCustomServiceToColumn(customService) {
 
   for (const field of fields) {
     if (!shouldDisplayField(field)) continue;
-    // Support both 'label' and 'name' properties
     const fieldLabel = field.label || field.name;
 
     if (field && fieldLabel) {
-      // Handle calc fields with calcValues structure
       if (field.type === 'calc' && field.calcValues &&
           (field.calcValues.left || field.calcValues.middle || field.calcValues.right)) {
         rows.push({
@@ -2147,11 +1979,9 @@ function transformCustomServiceToColumn(customService) {
           v3: String(field.calcValues.right || '')
         });
       }
-      // Handle other field types with value property
       else if (field.value !== undefined && field.value !== '') {
         let value = String(field.value);
 
-        // Format based on field type
         if (field.type === 'dollar') {
           const numValue = parseFloat(field.value);
           if (!isNaN(numValue)) {
@@ -2171,12 +2001,10 @@ function transformCustomServiceToColumn(customService) {
   };
 }
 
-// Keys that are not individual services (skip when scanning for per-service notes)
 const NON_SERVICE_KEYS = new Set([
   'notes', 'topRow', 'bottomRow', 'secondRow', 'refreshPowerScrub', 'customServices',
 ]);
 
-// Service key → human-readable label
 const SERVICE_DISPLAY_NAMES = {
   saniclean:         'Saniclean',
   foamingDrain:      'Foaming Drain',
@@ -2192,7 +2020,6 @@ const SERVICE_DISPLAY_NAMES = {
   electrostaticSpray:'Electrostatic Spray',
 };
 
-// Unwrap nested formData.formData... and return the deepest "data" object
 function resolveServiceData(serviceData) {
   if (!serviceData) return null;
   let data = serviceData;
@@ -2204,17 +2031,14 @@ function resolveServiceData(serviceData) {
   return data || serviceData;
 }
 
-// Decide whether a service should be shown in the PDF
 function isServiceUsed(serviceData) {
   if (!serviceData) return false;
   const data = resolveServiceData(serviceData);
   if (!data) return false;
 
-  // Respect isActive at wrapper or data level
   if (serviceData.isActive === false) return false;
   if (data.isActive === false) return false;
 
-  // Core totals — old flat format
   if (
     (data.weeklyTotal && (typeof data.weeklyTotal === 'number' ? data.weeklyTotal > 0 : parseFloat(data.weeklyTotal) > 0)) ||
     (data.monthlyTotal && (typeof data.monthlyTotal === 'number' ? data.monthlyTotal > 0 : parseFloat(data.monthlyTotal) > 0)) ||
@@ -2225,7 +2049,6 @@ function isServiceUsed(serviceData) {
     return true;
   }
 
-  // New structured totals format
   if (data.totals) {
     if (
       (data.totals.weekly && data.totals.weekly.amount) ||
@@ -2242,7 +2065,6 @@ function isServiceUsed(serviceData) {
 
   if (data.total || data.amount || data.charge) return true;
 
-  // Specific field checks for various service types
   if (
     (data.fixtureCount && data.fixtureCount > 0) ||
     (data.drainCount && data.drainCount > 0) ||
@@ -2255,7 +2077,6 @@ function isServiceUsed(serviceData) {
     return true;
   }
 
-  // Refresh Power Scrub areas
   if (data.serviceId === 'refreshPowerScrub') {
     const refreshAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
     for (const area of refreshAreas) {
@@ -2268,7 +2089,6 @@ function isServiceUsed(serviceData) {
     }
   }
 
-  // Custom fields
   if (Array.isArray(data.customFields) && data.customFields.length > 0) {
     const hasCustomValue = data.customFields.some((field) => {
       if (!field) return false;
@@ -2281,7 +2101,6 @@ function isServiceUsed(serviceData) {
     if (hasCustomValue) return true;
   }
 
-  // Generic numeric/string fields; ignore pure config keys
   const ignoreKeys = new Set([
     'serviceId', 'pricingMode', 'location', 'frequency',
     'rateTier', 'contractMonths', 'notes', 'method',
@@ -2296,10 +2115,6 @@ function isServiceUsed(serviceData) {
   return false;
 }
 
-/**
- * Collect per-service `notes` strings and render them as a SERVICE NOTES
- * section in the PDF. Only services with a non-empty notes string are included.
- */
 function buildPerServiceNotesLatex(services = {}) {
   const entries = [];
 
@@ -2307,7 +2122,6 @@ function buildPerServiceNotesLatex(services = {}) {
     if (NON_SERVICE_KEYS.has(key)) return;
     if (!serviceData) return;
 
-    // Support both flat and nested { formData: {...} } shapes
     const data = resolveServiceData(serviceData);
     const notesText = typeof data.notes === 'string' ? data.notes.trim() : '';
     if (!notesText) return;
@@ -2335,9 +2149,6 @@ function buildPerServiceNotesLatex(services = {}) {
 }
 
 function buildServicesLatex(services = {}) {
-  // resolveServiceData and isServiceUsed are now module-level functions above
-
-  // Helper used for both topRow/bottomRow and transformed branch
   const filterServiceColumns = (cols) => {
     if (!cols || !Array.isArray(cols)) return [];
     return cols.filter((col) => {
@@ -2358,7 +2169,6 @@ function buildServicesLatex(services = {}) {
   let refreshSectionLatex = "";
   let serviceNotesLatex = "";
 
-  /* ---------- CASE 1: services already in topRow/bottomRow format ---------- */
   if (hasTopBottomFormat) {
     const topRowCols = services.topRow || [];
     const bottomRowCols = services.bottomRow || services.secondRow || [];
@@ -2369,7 +2179,6 @@ function buildServicesLatex(services = {}) {
     servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols, true);
     servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols, false);
 
-    // Refresh Power Scrub for this format (sec is already the "display" object)
     const sec = services.refreshPowerScrub;
     if (sec && Array.isArray(sec.columns) && sec.columns.length > 0) {
       const hasData = sec.columns.some((c) => c && c.trim() !== "");
@@ -2411,7 +2220,6 @@ function buildServicesLatex(services = {}) {
       }
     }
 
-    // Notes if you ever add services.notes in this mode
     if (services.notes) {
       const notes = services.notes;
       const textLines = Array.isArray(notes.textLines) ? notes.textLines : [];
@@ -2430,7 +2238,6 @@ function buildServicesLatex(services = {}) {
       }
     }
 
-    // Per-service manual notes (entered by salesperson on each service)
     serviceNotesLatex += buildPerServiceNotesLatex(services);
 
     return {
@@ -2441,8 +2248,6 @@ function buildServicesLatex(services = {}) {
     };
   }
 
-  /* ---------- CASE 2: "storage" format (your JSON from frontend) ---------- */
-
   const usedServices = {};
   const allServiceKeys = [
     "saniclean",
@@ -2450,7 +2255,7 @@ function buildServicesLatex(services = {}) {
     "saniscrub",
     "microfiberMopping",
     "rpmWindows",
-    "refreshPowerScrub", // special layout handled below
+    "refreshPowerScrub",
     "sanipod",
     "carpetclean",
     "janitorial",
@@ -2463,16 +2268,7 @@ function buildServicesLatex(services = {}) {
     const svc = services[serviceKey];
     const isUsed = svc && isServiceUsed(svc);
 
-    // Debug logging only for refreshPowerScrub
     if (svc && serviceKey === 'refreshPowerScrub') {
-      const data = svc.formData || svc;
-      // console.log(`🔍 [REFRESH POWER SCRUB] Service detection:`)
-      // console.log(`  └ isActive (wrapper): ${svc.isActive}`);
-      // console.log(`  └ isActive (data): ${data.isActive}`);
-      // console.log(`  └ weeklyTotal: ${data.weeklyTotal}`);
-      // console.log(`  └ monthlyTotal: ${data.monthlyTotal}`);
-      // console.log(`  └ contractTotal: ${data.contractTotal}`);
-      // console.log(`  └ isUsed: ${isUsed}`);
     }
 
     if (isUsed) {
@@ -2480,7 +2276,6 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Custom services if present
   if (services.customServices && Array.isArray(services.customServices)) {
     const usedCustomServices = services.customServices.filter((cs) => {
       return cs && Array.isArray(cs.fields) && cs.fields.length > 0;
@@ -2490,15 +2285,10 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Debug logging only for Refresh Power Scrub
   const refreshPowerScrubUsed = Object.keys(usedServices).includes('refreshPowerScrub');
   if (refreshPowerScrubUsed || services.refreshPowerScrub) {
-    // console.log(`🔍 [REFRESH POWER SCRUB] Services detected as used:`, Object.keys(usedServices));
-    // console.log(`🔍 [REFRESH POWER SCRUB] Total used services count: ${Object.keys(usedServices).length}`);
-    // console.log(`🔍 [REFRESH POWER SCRUB] Refresh Power Scrub in used services: ${refreshPowerScrubUsed}`);
   }
 
-  // If nothing is actually used, return empty strings
   if (Object.keys(usedServices).length === 0) {
     return {
       servicesTopRowLatex: "",
@@ -2508,50 +2298,34 @@ function buildServicesLatex(services = {}) {
     };
   }
 
-  // Transform into topRow/bottomRow columns using your existing helpers
   const transformedServices = transformServicesToPdfFormat(usedServices);
   const topRowCols = transformedServices.topRow || [];
   const bottomRowCols = transformedServices.bottomRow || [];
 
-  // Debug transformation results only for Refresh Power Scrub
   if (refreshPowerScrubUsed || services.refreshPowerScrub) {
-    // console.log(`🔍 [REFRESH POWER SCRUB] Transformed services - topRow: ${topRowCols.length} columns, bottomRow: ${bottomRowCols.length} columns`);
   }
 
   const filteredTopRowCols = filterServiceColumns(topRowCols);
   const filteredBottomRowCols = filterServiceColumns(bottomRowCols);
 
-  // Debug filtered results only for Refresh Power Scrub
   if (refreshPowerScrubUsed || services.refreshPowerScrub) {
-    // console.log(`🔍 [REFRESH POWER SCRUB] After filtering - topRow: ${filteredTopRowCols.length} columns, bottomRow: ${filteredBottomRowCols.length} columns`);
   }
 
-  // Generate LaTeX for the service rows
   servicesTopRowLatex = buildServiceRowSequence(filteredTopRowCols, true);
   servicesBottomRowLatex = buildServiceRowSequence(filteredBottomRowCols, false);
 
-  // Debug generated LaTeX only for Refresh Power Scrub
   if (refreshPowerScrubUsed || services.refreshPowerScrub) {
-    // console.log(`🔍 [REFRESH POWER SCRUB] Generated LaTeX - topRow length: ${servicesTopRowLatex.length}, bottomRow length: ${servicesBottomRowLatex.length}`);
   }
 
-
-  // Refresh Power Scrub from frontend area-based format
   if (usedServices.refreshPowerScrub) {
     const refreshData = usedServices.refreshPowerScrub.formData || usedServices.refreshPowerScrub;
 
     if (refreshData && refreshData.isActive) {
-      // console.log('🔍 [REFRESH POWER SCRUB] Building custom refresh section');
-      // console.log('🔍 [REFRESH POWER SCRUB] Full refresh data:', JSON.stringify(refreshData, null, 2));
-
-      // Check for new services structure vs old direct area structure
       let enabledAreas = [];
 
       const isVisibleArea = (area) => area?.isDisplay !== false;
 
       if (refreshData.services) {
-        // New structure: services.dumpster, services.frontHouse, etc.
-        // console.log('🔍 [REFRESH POWER SCRUB] Using NEW services structure');
         const serviceKeys = Object.keys(refreshData.services);
 
         for (const serviceKey of serviceKeys) {
@@ -2563,7 +2337,6 @@ function buildServicesLatex(services = {}) {
             serviceData.total &&
             serviceData.total.value > 0
           ) {
-            // Map service keys back to area names for display
             const displayName = serviceKey === 'frontHouse' ? 'FRONT HOUSE' :
                               serviceKey === 'backHouse' ? 'BACK HOUSE' :
                               serviceKey.toUpperCase();
@@ -2577,8 +2350,6 @@ function buildServicesLatex(services = {}) {
           }
         }
       } else {
-        // Old structure: direct area keys (dumpster, patio, foh, boh, etc.)
-        // console.log('🔍 [REFRESH POWER SCRUB] Using LEGACY area structure');
         const areas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
 
         for (const areaKey of areas) {
@@ -2604,27 +2375,21 @@ function buildServicesLatex(services = {}) {
         }
       }
 
-      // console.log(`🔍 [REFRESH POWER SCRUB] Found ${enabledAreas.length} enabled areas:`, enabledAreas.map(a => a.key));
-
       if (enabledAreas.length > 0) {
-        const maxAreas = Math.min(enabledAreas.length, 4); // Max 4 areas to fit on page
-        const colCount = maxAreas + 1; // +1 for the label column
-        const colSpec = "|l|" + Array(maxAreas).fill("Y").join("|") + "|"; // l for labels, Y for flexible areas
+        const maxAreas = Math.min(enabledAreas.length, 4);
+        const colCount = maxAreas + 1;
+        const colSpec = "|l|" + Array(maxAreas).fill("Y").join("|") + "|";
 
-        // Build header row with area names (empty first cell for label column)
         const headerRow = "  & " +
           enabledAreas.slice(0, maxAreas)
             .map(area => `\\textbf{\\textcolor{serviceHeaderBlue}{${latexEscape(area.displayName)}}}`)
             .join(" & ") +
           " \\\\";
 
-        // Helper function to get pricing method display for each area
         const getPricingMethodDisplay = (area) => {
           if (refreshData.services) {
-            // New structure: get from pricingMethod field
             return area.data.pricingMethod ? area.data.pricingMethod.value : 'N/A';
           } else {
-            // Legacy structure: infer from data properties
             if (area.data.unit === 'hours') return 'Per Hour';
             if (area.data.unit === 'workers') return 'Per Worker';
             if (area.data.unit === 'sq ft') return 'Square Feet';
@@ -2632,20 +2397,16 @@ function buildServicesLatex(services = {}) {
           }
         };
 
-        // Build pricing method row
         const pricingMethodRow = "  Method & " +
           enabledAreas.slice(0, maxAreas)
             .map(area => `\\scriptsize ${latexEscape(getPricingMethodDisplay(area))}`)
             .join(" & ") +
           " \\\\";
 
-        // Helper function to detect if this is square footage pricing and get the breakdown (for legacy compatibility)
         const getAreaBreakdown = (area) => {
-          // Check if this area has square footage breakdown data in the original service structure
           const originalArea = refreshData[area.originalKey];
           if (!originalArea) return null;
 
-          // Look for square footage fields in the original data structure
           if (originalArea.insideSqFt !== undefined || originalArea.outsideSqFt !== undefined) {
             return {
               fixed: originalArea.sqFtFixedFee || 200,
@@ -2658,7 +2419,6 @@ function buildServicesLatex(services = {}) {
           return null;
         };
 
-        // Helper function to get calculation details for each area
         const readFieldValue = (field) => {
           if (field === null || field === undefined) return undefined;
           return typeof field === "object" && "value" in field ? field.value : field;
@@ -2666,17 +2426,14 @@ function buildServicesLatex(services = {}) {
 
         const getCalculationDetails = (area) => {
           if (refreshData.services) {
-            // New structure: detailed breakdown
             const serviceData = area.data;
             let details = [];
 
-            // Handle different pricing methods
             if (serviceData.hours) {
               details.push(`${serviceData.hours.quantity} hrs @ \\$${serviceData.hours.priceRate}`);
             } else if (serviceData.workersCalc) {
               details.push(`${serviceData.workersCalc.quantity} workers @ \\$${serviceData.workersCalc.priceRate}`);
             } else if (serviceData.insideSqft || serviceData.outsideSqft) {
-              // Square feet breakdown
               if (serviceData.fixedFee) {
                 details.push(`Fixed: \\$${serviceData.fixedFee.value}`);
               }
@@ -2687,19 +2444,15 @@ function buildServicesLatex(services = {}) {
                 details.push(`Out: ${serviceData.outsideSqft.quantity} @ \\$${serviceData.outsideSqft.priceRate}`);
               }
             } else if (serviceData.plan) {
-              // Handle preset plans - special case for patio with add-on
               if (area.key === 'patio' && serviceData.includePatioAddon) {
-                // Check if this is the new format with includePatioAddon field
                 if (serviceData.includePatioAddon.value === true) {
                   details.push(`Patio: \\$800 + Add-on: \\$500`);
                 } else {
                   details.push(`Plan: ${serviceData.plan.value}`);
                 }
               } else if (area.key === 'patio') {
-                // Patio without add-on or old format
                 details.push(`Patio Service: \\$800`);
               } else {
-                // Other preset areas (dumpster, foh, boh, etc.)
                 details.push(`Plan: ${serviceData.plan.value}`);
               }
             }
@@ -2741,7 +2494,6 @@ function buildServicesLatex(services = {}) {
 
             return details.length > 0 ? details.join(", ") : "Service";
           } else {
-            // Legacy structure: use old logic
             const breakdown = getAreaBreakdown(area);
             if (breakdown) {
               let details = [];
@@ -2761,27 +2513,24 @@ function buildServicesLatex(services = {}) {
           }
         };
 
-        // Build calculation details row
         const detailsRow = "  Details & " +
           enabledAreas.slice(0, maxAreas)
             .map(area => `\\scriptsize ${getCalculationDetails(area)}`)
             .join(" & ") +
           " \\\\";
 
-        // Build frequency row
         const frequencyRow = "  Frequency & " +
           enabledAreas.slice(0, maxAreas)
             .map(area => {
               if (refreshData.services) {
                 return `\\scriptsize ${latexEscape(area.data.frequency ? area.data.frequency.value : 'TBD')}`;
               } else {
-                return `\\scriptsize TBD`; // Legacy doesn't have frequency in this format
+                return `\\scriptsize TBD`;
               }
             })
             .join(" & ") +
           " \\\\";
 
-        // Build total row
         const totalRow = "  Total & " +
           enabledAreas.slice(0, maxAreas)
             .map(area => {
@@ -2846,15 +2595,13 @@ function buildServicesLatex(services = {}) {
         refreshSectionLatex += "  \\hline\n";
         refreshSectionLatex += "\\end{tabularx}\n";
 
-        // console.log(`🔍 [REFRESH POWER SCRUB] Generated enhanced table with ${maxAreas} areas (${colCount} total columns)`);
       }
     }
   }
 
-  // Legacy Refresh Power Scrub from columns/freqLabels format (for backward compatibility)
   else if (services.refreshPowerScrub) {
     const secRoot = services.refreshPowerScrub;
-    const sec = secRoot.formData || secRoot; // support both shapes
+    const sec = secRoot.formData || secRoot;
 
     if (sec && Array.isArray(sec.columns) && sec.columns.length > 0) {
       const hasData = sec.columns.some((c) => c && c.trim() !== "");
@@ -2897,7 +2644,6 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Top-level service notes if you ever add services.notes in this JSON
   if (services.notes) {
     const notes = services.notes;
     const textLines = Array.isArray(notes.textLines) ? notes.textLines : [];
@@ -2916,17 +2662,7 @@ function buildServicesLatex(services = {}) {
     }
   }
 
-  // Per-service manual notes (entered by salesperson on each service)
   serviceNotesLatex += buildPerServiceNotesLatex(services);
-
-  // Final debug summary only for Refresh Power Scrub
-  // if (refreshPowerScrubUsed || services.refreshPowerScrub) {
-  //   console.log(`✅ [REFRESH POWER SCRUB] Services LaTeX generation complete:`);
-  //   console.log(`  └ Top row LaTeX: ${servicesTopRowLatex ? 'Generated' : 'Empty'} (${servicesTopRowLatex.length} chars)`);
-  //   console.log(`  └ Bottom row LaTeX: ${servicesBottomRowLatex ? 'Generated' : 'Empty'} (${servicesBottomRowLatex.length} chars)`);
-  //   console.log(`  └ Refresh section LaTeX: ${refreshSectionLatex ? 'Generated' : 'Empty'} (${refreshSectionLatex.length} chars)`);
-  //   console.log(`  └ Service notes LaTeX: ${serviceNotesLatex ? 'Generated' : 'Empty'} (${serviceNotesLatex.length} chars)`);
-  // }
 
   return {
     servicesTopRowLatex,
@@ -2936,10 +2672,6 @@ function buildServicesLatex(services = {}) {
   };
 }
 
-
-
-
-/* ---------------- Public API for controllers ---------------- */
 
 export async function getPdfHealth() {
   try {
@@ -2951,7 +2683,6 @@ export async function getPdfHealth() {
   }
 }
 
-// (A) raw TeX → DO compiler
 export async function compileRawTex(texString) {
   if (!texString || typeof texString !== "string") {
     const err = new Error("Body must include a 'template' string.");
@@ -2963,9 +2694,8 @@ export async function compileRawTex(texString) {
   return { buffer, filename: "document.pdf" };
 }
 
-// (B) repo proposal.tex (+ image asset) → DO compiler (bundle)
 export async function compileProposalTemplate() {
-  const mainTex = await fs.readFile(PDF_TEMPLATE_PATH); // Buffer
+  const mainTex = await fs.readFile(PDF_TEMPLATE_PATH);
   const baseDir = path.dirname(PDF_TEMPLATE_PATH);
   const logoPath = path.join(baseDir, "images", "Envimaster.png");
   const logoBuf = await fs.readFile(logoPath);
@@ -2981,8 +2711,6 @@ export async function compileProposalTemplate() {
   return { buffer, filename: "proposal.pdf" };
 }
 
-// (C) customer-header — render Mustache locally, then SEND BUNDLE with logo
-// ✅ NEW: Added watermark parameter for draft PDF generation
 export async function compileCustomerHeader(body = {}, options = {}) {
   const { watermark = false } = options;
 
@@ -2992,15 +2720,12 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     status: body.status,
   });
 
-  // ✅ NEW: Validate payload for corrupted data before processing
   validatePayloadData(body);
 
-  // ✅ NEW: Deep sanitize ALL string values in the payload to prevent LaTeX errors
   console.log('🧹 [PDF COMPILE] Deep sanitizing payload to remove corrupted characters...');
   body = deepSanitizeObject(body);
   console.log('✅ [PDF COMPILE] Payload sanitization complete');
 
-  // ✅ ENHANCED: Deep validation of products data (where the error is happening)
   if (body.products) {
     console.log('🔍 [PRODUCTS VALIDATION] Checking products data for corrupted fields...');
 
@@ -3024,17 +2749,14 @@ export async function compileCustomerHeader(body = {}, options = {}) {
       }
     };
 
-    // Check merged products array
     if (Array.isArray(body.products.products)) {
       body.products.products.forEach((p, i) => checkProductData(p, i, 'products'));
     }
 
-    // Check dispensers array
     if (Array.isArray(body.products.dispensers)) {
       body.products.dispensers.forEach((d, i) => checkProductData(d, i, 'dispensers'));
     }
 
-    // Check legacy arrays
     if (Array.isArray(body.products.smallProducts)) {
       body.products.smallProducts.forEach((p, i) => checkProductData(p, i, 'smallProducts'));
     }
@@ -3072,13 +2794,12 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     productContractLabel ? `Contract ${productContractLabel}` : ""
   ]
     .filter(Boolean)
-    .join(" - ");  // ✅ FIXED: Use regular hyphen instead of middle dot (0xB7)
+    .join(" - ");
   const summaryProductTotalsLabel = latexEscape(combinedProductTotals || SUMMARY_PLACEHOLDER);
 
   const hasSummaryData = summaryData && Object.keys(summaryData).length > 0;
   const summaryExists = Boolean(hasSummaryData);
 
-  // Determine if all active services are one-time (suppress Contract Months if so)
   const activeServiceEntries = Object.values(body.services || {}).filter(sd => isServiceUsed(sd));
   const allServicesOneTime =
     activeServiceEntries.length > 0 &&
@@ -3110,7 +2831,6 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     includeProductsTable: body.includeProductsTable !== false,
     ...buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] }),
     ...buildServicesLatex(body.services || {}),
-    // ✅ NEW: Add watermark flag to view for template
     includeWatermark: watermark,
     summaryContractMonthsDisplay,
     summaryTripChargeLabel,
@@ -3121,23 +2841,11 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     showContractMonths,
   };
 
-  // console.log('🔍 [TEMPLATE DEBUG] Template view data generated:', {
-  //   headerTitle: view.headerTitle,
-  //   headerRowsCount: view.headerRows?.length || 0,
-  //   servicesTopRowLength: view.servicesTopRowLatex?.length || 0,
-  //   servicesBottomRowLength: view.servicesBottomRowLatex?.length || 0,
-  //   refreshSectionLength: view.refreshSectionLatex?.length || 0,
-  // });
-
   const template = await fs.readFile(PDF_HEADER_TEMPLATE_PATH, "utf8");
-  // console.log('🔍 [TEMPLATE DEBUG] Template file read successfully, length:', template.length);
-  // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesTopRowLatex placeholder:', template.includes('{{{servicesTopRowLatex}}}'));
-  // console.log('🔍 [TEMPLATE DEBUG] Template contains servicesBottomRowLatex placeholder:', template.includes('{{{servicesBottomRowLatex}}}'));
 
   let tex = Mustache.render(template, view);
   console.log('🔍 [PDF COMPILE] After Mustache rendering, LaTeX length:', tex.length);
 
-  // ✅ DEBUG: Save generated LaTeX to temp file for inspection
   try {
     const debugPath = '/tmp/debug-latex-output.tex';
     await fs.writeFile(debugPath, tex, 'utf8');
@@ -3146,35 +2854,28 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     console.warn('⚠️ Could not save debug LaTeX:', err.message);
   }
 
-  // ✅ NEW: Add watermark overlay if requested
   if (watermark) {
     console.log('💧 [WATERMARK] Adding DRAFT watermark to PDF');
     const { preamble, command } = buildWatermarkLatex();
 
-    // Insert packages in preamble (before \begin{document})
     tex = tex.replace(/\\begin\{document\}/, preamble + '\\begin{document}');
 
-    // Insert watermark command after \begin{document}
     tex = tex.replace(/\\begin\{document\}/, '\\begin{document}\n' + command);
   }
 
-  // ✅ NEW: Add Service Agreement if checkbox is checked
   if (body.serviceAgreement && body.serviceAgreement.includeInPdf) {
     console.log('📄 [SERVICE AGREEMENT] Including Service Agreement in PDF');
     const serviceAgreementLatex = buildServiceAgreementLatex(body.serviceAgreement);
-    // Insert before \end{document}
     tex = tex.replace(/\\end\{document\}/, serviceAgreementLatex + '\n\\end{document}');
   } else {
     console.log('📄 [SERVICE AGREEMENT] Service Agreement not included (checkbox not checked or data missing)');
   }
 
-  // ✅ DEBUG: Validate brace balance before compilation
   const openBraces = (tex.match(/\{/g) || []).length;
   const closeBraces = (tex.match(/\}/g) || []).length;
   if (openBraces !== closeBraces) {
     console.error(`❌ [LATEX-VALIDATION] Brace mismatch! Opening: ${openBraces}, Closing: ${closeBraces}, Difference: ${openBraces - closeBraces}`);
 
-    // Save final LaTeX for debugging
     try {
       const finalDebugPath = '/tmp/debug-latex-final-with-errors.tex';
       await fs.writeFile(finalDebugPath, tex, 'utf8');
@@ -3184,7 +2885,6 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     }
   }
 
-  // ✅ DEBUG: Save FINAL LaTeX after all modifications
   try {
     const finalDebugPath = '/tmp/debug-latex-final.tex';
     await fs.writeFile(finalDebugPath, tex, 'utf8');
@@ -3206,13 +2906,11 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
     await tidyTempArtifacts({ purgeAll: true });
 
-    // Extract customer name from body for dynamic filename
     const customerName = extractCustomerName(body.customerName, body.headerRows);
     const filename = `${customerName}.pdf`;
 
     return { buffer, filename };
   } catch (error) {
-    // ✅ ENHANCED: Catch and re-throw with ALL error details for frontend debugging
     console.error('❌ [PDF COMPILE] PDF compilation failed:', {
       errorType: error.errorType,
       message: error.message,
@@ -3221,10 +2919,8 @@ export async function compileCustomerHeader(body = {}, options = {}) {
       timeout: error.timeout
     });
 
-    // Create comprehensive error object with ALL details
     const comprehensiveError = new Error(error.message || 'PDF compilation failed');
 
-    // ✅ Pass ALL error properties to frontend
     comprehensiveError.errorType = error.errorType;
     comprehensiveError.originalError = error.originalError || error.message;
     comprehensiveError.errorName = error.errorName || error.name;
@@ -3234,7 +2930,6 @@ export async function compileCustomerHeader(body = {}, options = {}) {
     comprehensiveError.detail = error.detail;
     comprehensiveError.stack = error.stack;
 
-    // ✅ Add LaTeX compilation context
     comprehensiveError.latexError = {
       templatePath: PDF_HEADER_TEMPLATE_PATH,
       texLength: tex.length,
@@ -3246,42 +2941,32 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   }
 }
 
-// Helper function to extract customer name from headerRows or customerName field
 function extractCustomerName(customerNameFromBody, headerRows = []) {
-  // First, try to use customerName directly if provided
   if (customerNameFromBody && customerNameFromBody.trim()) {
     return sanitizeFilename(customerNameFromBody.trim());
   }
 
-  // Fallback: search in headerRows for CUSTOMER NAME field
   for (const row of headerRows) {
-    // Check left side
     if (row.labelLeft && row.labelLeft.toUpperCase().includes("CUSTOMER NAME")) {
       const name = row.valueLeft?.trim();
       if (name) return sanitizeFilename(name);
     }
-    // Check right side
     if (row.labelRight && row.labelRight.toUpperCase().includes("CUSTOMER NAME")) {
       const name = row.valueRight?.trim();
       if (name) return sanitizeFilename(name);
     }
   }
 
-  // Default fallback
   return "Unnamed_Customer";
 }
 
-// Helper to sanitize filename (remove special characters)
 function sanitizeFilename(name) {
   return name
-    .replace(/[^a-zA-Z0-9-_\s]+/g, "_") // Replace special chars with underscore
-    .replace(/\s+/g, "_") // Replace spaces with underscore
-    .substring(0, 80); // Limit length
+    .replace(/[^a-zA-Z0-9-_\s]+/g, "_")
+    .replace(/\s+/g, "_")
+    .substring(0, 80);
 }
 
-/* (D) Pass-through: clients upload to your backend; you forward to DO */
-
-// single .tex uploaded to your backend → forward to DO
 export async function proxyCompileFileToRemote(file, opts = {}) {
   if (!file?.buffer) {
     const err = new Error("Missing file buffer");
@@ -3301,7 +2986,6 @@ export async function proxyCompileFileToRemote(file, opts = {}) {
   return { buffer, filename: "document.pdf" };
 }
 
-// .tex + assets[] uploaded to your backend → forward to DO (with manifest)
 export async function proxyCompileBundleToRemote(mainFile, assets = [], manifest = {}, opts = {}) {
   if (!mainFile?.buffer) {
     const err = new Error("Missing 'main' .tex file");
@@ -3326,5 +3010,3 @@ export async function proxyCompileBundleToRemote(mainFile, assets = [], manifest
   await tidyTempArtifacts({ purgeAll: true });
   return { buffer, filename: "document.pdf" };
 }
-
-

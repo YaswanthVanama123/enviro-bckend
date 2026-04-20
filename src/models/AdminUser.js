@@ -1,4 +1,3 @@
-// src/models/AdminUser.js
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
@@ -10,7 +9,6 @@ const AdminUserSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
-    // hashed password (never store plain!)
     passwordHash: {
       type: String,
       required: true,
@@ -27,14 +25,13 @@ const AdminUserSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // createdAt, updatedAt
+    timestamps: true,
   }
 );
 
-// Create default admin once (envimaster / 9999999999)
 AdminUserSchema.statics.ensureDefaultAdmin = async function () {
   const DEFAULT_USERNAME = "envimaster";
-  const DEFAULT_PASSWORD = "9999999999"; // 10 nines
+  const DEFAULT_PASSWORD = "9999999999";
 
   const existing = await this.findOne({ username: DEFAULT_USERNAME }).exec();
   if (existing) {

@@ -1,4 +1,3 @@
-// src/routes/pdf/versionLogs.js
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
@@ -8,26 +7,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const router = express.Router();
 
-// Create logs directory if it doesn't exist
 const LOGS_DIR = path.join(__dirname, '../../logs/version-changes');
 
 const ensureLogsDirectory = async () => {
   try {
     await fs.access(LOGS_DIR);
   } catch (error) {
-    // Directory doesn't exist, create it
     await fs.mkdir(LOGS_DIR, { recursive: true });
-    console.log('✅ Created logs directory:', LOGS_DIR);
+    console.log('Created logs directory:', LOGS_DIR);
   }
 };
 
-// Initialize logs directory on module load
 ensureLogsDirectory().catch(console.error);
 
-/**
- * POST /api/pdf/version-logs/create
- * Creates a text log file for version changes
- */
 router.post('/create', async (req, res) => {
   try {
     const {
@@ -41,21 +33,18 @@ router.post('/create', async (req, res) => {
       changes
     } = req.body;
 
-    console.log('📝 [VERSION-LOGS] Creating log file:', {
+    console.log('[VERSION-LOGS] Creating log file:', {
       agreementId,
       versionNumber,
       changesCount: changes?.length || 0,
       saveAction
     });
 
-    // Ensure logs directory exists
     await ensureLogsDirectory();
 
-    // Generate log file name: changes_v1_675bc123.txt
     const fileName = `changes_v${versionNumber}_${agreementId}.txt`;
     const filePath = path.join(LOGS_DIR, fileName);
 
-    // Generate log file content
     const logContent = generateLogContent({
       agreementId,
       versionId,
@@ -67,12 +56,10 @@ router.post('/create', async (req, res) => {
       changes: changes || []
     });
 
-    // Write log file
     await fs.writeFile(filePath, logContent, 'utf8');
 
-    console.log('✅ [VERSION-LOGS] Log file created successfully:', fileName);
+    console.log('[VERSION-LOGS] Log file created successfully:', fileName);
 
-    // Calculate summary statistics
     const totalChanges = changes?.length || 0;
     const totalPriceImpact = changes?.reduce((sum, change) => sum + (change.changeAmount || 0), 0) || 0;
     const hasSignificantChanges = changes?.some(change =>
@@ -97,7 +84,7 @@ router.post('/create', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [VERSION-LOGS] Error creating log file:', error);
+    console.error('[VERSION-LOGS] Error creating log file:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create version log file',
@@ -106,18 +93,12 @@ router.post('/create', async (req, res) => {
   }
 });
 
-/**
- * GET /api/pdf/version-logs/:agreementId
- * Gets all log files for an agreement
- */
 router.get('/:agreementId', async (req, res) => {
   try {
     const { agreementId } = req.params;
 
-    // Read logs directory
     const files = await fs.readdir(LOGS_DIR);
 
-    // Filter files for this agreement
     const agreementLogFiles = files
       .filter(file => file.includes(`_${agreementId}.txt`))
       .map(file => {
@@ -138,7 +119,7 @@ router.get('/:agreementId', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [VERSION-LOGS] Error getting log files:', error);
+    console.error('[VERSION-LOGS] Error getting log files:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get log files',
@@ -147,19 +128,13 @@ router.get('/:agreementId', async (req, res) => {
   }
 });
 
-/**
- * GET /api/pdf/version-logs/download/:fileName
- * Downloads a specific log file
- */
 router.get('/download/:fileName', async (req, res) => {
   try {
     const { fileName } = req.params;
     const filePath = path.join(LOGS_DIR, fileName);
 
-    // Check if file exists
     await fs.access(filePath);
 
-    // Read and return file content
     const content = await fs.readFile(filePath, 'utf8');
 
     res.setHeader('Content-Type', 'text/plain');
@@ -167,7 +142,7 @@ router.get('/download/:fileName', async (req, res) => {
     res.status(200).send(content);
 
   } catch (error) {
-    console.error('❌ [VERSION-LOGS] Error downloading log file:', error);
+    console.error('[VERSION-LOGS] Error downloading log file:', error);
     res.status(404).json({
       success: false,
       message: 'Log file not found',
@@ -176,9 +151,6 @@ router.get('/download/:fileName', async (req, res) => {
   }
 });
 
-/**
- * Generate formatted log file content
- */
 function generateLogContent({
   agreementId,
   versionId,
@@ -203,7 +175,6 @@ function generateLogContent({
   content += '                    VERSION CHANGE LOG\n';
   content += '='.repeat(80) + '\n\n';
 
-  // Header Information
   content += `Document Title: ${documentTitle || 'Untitled Document'}\n`;
   content += `Agreement ID: ${agreementId}\n`;
   content += `Version ID: ${versionId}\n`;
@@ -212,7 +183,6 @@ function generateLogContent({
   content += `Timestamp: ${date}\n`;
   content += `Salesperson: ${salespersonName} (${salespersonId})\n\n`;
 
-  // Summary Statistics
   const totalChanges = changes.length;
   const totalPriceImpact = changes.reduce((sum, change) => sum + (change.changeAmount || 0), 0);
   const significantChanges = changes.filter(change =>
@@ -224,7 +194,7 @@ function generateLogContent({
   content += '-'.repeat(80) + '\n';
   content += `Total Changes Made: ${totalChanges}\n`;
   content += `Total Price Impact: $${totalPriceImpact.toFixed(2)}\n`;
-  content += `Significant Changes: ${significantChanges.length} (≥$50 or ≥15%)\n`;
+  content += `Significant Changes: ${significantChanges.length} (>=\$50 or >=15%)\n`;
   content += `Review Status: ${significantChanges.length > 0 ? 'REQUIRES REVIEW' : 'AUTO-APPROVED'}\n\n`;
 
   if (changes.length === 0) {
@@ -233,12 +203,10 @@ function generateLogContent({
     content += '-'.repeat(80) + '\n';
     content += 'No price overrides or modifications were made during this save.\n\n';
   } else {
-    // Detailed Changes
     content += '-'.repeat(80) + '\n';
     content += '                    DETAILED CHANGES\n';
     content += '-'.repeat(80) + '\n\n';
 
-    // Group changes by product/service
     const changesByProduct = {};
     changes.forEach(change => {
       if (!changesByProduct[change.productName]) {
@@ -263,7 +231,7 @@ function generateLogContent({
 
       productChanges.forEach(change => {
         const isSignificant = Math.abs(change.changeAmount || 0) >= 50 || Math.abs(change.changePercentage || 0) >= 15;
-        const indicator = isSignificant ? '⚠️  SIGNIFICANT' : '✓  Minor';
+        const indicator = isSignificant ? 'SIGNIFICANT' : 'Minor';
 
         content += `   • ${change.fieldDisplayName}:\n`;
         content += `     Original: $${(change.originalValue || 0).toFixed(2)}\n`;
@@ -275,12 +243,11 @@ function generateLogContent({
       changeIndex++;
     });
 
-    // Significant Changes Warning
     if (significantChanges.length > 0) {
       content += '-'.repeat(80) + '\n';
-      content += '                  ⚠️  SIGNIFICANT CHANGES DETECTED\n';
+      content += '                  WARNING: SIGNIFICANT CHANGES DETECTED\n';
       content += '-'.repeat(80) + '\n';
-      content += 'The following changes exceed the significance threshold (≥$50 or ≥15%):\n\n';
+      content += 'The following changes exceed the significance threshold (>=\$50 or >=15%):\n\n';
 
       significantChanges.forEach((change, index) => {
         content += `${index + 1}. ${change.productName} - ${change.fieldDisplayName}\n`;
@@ -292,7 +259,6 @@ function generateLogContent({
     }
   }
 
-  // Footer
   content += '='.repeat(80) + '\n';
   content += '                      END OF LOG\n';
   content += '='.repeat(80) + '\n';

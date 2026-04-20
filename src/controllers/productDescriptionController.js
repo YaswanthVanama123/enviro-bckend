@@ -1,15 +1,7 @@
-// src/controllers/productDescriptionController.js
 import mongoose from "mongoose";
 import { COMPREHENSIVE_PRODUCT_DATA, SERVICE_PRICING } from "../data/comprehensiveProductData.js";
 
-// Assuming you have a ProductCatalog model - adjust the import path as needed
-// import ProductCatalog from "../models/ProductCatalog.js";
-
-/**
- * Legacy product description mappings (kept for backward compatibility)
- */
 const LEGACY_PRODUCT_DESCRIPTIONS = {
-  // Floor Products
   floor_daily: "Water-based for daily floor cleaning. Excellent for regular maintenance cleaning.",
   floor_primo: "Water based multi purpose cleaner. High-quality cleaning solution for various surfaces.",
   floor_bad: "Super strength degreaser and floor finish remover. Toughest industrial soils as well as multiple layers of finish build-up. Alkaline and solvents.",
@@ -18,18 +10,15 @@ const LEGACY_PRODUCT_DESCRIPTIONS = {
   floor_turquoise3: "(Pro-Con) EPA certified hospital grade disinfectant for all hard surfaces. Bacteria, virus and fungi.",
   floor_hiox_blue_planet: "Cleaner and degreaser for use on all types of hard surfaces. Peroxide, solvents, detergents, penetrating and soil lifting agents. Use on countertops, appliances, oven hoods, stainless steel, Formica®, plastic, fiberglass, rubber and glass.",
 
-  // Sani Products
   sani_habc: "(High Acid Bowl Cleaner) Removes resistant stains from bathroom fixtures and porcelain.",
   sani_visclean: "Hydrochloric acid toilet bowl and restroom cleaner that is highly effective for removing heavy stains, soil, rust, scale, soap scum and hard water encrustations in toilet bowls, urinals, shower stalls.",
   sani_blue_planet_hospital: "Replaces the red/blue/green table cleaners. Food safe, so can be used in kitchen. Can be used for daily cleaning in bathrooms. Hospital grade disinfectant.",
   sani_sani_shield: "Clean-X (not Intercon). Hydrogen peroxide based. Cleans and applies a protective barrier coating to help reduce the growth of odor-causing bacteria, mold, and mildew stains in between cleaning.",
 
-  // Three Sink Components
   three_blue_diamond: "Hand dish detergent for pots and pans. Multipurpose and labor saving. Good quality option.",
   three_dish_detergent_pink: "Manual pot and pan detergent. More cost effective than Blue Diamond but lesser quality.",
   three_grade_a: "Quick sanitizing cleaner for use on food processing equipment, food contact surfaces and utensils.",
 
-  // Other Chemicals
   chem_activate_plus: "A concentrated blend of live liquid bacteria enzymes that activates drain lines and grease traps.",
   chem_oven_cleaner: "Cleaning ovens, grills, stainless steel surfaces, etc. Heavy-duty cleaning solution.",
   chem_health_guard_sanitizer: "62% aloe and Vitamin E. Non alcohol hand sanitizer meets CDC standards. Foaming hand sanitizer which is rare. Avoids risks of alcohol-based sanitizers: ingestion by children/pets and flammability.",
@@ -37,14 +26,12 @@ const LEGACY_PRODUCT_DESCRIPTIONS = {
   chem_repel_glass: "Glass and surface cleaner. Professional-grade cleaning solution.",
   chem_invisible_shield: "Lime scale remover for glass. Advanced cleaning technology.",
 
-  // Soap Products
   soap_orange_premium: "Luxury soap that cleans and softens hands. Note this is sold ready to use not concentrated.",
   soap_foaming_pear: "Luxury soap popular with customers but expensive. High-quality foaming hand soap.",
   soap_white_lotion: "Quality lotion soap for general use. Good balance of quality and cost.",
   soap_low_quality_lotion: "Budget option for existing clients. We are migrating these clients to white lotion soap.",
   soap_grit_soap: "Heavy-duty hand soap designed for industrial and kitchen use with grit for tough cleaning.",
 
-  // Paper Products
   paper_multifold_tower: "Multi-fold paper towels. Standard quality for high-traffic areas. Case contains 16 packs of 250 sheets.",
   paper_hardwound_kraft: "Hard-wound kraft paper towels. Natural color, good absorbency. Case of 6 rolls.",
   paper_hardwound_white: "Hard-wound white paper towels. Premium appearance and absorbency. Case of 6 rolls.",
@@ -58,7 +45,6 @@ const LEGACY_PRODUCT_DESCRIPTIONS = {
   paper_multifold_white: "Multi-Fold White. White multi-fold towels for premium appearance. Case of 16 packs.",
   paper_toilet_seat_covers: "Toilet Seat Covers. Hygienic protection for restroom users. Pack of 250 covers.",
 
-  // Dispensers
   disp_manual_soap: "Enviro-Master Manual Soap Dispenser. Reliable manual operation with $1/week warranty.",
   disp_hybrid_soap: "Enviro-Master Hybrid Soap Dispenser. Battery and manual operation options with $2/week warranty.",
   disp_mechanical_towel: "Enviro-Master Mechanical Towel Dispenser. Hands-free operation with $2/week warranty.",
@@ -83,7 +69,6 @@ const LEGACY_PRODUCT_DESCRIPTIONS = {
   disp_grit_soap_dispenser: "Grit Soap Dispenser. Heavy-duty soap dispensing for industrial use with $1/week warranty.",
   disp_sanipod_receptacle: "SaniPod Receptacle. Feminine hygiene disposal system with $3/week warranty.",
 
-  // Extras / Facilities Products
   extra_berry_good_case: "Berry Good (Case/12). Deodorant for transforming malodor molecules. Case of 12 - 32oz bottles.",
   extra_urinal_mats: "EM Urinal Mat. Reduces splashing and improves hygiene. Monthly replacement recommended.",
   extra_commode_mats: "EM Commode Mat. Floor protection and hygiene improvement around toilets.",
@@ -103,12 +88,8 @@ const LEGACY_PRODUCT_DESCRIPTIONS = {
   extra_dish_detergent_default: "Dish Detergent (Default Extra). Standard dish cleaning solution for kitchen use."
 };
 
-/**
- * GET /api/product-catalog - Get current product catalog
- */
 export async function getProductCatalog(req, res) {
   try {
-    // Replace with your actual collection name and model
     const db = mongoose.connection.db;
     const catalog = await db.collection('productcatalogs').find({}).toArray();
 
@@ -126,9 +107,6 @@ export async function getProductCatalog(req, res) {
   }
 }
 
-/**
- * POST /api/product-catalog/add-descriptions - Add descriptions to all products
- */
 export async function addProductDescriptions(req, res) {
   try {
     const db = mongoose.connection.db;
@@ -136,7 +114,6 @@ export async function addProductDescriptions(req, res) {
 
     console.log('🔄 Adding descriptions to product catalog...');
 
-    // Find the active catalog
     const catalog = await collection.findOne({ isActive: true });
     if (!catalog) {
       return res.status(404).json({
@@ -148,7 +125,6 @@ export async function addProductDescriptions(req, res) {
     let updatedCount = 0;
     let skippedCount = 0;
 
-    // Update each family's products
     catalog.families.forEach(family => {
       family.products.forEach(product => {
         const description = PRODUCT_DESCRIPTIONS[product.key];
@@ -163,7 +139,6 @@ export async function addProductDescriptions(req, res) {
       });
     });
 
-    // Update the catalog in database
     await collection.updateOne(
       { _id: catalog._id },
       {
@@ -198,9 +173,6 @@ export async function addProductDescriptions(req, res) {
   }
 }
 
-/**
- * PUT /api/product-catalog/product/:productKey/description - Update single product description
- */
 export async function updateProductDescription(req, res) {
   try {
     const { productKey } = req.params;
@@ -218,7 +190,6 @@ export async function updateProductDescription(req, res) {
 
     console.log(`🔄 Updating description for product: ${productKey}`);
 
-    // Find and update the specific product
     const result = await collection.updateOne(
       {
         isActive: true,
@@ -264,9 +235,6 @@ export async function updateProductDescription(req, res) {
   }
 }
 
-/**
- * GET /api/product-catalog/missing-descriptions - Get products without descriptions
- */
 export async function getMissingDescriptions(req, res) {
   try {
     const db = mongoose.connection.db;
@@ -314,7 +282,7 @@ export async function getMissingDescriptions(req, res) {
         availablePresets: missingDescriptions.filter(p => p.hasPresetDescription).length
       },
       missingDescriptions,
-      hasDescriptions: hasDescriptions.slice(0, 10) // Show first 10 as examples
+      hasDescriptions: hasDescriptions.slice(0, 10)
     });
 
   } catch (error) {
@@ -327,9 +295,6 @@ export async function getMissingDescriptions(req, res) {
   }
 }
 
-/**
- * POST /api/product-catalog/add-comprehensive-data - Add comprehensive product data to all products
- */
 export async function addComprehensiveProductData(req, res) {
   try {
     const db = mongoose.connection.db;
@@ -337,7 +302,6 @@ export async function addComprehensiveProductData(req, res) {
 
     console.log('🔄 Adding comprehensive product data to catalog...');
 
-    // Find the active catalog
     const catalog = await collection.findOne({ isActive: true });
     if (!catalog) {
       return res.status(404).json({
@@ -349,12 +313,10 @@ export async function addComprehensiveProductData(req, res) {
     let updatedCount = 0;
     let skippedCount = 0;
 
-    // Update each family's products with comprehensive data
     catalog.families.forEach(family => {
       family.products.forEach(product => {
         const comprehensiveData = COMPREHENSIVE_PRODUCT_DATA[product.key];
         if (comprehensiveData) {
-          // Merge comprehensive data into product
           Object.assign(product, {
             description: comprehensiveData.description,
             category: comprehensiveData.category,
@@ -386,7 +348,6 @@ export async function addComprehensiveProductData(req, res) {
           updatedCount++;
           console.log(`✅ Added comprehensive data for ${product.key}: ${product.name}`);
         } else {
-          // Fallback to legacy descriptions
           const legacyDescription = LEGACY_PRODUCT_DESCRIPTIONS[product.key];
           if (legacyDescription && !product.description) {
             product.description = legacyDescription;
@@ -400,7 +361,6 @@ export async function addComprehensiveProductData(req, res) {
       });
     });
 
-    // Update the catalog in database
     await collection.updateOne(
       { _id: catalog._id },
       {
@@ -437,16 +397,12 @@ export async function addComprehensiveProductData(req, res) {
   }
 }
 
-/**
- * GET /api/product-catalog/comprehensive-data - Get comprehensive product data
- */
 export async function getComprehensiveProductData(req, res) {
   try {
     const { category, search, includeServicePricing } = req.query;
 
     let products = { ...COMPREHENSIVE_PRODUCT_DATA };
 
-    // Filter by category if specified
     if (category) {
       products = Object.fromEntries(
         Object.entries(products).filter(([key, product]) =>
@@ -455,7 +411,6 @@ export async function getComprehensiveProductData(req, res) {
       );
     }
 
-    // Filter by search term if specified
     if (search) {
       const searchTerm = search.toLowerCase();
       products = Object.fromEntries(
@@ -478,7 +433,6 @@ export async function getComprehensiveProductData(req, res) {
       }
     };
 
-    // Include service pricing if requested
     if (includeServicePricing === 'true') {
       responseData.servicePricing = SERVICE_PRICING;
     }
@@ -495,9 +449,6 @@ export async function getComprehensiveProductData(req, res) {
   }
 }
 
-/**
- * GET /api/product-catalog/service-pricing - Get service pricing information
- */
 export async function getServicePricing(req, res) {
   try {
     const { service } = req.query;
@@ -534,9 +485,6 @@ export async function getServicePricing(req, res) {
   }
 }
 
-/**
- * GET /api/product-catalog/products-by-category/:category - Get products by category
- */
 export async function getProductsByCategory(req, res) {
   try {
     const { category } = req.params;
@@ -556,7 +504,6 @@ export async function getProductsByCategory(req, res) {
       });
     }
 
-    // Filter response data based on query parameters
     let responseProducts = categoryProducts;
     if (includePricing === 'false') {
       responseProducts = Object.fromEntries(
@@ -606,9 +553,6 @@ export async function getProductsByCategory(req, res) {
   }
 }
 
-/**
- * GET /api/product-catalog/pricing-summary - Get pricing summary across all products
- */
 export async function getPricingSummary(req, res) {
   try {
     const pricingSummary = {
@@ -625,7 +569,6 @@ export async function getPricingSummary(req, res) {
     Object.entries(COMPREHENSIVE_PRODUCT_DATA).forEach(([key, product]) => {
       pricingSummary.totalProducts++;
 
-      // Group by category
       if (product.category) {
         if (!pricingSummary.byCategory[product.category]) {
           pricingSummary.byCategory[product.category] = {
@@ -643,7 +586,6 @@ export async function getPricingSummary(req, res) {
         });
       }
 
-      // Track price ranges
       if (product.pricePerGallon) {
         pricingSummary.productsWithPricing++;
         const gallonRange = pricingSummary.priceRanges.perGallon;
@@ -681,7 +623,6 @@ export async function getPricingSummary(req, res) {
       }
     });
 
-    // Calculate averages for categories
     Object.keys(pricingSummary.byCategory).forEach(category => {
       const categoryData = pricingSummary.byCategory[category];
       const prices = categoryData.products.map(p => p.price).filter(p => p > 0);
@@ -708,9 +649,6 @@ export async function getPricingSummary(req, res) {
   }
 }
 
-/**
- * GET /api/product-catalog/categories - Get all available product categories
- */
 export async function getAvailableCategories(req, res) {
   try {
     const categories = [...new Set(Object.values(COMPREHENSIVE_PRODUCT_DATA).map(p => p.category))];

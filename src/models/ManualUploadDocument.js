@@ -1,4 +1,3 @@
-// src/models/ManualUploadDocument.js
 import mongoose from "mongoose";
 
 const ZohoRefSchema = new mongoose.Schema(
@@ -53,7 +52,6 @@ const ManualUploadDocumentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
-    // ✅ NEW: Soft delete field for individual files
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
     deletedBy: { type: String, default: null },
@@ -63,11 +61,8 @@ const ManualUploadDocumentSchema = new mongoose.Schema(
   }
 );
 
-// Index for faster queries
 ManualUploadDocumentSchema.index({ uploadedBy: 1, createdAt: -1 });
 ManualUploadDocumentSchema.index({ status: 1 });
-
-// ⚡ OPTIMIZED: Index for getSavedFilesGrouped lookup performance
 ManualUploadDocumentSchema.index({ _id: 1, isDeleted: 1 });
 
 const ManualUploadDocument = mongoose.model(

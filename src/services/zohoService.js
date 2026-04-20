@@ -1,9 +1,6 @@
 import FormData from "form-data";
 import axios from "axios";
 
-/**
- * Common Zoho base URLs (from env or defaults)
- */
 const ZOHO_BIGIN_API_URL =
   process.env.ZOHO_BIGIN_API_URL || "https://www.zohoapis.in/bigin/v2";
 
@@ -13,20 +10,14 @@ const ZOHO_CRM_API_URL =
 const ZOHO_ACCOUNTS_URL =
   process.env.ZOHO_ACCOUNTS_URL || "https://accounts.zoho.in";
 
-/**
- * Generate Zoho OAuth authorization URL
- */
 export function generateZohoAuthUrl() {
   const clientId = process.env.ZOHO_CLIENT_ID;
-  // ✅ PRODUCTION: Require ZOHO_REDIRECT_URI environment variable
   const redirectUri = process.env.ZOHO_REDIRECT_URI;
 
   if (!clientId) {
     throw new Error("ZOHO_CLIENT_ID environment variable is required");
   }
 
-  // Use comprehensive scopes for Bigin and user profile
-// Use valid Bigin scopes: modules, attachments, settings
 const scopes = [
   "ZohoBigin.modules.ALL",
   "ZohoBigin.modules.attachments.ALL",
@@ -45,14 +36,10 @@ const scopes = [
   return authUrl.toString();
 }
 
-/**
- * Handle OAuth callback and exchange authorization code for tokens
- */
 export async function handleZohoOAuthCallback(authorizationCode, location = "in") {
   try {
     const clientId = process.env.ZOHO_CLIENT_ID;
     const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    // ✅ PRODUCTION: Require ZOHO_REDIRECT_URI environment variable
     const redirectUri = process.env.ZOHO_REDIRECT_URI;
 
     console.log("🔒 [TOKEN-CREATE] Step 1 - environment values");
@@ -64,7 +51,6 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
       throw new Error("ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET environment variables are required");
     }
 
-    // Determine accounts server based on location
     const accountsUrl = location === "in" ? "https://accounts.zoho.in" :
                        location === "eu" ? "https://accounts.zoho.eu" :
                        location === "com.au" ? "https://accounts.zoho.com.au" :
@@ -130,9 +116,6 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
     process.env.ZOHO_REFRESH_TOKEN = refresh_token;
     process.env.ZOHO_ACCOUNTS_BASE = accountsUrl;
 
-    // ✅ FIX: DO NOT overwrite environment variables
-    // The refresh token in .env should remain permanent and never be changed
-    // Only display the tokens for manual copying to .env file
     console.log("✅ OAuth tokens obtained successfully!");
     console.log("⚠️  IMPORTANT: Copy the refresh token above to your .env file manually");
     console.log("⚠️  Do NOT restart the server until you've updated .env with the new tokens");
@@ -154,9 +137,6 @@ export async function handleZohoOAuthCallback(authorizationCode, location = "in"
   }
 }
 
-/**
- * Test Zoho access token by trying to access basic user info
- */
 export async function testZohoAccess() {
   try {
     const accessToken = await getZohoAccessToken();
@@ -164,7 +144,6 @@ export async function testZohoAccess() {
 
     console.log("🧪 Testing Zoho access with user info...");
 
-    // Try basic endpoints to see what we can access
     const testEndpoints = [
       `${baseUrl}/users/me`,
       `${baseUrl}/users`,
@@ -189,19 +168,14 @@ export async function testZohoAccess() {
   }
 }
 
-/**
- * Detect the correct Zoho Bigin API base URL and version by testing user info endpoint
- * This helps identify the right data center and API version for the current token
- */
 async function detectZohoBiginBaseUrl() {
   try {
     const accessToken = await getZohoAccessToken();
 
     console.log("🔍 [AUTO-DETECT] Testing Zoho endpoints to find the correct data center...");
 
-    // ✅ SMART DETECTION: Determine likely data center from accounts URL
     const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
-    let primaryDataCenter = 'com'; // default
+    let primaryDataCenter = 'com';
 
     if (accountsUrl.includes('.in')) {
       primaryDataCenter = 'in';
@@ -213,21 +187,17 @@ async function detectZohoBiginBaseUrl() {
 
     console.log(`🔍 [AUTO-DETECT] Detected data center: ${primaryDataCenter} (from accounts URL: ${accountsUrl})`);
 
-    // ✅ PRIORITY ORDER: Test likely data center first
     const dataCenters = [primaryDataCenter, 'com', 'in', 'eu', 'com.au'].filter((dc, index, arr) => arr.indexOf(dc) === index);
 
-    // Test endpoints in order of likelihood (prioritize detected data center)
     const testEndpoints = [];
 
     for (const dc of dataCenters) {
       const domain = dc === 'com.au' ? 'zohoapis.com.au' : `zohoapis.${dc}`;
-      // V1 endpoints (Deals endpoint - lightweight test)
       testEndpoints.push(`https://www.${domain}/bigin/v1/Deals`);
     }
 
     for (const dc of dataCenters) {
       const domain = dc === 'com.au' ? 'zohoapis.com.au' : `zohoapis.${dc}`;
-      // V2 endpoints
       testEndpoints.push(`https://www.${domain}/bigin/v2/Deals`);
     }
 
@@ -248,12 +218,10 @@ async function detectZohoBiginBaseUrl() {
           console.log(`✅ [AUTO-DETECT] Found working endpoint: ${baseUrl}`);
           console.log(`📊 [AUTO-DETECT] Deals info:`, response.data?.data?.length || 'Retrieved successfully');
 
-          // Store the working base URL
           process.env.ZOHO_BIGIN_DETECTED_BASE = baseUrl;
           return baseUrl;
         }
       } catch (error) {
-        // Silent fail, continue testing
         console.log(`⚠️ [AUTO-DETECT] ${endpoint}: ${error.response?.status || error.code}`);
       }
     }
@@ -266,16 +234,12 @@ async function detectZohoBiginBaseUrl() {
   }
 }
 
-/**
- * Get list of deals from Zoho Bigin to find valid deal IDs
- */
 export async function getZohoDeals() {
   try {
     const accessToken = await getZohoAccessToken();
 
     console.log("📋 Fetching deals from Zoho Bigin...");
 
-    // Step 1: Try auto-detection first if we don't have a working URL stored
     let baseUrlToTry = process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL;
 
     if (!baseUrlToTry) {
@@ -283,7 +247,6 @@ export async function getZohoDeals() {
       baseUrlToTry = await detectZohoBiginBaseUrl();
     }
 
-    // Step 2: If we have a detected/working URL, try it first
     if (baseUrlToTry) {
       console.log(`🎯 Testing detected endpoint: ${baseUrlToTry}`);
 
@@ -308,7 +271,6 @@ export async function getZohoDeals() {
             console.log(`✅ SUCCESS with detected endpoint: ${fullUrl}`);
             console.log(`📋 Found ${deals.length} deals`);
 
-            // Store the working pattern
             process.env.ZOHO_BIGIN_WORKING_URL = baseUrlToTry;
             process.env.ZOHO_BIGIN_DEALS_ENDPOINT = dealEndpoint;
 
@@ -320,22 +282,15 @@ export async function getZohoDeals() {
       }
     }
 
-    // Step 3: Fallback to broad endpoint testing
-
-    // ✅ Test ONLY API endpoints that return JSON (not HTML)
-    // Based on Zoho Bigin documentation and common endpoint patterns
     const possibleBaseUrls = [
-      // Standard Zoho API endpoints (most likely to work)
       "https://www.zohoapis.com/bigin/v1",
       "https://www.zohoapis.in/bigin/v1",
       "https://www.zohoapis.eu/bigin/v1",
       "https://www.zohoapis.com.au/bigin/v1",
-      // V2 endpoints
       "https://www.zohoapis.com/bigin/v2",
       "https://www.zohoapis.in/bigin/v2",
       "https://www.zohoapis.eu/bigin/v2",
       "https://www.zohoapis.com.au/bigin/v2",
-      // Alternative patterns found in Zoho Bigin docs
       "https://bigin.zoho.com/crm/v2",
       "https://bigin.zoho.in/crm/v2",
       "https://bigin.zoho.eu/crm/v2",
@@ -365,7 +320,6 @@ export async function getZohoDeals() {
             timeout: 5000
           });
 
-          // ✅ Check if response is JSON (not HTML)
           const contentType = response.headers['content-type'] || '';
           if (!contentType.includes('application/json')) {
             console.log(`❌ Non-JSON response from ${fullUrl}: ${contentType}`);
@@ -374,9 +328,8 @@ export async function getZohoDeals() {
 
           const deals = response.data?.data || [];
           console.log(`✅ SUCCESS with JSON response: ${fullUrl}`);
-          console.log(`📋 Found ${deals.length} deals:`, deals.slice(0, 2)); // Show first 2 only
+          console.log(`📋 Found ${deals.length} deals:`, deals.slice(0, 2));
 
-          // Store the working base URL for future use
           process.env.ZOHO_BIGIN_WORKING_URL = baseUrl;
           console.log(`🎯 Storing working base URL: ${baseUrl}`);
 
@@ -402,9 +355,6 @@ export async function getZohoDeals() {
   }
 }
 
-/**
- * Upload a PDF buffer to Zoho Bigin using Deals/Attachments endpoint
- */
 export async function uploadToZohoBigin(
   pdfBuffer,
   fileName = "document.pdf",
@@ -414,7 +364,6 @@ export async function uploadToZohoBigin(
   try {
     const accessToken = await getZohoAccessToken();
 
-    // ✅ Use the auto-detected working base URL with fallbacks
     let baseUrl = process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL;
 
     if (!baseUrl) {
@@ -422,13 +371,11 @@ export async function uploadToZohoBigin(
       baseUrl = await detectZohoBiginBaseUrl();
     }
 
-    // Final fallback if detection fails
     if (!baseUrl) {
-      baseUrl = "https://www.zohoapis.com/bigin/v1"; // Most common working endpoint
+      baseUrl = "https://www.zohoapis.com/bigin/v1";
       console.log("⚠️ Using fallback base URL:", baseUrl);
     }
 
-    // ✅ First get available deals if no recordId provided
     let dealId = recordId;
     if (!dealId) {
       console.log("🔍 No deal ID provided, fetching available deals...");
@@ -436,7 +383,6 @@ export async function uploadToZohoBigin(
 
       if (deals.length === 0) {
         console.log("🆕 No deals found, creating a default deal for file attachments...");
-        // Create a default deal for file attachments
         const newDeal = await createDefaultDeal();
         if (newDeal && newDeal.id) {
           dealId = newDeal.id;
@@ -445,7 +391,6 @@ export async function uploadToZohoBigin(
           throw new Error("Failed to create default deal for file attachments");
         }
       } else {
-        // Use the first available deal
         dealId = deals[0].id;
         console.log("✅ Using first available deal:", dealId, "-", deals[0].Deal_Name);
       }
@@ -462,7 +407,6 @@ export async function uploadToZohoBigin(
       contentType: "application/pdf",
     });
 
-    // ✅ FIXED: Upload to Deals/{dealId}/Attachments with correct capitalization
     const uploadResponse = await axios.post(
       `${baseUrl}/Deals/${dealId}/Attachments`,
       formData,
@@ -505,17 +449,12 @@ export async function uploadToZohoBigin(
   }
 }
 
-/**
- * Create a default deal for file attachments
- * Tests multiple API endpoint patterns to find the correct one for POST operations
- */
 async function createDefaultDeal() {
   try {
     const accessToken = await getZohoAccessToken();
 
     console.log("🆕 Creating default deal for PDF attachments...");
 
-    // Step 1: Try to use auto-detected base URL first
     let baseUrlToTry = process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL;
 
     if (!baseUrlToTry) {
@@ -523,9 +462,8 @@ async function createDefaultDeal() {
       baseUrlToTry = await detectZohoBiginBaseUrl();
     }
 
-    // Step 2: If we have a detected URL, try it first
     if (baseUrlToTry) {
-      const createUrl = `${baseUrlToTry}/Pipelines`; // ✅ V2 FIX: Use Pipelines endpoint
+      const createUrl = `${baseUrlToTry}/Pipelines`;
       console.log(`🔨 Testing deal creation with v2 Pipelines endpoint: ${createUrl}`);
 
       try {
@@ -533,8 +471,8 @@ async function createDefaultDeal() {
           data: [
             {
               Deal_Name: "PDF Documents Storage",
-              Sub_Pipeline: "Sales Pipeline Standard", // ✅ V2 FIX: Use Sub_Pipeline field
-              Stage: "Proposal/Price Quote", // ✅ Use correct Stage value
+              Sub_Pipeline: "Sales Pipeline Standard",
+              Stage: "Proposal/Price Quote",
               Amount: 0,
               Closing_Date: new Date().toISOString().split('T')[0]
             }
@@ -583,21 +521,15 @@ async function createDefaultDeal() {
       }
     }
 
-    // Step 3: Fallback to broad endpoint testing
-
-    // ✅ Test different base URLs specifically for POST deal creation to Pipelines module
     const possibleCreateUrls = [
-      // V1 endpoints (often more stable for writes) - Use Pipelines module
       "https://www.zohoapis.com/bigin/v1/Pipelines",
       "https://www.zohoapis.in/bigin/v1/Pipelines",
       "https://www.zohoapis.eu/bigin/v1/Pipelines",
       "https://www.zohoapis.com.au/bigin/v1/Pipelines",
-      // V2 endpoints
       "https://www.zohoapis.com/bigin/v2/Pipelines",
       "https://www.zohoapis.in/bigin/v2/Pipelines",
       "https://www.zohoapis.eu/bigin/v2/Pipelines",
       "https://www.zohoapis.com.au/bigin/v2/Pipelines",
-      // Alternative CRM patterns
       "https://bigin.zoho.com/crm/v2/Pipelines",
       "https://bigin.zoho.in/crm/v2/Pipelines",
       "https://bigin.zoho.eu/crm/v2/Pipelines",
@@ -608,10 +540,10 @@ async function createDefaultDeal() {
       data: [
         {
           Deal_Name: "PDF Documents Storage",
-          Sub_Pipeline: "Sales Pipeline Standard", // ✅ V2 FIX: Use Sub_Pipeline field
-          Stage: "Proposal/Price Quote", // ✅ Use correct Stage value
+          Sub_Pipeline: "Sales Pipeline Standard",
+          Stage: "Proposal/Price Quote",
           Amount: 0,
-          Closing_Date: new Date().toISOString().split('T')[0] // Today's date
+          Closing_Date: new Date().toISOString().split('T')[0]
         }
       ]
     };
@@ -633,7 +565,6 @@ async function createDefaultDeal() {
           }
         );
 
-        // ✅ Check if response is JSON (not HTML)
         const contentType = response.headers['content-type'] || '';
         if (!contentType.includes('application/json')) {
           console.log(`❌ Non-JSON response from ${createUrl}: ${contentType}`);
@@ -643,21 +574,18 @@ async function createDefaultDeal() {
         console.log(`✅ SUCCESS with JSON response: ${createUrl}`);
         console.log("🔍 Full deal creation response:", JSON.stringify(response.data, null, 2));
 
-        // ✅ Try different response structure paths
         const newDeal =
-          response.data?.data?.[0]?.details ||  // Original attempt
-          response.data?.data?.[0] ||           // Direct data array
-          response.data ||                      // Top level
+          response.data?.data?.[0]?.details ||
+          response.data?.data?.[0] ||
+          response.data ||
           null;
 
         console.log("✅ Parsed new deal:", newDeal);
 
-        // ✅ If we got a successful response but no deal data, check for ID in response
         if (response.data?.data?.[0]?.code === "SUCCESS" && response.data?.data?.[0]?.details?.id) {
           const dealId = response.data.data[0].details.id;
           console.log("✅ Deal created successfully with ID:", dealId);
 
-          // Store the working URL for future use
           process.env.ZOHO_BIGIN_WORKING_URL = createUrl.replace('/Deals', '');
           console.log(`🎯 Storing working create URL base: ${process.env.ZOHO_BIGIN_WORKING_URL}`);
 
@@ -667,9 +595,7 @@ async function createDefaultDeal() {
           };
         }
 
-        // ✅ If response has ID directly
         if (newDeal && (newDeal.id || newDeal.Deal_Name)) {
-          // Store the working URL for future use
           process.env.ZOHO_BIGIN_WORKING_URL = createUrl.replace('/Deals', '');
           console.log(`🎯 Storing working create URL base: ${process.env.ZOHO_BIGIN_WORKING_URL}`);
 
@@ -701,9 +627,6 @@ async function createDefaultDeal() {
   }
 }
 
-/**
- * Upload a PDF buffer to Zoho CRM
- */
 export async function uploadToZohoCRM(
   pdfBuffer,
   fileName = "document.pdf",
@@ -763,56 +686,39 @@ export async function uploadToZohoCRM(
   }
 }
 
-// ✅ RACE CONDITION FIX: Mutex to prevent concurrent token refreshes
 let tokenRefreshInProgress = false;
 let tokenRefreshPromise = null;
 
-// ✅ SMART CACHING: Cache valid tokens to reduce unnecessary refreshes
 let cachedAccessToken = null;
 let tokenExpiryTime = null;
 
-/**
- * Check if cached token is still valid (with 5-minute buffer for safety)
- */
 function isCachedTokenValid() {
   if (!cachedAccessToken || !tokenExpiryTime) {
     return false;
   }
 
-  // Add 5-minute (300 seconds) buffer before expiry for safety
-  const bufferTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+  const bufferTime = 5 * 60 * 1000;
   const now = Date.now();
   const expiryWithBuffer = tokenExpiryTime - bufferTime;
 
   return now < expiryWithBuffer;
 }
 
-/**
- * Get Zoho access token using refresh token with automatic refresh
- * 1. Try to get new access token using refresh token (automatic)
- * 2. If that fails, fall back to static ZOHO_ACCESS_TOKEN (admin setup)
- * 3. If no credentials, provide clear error for admin setup
- * ✅ FIXED: Prevents race conditions when multiple requests refresh token simultaneously
- */
 export async function getZohoAccessToken() {
-  // ✅ SMART CACHING: Return cached token if still valid
   if (isCachedTokenValid()) {
     const remainingMinutes = Math.round((tokenExpiryTime - Date.now()) / 60000);
     console.log(`🎯 [TOKEN-CACHE] Using cached token (${remainingMinutes} minutes remaining)`);
     return cachedAccessToken;
   }
 
-  // ✅ RACE CONDITION FIX: If another refresh is in progress, wait for it
   if (tokenRefreshInProgress && tokenRefreshPromise) {
     console.log('🔄 [TOKEN-MUTEX] Another token refresh in progress, waiting...');
     try {
       return await tokenRefreshPromise;
     } catch (error) {
       console.log('🔄 [TOKEN-MUTEX] Previous refresh failed, trying again...');
-      // Fall through to try refresh again
     }
   }
-  // First, try to use refresh token to get new access token automatically
   const clientId = process.env.ZOHO_CLIENT_ID;
   const clientSecret = process.env.ZOHO_CLIENT_SECRET;
   const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
@@ -825,7 +731,6 @@ export async function getZohoAccessToken() {
   console.log(`  └ Accounts URL: ${accountsUrl}`);
 
   if (clientId && clientSecret && refreshToken) {
-    // ✅ RACE CONDITION FIX: Set mutex and create promise for concurrent requests
     tokenRefreshInProgress = true;
     tokenRefreshPromise = (async () => {
       try {
@@ -856,9 +761,8 @@ export async function getZohoAccessToken() {
         console.log(`  ├ Expires in: ${expires_in} seconds (${Math.round(expires_in/3600)} hours)`);
         console.log(`  └ Refresh token status: PERMANENT (never expires) ✅`);
 
-        // ✅ SMART CACHING: Cache the new token with expiry time
         cachedAccessToken = access_token;
-        tokenExpiryTime = Date.now() + (expires_in * 1000); // Convert seconds to milliseconds
+        tokenExpiryTime = Date.now() + (expires_in * 1000);
         console.log(`🎯 [TOKEN-CACHE] Token cached until ${new Date(tokenExpiryTime).toLocaleString()}`);
 
         return access_token;
@@ -877,7 +781,6 @@ export async function getZohoAccessToken() {
         console.error("  ├ Client Secret:", clientSecret ? clientSecret.substring(0, 10) + "..." : "MISSING");
         console.error("  └ Grant type: refresh_token");
 
-        // Re-throw error to be handled by fallback logic
         throw error;
       }
     })();
@@ -886,10 +789,8 @@ export async function getZohoAccessToken() {
       const token = await tokenRefreshPromise;
       return token;
     } catch (error) {
-      // Fall through to static token fallback
       console.log("🔄 [TOKEN-MUTEX] Refresh failed, falling back to static token");
     } finally {
-      // ✅ RACE CONDITION FIX: Always clean up mutex
       tokenRefreshInProgress = false;
       tokenRefreshPromise = null;
     }
@@ -900,7 +801,6 @@ export async function getZohoAccessToken() {
     console.log(`  └ Refresh Token: ${refreshToken ? '✅ Present' : '❌ Missing'}`);
   }
 
-  // Fallback to static token if refresh fails or credentials missing
   if (process.env.ZOHO_ACCESS_TOKEN) {
     const token = process.env.ZOHO_ACCESS_TOKEN.trim();
     console.log("⚠️  Using static Zoho access token (may expire soon):", token.substring(0, 25), "...");
@@ -908,9 +808,7 @@ export async function getZohoAccessToken() {
     return token;
   }
 
-  // No credentials available - admin needs to set up OAuth
   console.error("❌ No Zoho credentials configured");
-  // ✅ PRODUCTION: Use SERVER_URL from environment variable
   const serverUrl = process.env.SERVER_URL || "http://localhost:5000";
   console.error(`💡 Admin setup required: Visit ${serverUrl}/oauth/zoho/auth to configure Zoho integration`);
 
@@ -918,10 +816,6 @@ export async function getZohoAccessToken() {
 }
 
 
-
-/**
- * Attach uploaded file to a Zoho record
- */
 async function attachFileToRecord(recordId, fileId, accessToken, apiUrl) {
   try {
     await axios.post(
@@ -939,24 +833,13 @@ async function attachFileToRecord(recordId, fileId, accessToken, apiUrl) {
       "Failed to attach file to record:",
       error.response?.data || error.message
     );
-    // don't throw – file is uploaded, just not attached
   }
 }
 
-/**
- * V8 FIX: Contact management functions for Contact_Name mandatory field
- */
-
-/**
- * Get contacts associated with a specific company
- * @param {string} accountId - Zoho company/account ID
- * @returns {Promise<Object>} Contacts list response
- */
 export async function getBiginContactsByAccount(accountId) {
   console.log(`👤 Fetching contacts for account: ${accountId}`);
 
   try {
-    // First try to get contacts using COQL (more reliable for filtering)
     const coqlQuery = `SELECT id, Contact_Name, Email, Phone
                        FROM Contacts
                        WHERE Account_Name = '${accountId}'
@@ -981,10 +864,8 @@ export async function getBiginContactsByAccount(accountId) {
       };
     }
 
-    // Fallback: try direct Contacts endpoint with filters
     console.log(`🔄 [V8-CONTACTS] COQL failed, trying direct Contacts endpoint`);
 
-    // ✅ V2 FIX: Add required fields parameter for Contacts
     const contactFields = ['id', 'Contact_Name', 'Email', 'Phone'].join(',');
     const directResult = await makeBiginRequest('GET', `/Contacts?Account_Name=${accountId}&fields=${contactFields}`);
 
@@ -1018,12 +899,6 @@ export async function getBiginContactsByAccount(accountId) {
   }
 }
 
-/**
- * Create a default contact for a company
- * @param {string} accountId - Zoho company/account ID
- * @param {string} accountName - Company name for contact creation
- * @returns {Promise<Object>} Contact creation result
- */
 export async function createDefaultBiginContact(accountId, accountName) {
   console.log(`👤 Creating default contact for account: ${accountId} (${accountName})`);
 
@@ -1032,9 +907,9 @@ export async function createDefaultBiginContact(accountId, accountName) {
       data: [{
         Contact_Name: `${accountName} - Main Contact`,
         Account_Name: {
-          id: accountId  // Link to the company
+          id: accountId
         },
-        Email: `info@${accountName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`, // Generate placeholder email
+        Email: `info@${accountName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
         Description: `Default contact created for ${accountName} by EnviroMaster system on ${new Date().toISOString()}`
       }]
     };
@@ -1082,21 +957,14 @@ export async function createDefaultBiginContact(accountId, accountName) {
   }
 }
 
-/**
- * Get or create a contact for deal creation
- * @param {string} accountId - Zoho company/account ID
- * @param {string} accountName - Company name for fallback contact creation
- * @returns {Promise<Object>} Contact result
- */
 export async function getOrCreateContactForDeal(accountId, accountName) {
   console.log(`🔗 [V8-CONTACTS] Getting or creating contact for deal creation...`);
 
   try {
-    // Step 1: Try to find existing contacts
     const contactsResult = await getBiginContactsByAccount(accountId);
 
     if (contactsResult.success && contactsResult.contacts.length > 0) {
-      const contact = contactsResult.contacts[0]; // Use first available contact
+      const contact = contactsResult.contacts[0]; 
       console.log(`✅ [V8-CONTACTS] Using existing contact: ${contact.name} (${contact.id})`);
       return {
         success: true,
@@ -1105,7 +973,6 @@ export async function getOrCreateContactForDeal(accountId, accountName) {
       };
     }
 
-    // Step 2: No existing contacts, create a default one
     console.log(`🆕 [V8-CONTACTS] No existing contacts found, creating default contact...`);
     const createResult = await createDefaultBiginContact(accountId, accountName);
 
@@ -1136,23 +1003,18 @@ export async function recordZohoPdf({ fileName, size, mimeType, url }) {
   return { zohoRecordId: `ZHO_${Date.now()}` };
 }
 
-/**
- * V10 COMPATIBILITY: Test Layout+Pipeline compatibility matching
- */
 export async function testV10LayoutPipelineCompatibility() {
   console.log(`🔍 [V10-COMPAT-TEST] Testing Layout+Pipeline compatibility matching...`);
 
   try {
     const compatiblePairs = [];
 
-    // Get all available layouts
     const layoutResult = await makeBiginRequest('GET', '/settings/layouts?module=Deals');
 
     if (layoutResult.success && layoutResult.data?.layouts) {
       const layouts = layoutResult.data.layouts;
       console.log(`✅ [V10-COMPAT-TEST] Found ${layouts.length} layouts to analyze`);
 
-      // Analyze each layout for Pipeline compatibility
       for (const layout of layouts) {
         console.log(`🔍 [V10-COMPAT-TEST] Analyzing layout: "${layout.name}" (ID: ${layout.id}, visible: ${layout.visible})`);
 
@@ -1185,7 +1047,7 @@ export async function testV10LayoutPipelineCompatibility() {
                   visible: layout.visible
                 });
               });
-              break; // Found Pipeline field, no need to check other sections
+              break;
             }
           }
         }
@@ -1198,14 +1060,12 @@ export async function testV10LayoutPipelineCompatibility() {
       console.log(`\n✅ [V10-COMPAT-TEST] COMPATIBILITY ANALYSIS COMPLETE:`);
       console.log(`📊 Found ${compatiblePairs.length} compatible Layout+Pipeline combinations`);
 
-      // Show the first few compatible pairs
       const visiblePairs = compatiblePairs.filter(pair => pair.visible);
       console.log(`🔍 Visible Layout+Pipeline combinations (${visiblePairs.length}):`);
       visiblePairs.slice(0, 5).forEach((pair, index) => {
         console.log(`  ${index + 1}. Layout: "${pair.layoutName}" + Pipeline: "${pair.pipelineActual}"`);
       });
 
-      // Recommend the first visible pair
       if (visiblePairs.length > 0) {
         const recommended = visiblePairs[0];
         console.log(`\n🎯 [V10-COMPAT-TEST] RECOMMENDED for V10:`);
@@ -1252,7 +1112,6 @@ export async function testV9SimplePipelineDetection() {
   console.log(`🔍 [V9-SIMPLE-TEST] Testing simple Pipeline detection from field metadata...`);
 
   try {
-    // Get field metadata to find actual Pipeline values
     const fieldsResult = await makeBiginRequest('GET', '/settings/fields?module=Deals');
 
     if (fieldsResult.success && fieldsResult.data?.fields) {
@@ -1322,7 +1181,6 @@ export async function testLayoutPipelineDetection() {
   console.log(`🔍 [V7-DIAGNOSTIC] Testing Layout and Pipeline detection...`);
 
   try {
-    // Test layout fetching
     const layoutResult = await makeBiginRequest('GET', '/settings/layouts?module=Deals');
 
     if (layoutResult.success && layoutResult.data?.layouts) {
@@ -1332,7 +1190,6 @@ export async function testLayoutPipelineDetection() {
       layouts.forEach((layout, index) => {
         console.log(`  Layout ${index + 1}: ${layout.name} (ID: ${layout.id}, visible: ${layout.visible})`);
 
-        // Check for Pipeline field in this layout
         if (layout.sections) {
           layout.sections.forEach((section, sectionIndex) => {
             const pipelineField = section.fields?.find(f => f.api_name === 'Pipeline');
@@ -1348,7 +1205,6 @@ export async function testLayoutPipelineDetection() {
         }
       });
 
-      // Find default layout
       const defaultLayout = layouts.find(l => l.visible && !l.convert_mapping) || layouts[0];
       if (defaultLayout) {
         console.log(`🎯 [V7-DIAGNOSTIC] Selected layout: ${defaultLayout.name} (ID: ${defaultLayout.id})`);
@@ -1363,7 +1219,6 @@ export async function testLayoutPipelineDetection() {
       console.log(`❌ [V7-DIAGNOSTIC] Failed to fetch layouts:`, layoutResult.error);
     }
 
-    // Also test field metadata for Deals module
     const fieldsResult = await makeBiginRequest('GET', '/settings/fields?module=Deals');
     if (fieldsResult.success && fieldsResult.data?.fields) {
       const pipelineField = fieldsResult.data.fields.find(f => f.api_name === 'Pipeline');
@@ -1396,7 +1251,6 @@ export async function runZohoDiagnostics() {
   const results = {};
 
   try {
-    // Test 1: Token refresh
     console.log("\n📋 [TEST 1] Testing Zoho token refresh...");
     try {
       const token = await getZohoAccessToken();
@@ -1407,7 +1261,6 @@ export async function runZohoDiagnostics() {
       console.log(`❌ Token refresh failed: ${error.message}`);
     }
 
-    // Test 2: V10 Layout+Pipeline Compatibility Analysis
     console.log("\n📋 [TEST 2] Testing V10 Layout+Pipeline compatibility matching...");
     try {
       const compatTest = await testV10LayoutPipelineCompatibility();
@@ -1425,7 +1278,6 @@ export async function runZohoDiagnostics() {
       console.log(`❌ V10 Compatibility analysis error: ${error.message}`);
     }
 
-    // Test 3: V9 Simple Pipeline Detection (for comparison)
     console.log("\n📋 [TEST 3] Testing V9 Simple Pipeline detection (no Layout complexity)...");
     try {
       const pipelineTest = await testV9SimplePipelineDetection();
@@ -1441,7 +1293,6 @@ export async function runZohoDiagnostics() {
       console.log(`❌ V9 Simple Pipeline detection error: ${error.message}`);
     }
 
-    // Test 3: V7 Layout+Pipeline Detection (for comparison)
     console.log("\n📋 [TEST 3] Testing V7 Layout+Pipeline detection (complex approach)...");
     try {
       const layoutTest = await testLayoutPipelineDetection();
@@ -1456,7 +1307,6 @@ export async function runZohoDiagnostics() {
       console.log(`❌ V7 Layout detection error: ${error.message}`);
     }
 
-    // Test 4: Auto-detection
     console.log("\n📋 [TEST 4] Testing endpoint auto-detection...");
     try {
       const baseUrl = await detectZohoBiginBaseUrl();
@@ -1471,7 +1321,6 @@ export async function runZohoDiagnostics() {
       console.log(`❌ Auto-detection error: ${error.message}`);
     }
 
-    // Test 5: Deals fetching
     console.log("\n📋 [TEST 5] Testing deals fetching...");
     try {
       const deals = await getZohoDeals();
@@ -1485,7 +1334,6 @@ export async function runZohoDiagnostics() {
       console.log(`❌ Deals fetch failed: ${error.message}`);
     }
 
-    // Test 7: Deal creation (WITH V10 COMPATIBILITY FIX)
     console.log("\n📋 [TEST 7] Testing deal creation with V10 Layout+Pipeline compatibility fix...");
     try {
       const newDeal = await createBiginDeal({
@@ -1505,10 +1353,8 @@ export async function runZohoDiagnostics() {
       console.log(`❌ V10 Deal creation error: ${error.message}`);
     }
 
-    // Test 8: V8 Contact Creation Test
     console.log("\n📋 [TEST 8] Testing V8 Contact creation for deal linking...");
     try {
-      // First get a company to test with
       const companies = await getBiginCompanies(1, 5);
       if (companies.success && companies.companies.length > 0) {
         const testCompany = companies.companies[0];
@@ -1539,7 +1385,6 @@ export async function runZohoDiagnostics() {
       results.contactCreationV8 = { success: false, error: error.message };
       console.log(`❌ V8 Contact creation error: ${error.message}`);
     }
-    // Summary
     console.log("\n🏁 [SUMMARY] V10 Zoho Integration Diagnostic Results:");
     console.log("=" .repeat(60));
     console.log(`Token Refresh: ${results.tokenRefresh?.success ? '✅ PASS' : '❌ FAIL'}`);
@@ -1575,7 +1420,6 @@ export async function runZohoDiagnostics() {
     const passCount = Object.values(results).filter(r => r.success).length;
     console.log(`\n📊 Overall Score: ${passCount}/8 tests passed`);
 
-    // V10 vs V9 vs V7 Comparison
     const v10Success = results.dealCreationV10?.success;
     const v9Success = results.dealCreationV9?.success;
     const v7Success = results.dealCreationV7?.success;
@@ -1596,20 +1440,11 @@ export async function runZohoDiagnostics() {
   }
 }
 
-/* ============================================================================
- * ZOHO BIGIN V2 API INTEGRATION FOR UPLOAD WORKFLOW
- * ============================================================================ */
-
-/**
- * Get the working Bigin base URL (use auto-detected or derive from accounts URL)
- */
 function getBiginBaseUrl() {
-  // Use auto-detected URL if available
   if (process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL) {
     return process.env.ZOHO_BIGIN_DETECTED_BASE || process.env.ZOHO_BIGIN_WORKING_URL;
   }
 
-  // ✅ DERIVE from accounts base to match data center - USE V2 for Pipelines
   const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
 
   if (accountsUrl.includes('.in')) {
@@ -1623,12 +1458,8 @@ function getBiginBaseUrl() {
   }
 }
 
-/**
- * Make authenticated request to Zoho Bigin API
- */
 async function makeBiginRequest(method, endpoint, data = null) {
   try {
-    // const accessToken = await getZohoAccessToken();
     const accessToken = await getZohoAccessToken();
     const baseUrl = getBiginBaseUrl();
     const url = `${baseUrl}${endpoint}`;
@@ -1666,25 +1497,11 @@ async function makeBiginRequest(method, endpoint, data = null) {
   }
 }
 
-/**
- * Get deals associated with a specific company
- * @param {string} companyId - Zoho company/account ID
- * @param {number} page - Page number (default: 1)
- * @param {number} perPage - Records per page (default: 20, max: 200)
- * @returns {Promise<Object>} Deals list response
- */
 export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) {
   console.log(`💼 Fetching Bigin deals for company: ${companyId} (page ${page}, ${perPage} per page)`);
 
   try {
-    // Method 1: Try COQL query for more reliable filtering
-    // const coqlQuery = `SELECT id, Deal_Name, Stage, Amount, Closing_Date, Created_Time, Modified_Time
-    //                    FROM Deals
-    //                    WHERE Account_Name = '${companyId}'
-    //                    ORDER BY Modified_Time DESC
-    //                    LIMIT ${Math.min(perPage, 200)}
-    //                    OFFSET ${(page - 1) * perPage}`;
-        const coqlQuery = `SELECT *
+    const coqlQuery = `SELECT *
                        FROM Deals
                        WHERE Account_Name = '${companyId}'
                        ORDER BY Modified_Time DESC
@@ -1714,15 +1531,13 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
         pagination: {
           page: page,
           perPage: perPage,
-          total: deals.length // COQL doesn't return total count easily
+          total: deals.length 
         }
       };
     }
 
-    // Method 2: Fallback to direct Deals endpoint with filters
     console.log(`🔄 [COMPANY-DEALS] COQL failed, trying direct Deals endpoint`);
 
-    // ✅ V2 FIX: Add required fields parameter for Deals
     const dealFields = [
       'id',
       'Deal_Name',
@@ -1753,7 +1568,6 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
           closingDate: deal.Closing_Date || null,
           createdAt: deal.Created_Time || null,
           modifiedAt: deal.Modified_Time || null,
-          // Additional fields that might be useful
           description: deal.Description || '',
           pipelineName: deal.Pipeline || '',
           contactName: deal.Contact_Name?.name || null
@@ -1789,16 +1603,9 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
   }
 }
 
-/**
- * Get list of companies from Zoho Bigin
- * @param {number} page - Page number (default: 1)
- * @param {number} perPage - Records per page (default: 50, max: 200)
- * @returns {Promise<Object>} Company list response
- */
 export async function getBiginCompanies(page = 1, perPage = 50) {
   console.log(`📋 Fetching Bigin companies (page ${page}, ${perPage} per page)...`);
 
-  // ✅ V2 FIX: Add required fields parameter for Bigin v2 API
   const fields = [
     'id',
     'Account_Name',
@@ -1816,12 +1623,11 @@ export async function getBiginCompanies(page = 1, perPage = 50) {
     const companies = result.data?.data || [];
     console.log(`✅ Found ${companies.length} companies`);
     console.log(`✅ Found ${companies} companies`);
-    // Return simplified company objects for UI
     return {
       success: true,
       companies: companies.map(company => ({
         id: company.id,
-        name: company.Account_Name || company.Company_Name || 'Unnamed Company',  // ✅ FIXED: Try Account_Name first
+        name: company.Account_Name || company.Company_Name || 'Unnamed Company',
         phone: company.Phone || '',
         email: company.Email || '',
         website: company.Website || '',
@@ -1834,19 +1640,13 @@ export async function getBiginCompanies(page = 1, perPage = 50) {
   return result;
 }
 
-/**
- * Search companies by name using COQL
- * @param {string} searchTerm - Company name to search for
- * @returns {Promise<Object>} Search results
- */
 export async function searchBiginCompanies(searchTerm) {
   console.log(`🔍 Searching Bigin companies for: "${searchTerm}"`);
 
-  // Use COQL to search companies by name (partial match)
   const coqlQuery = `SELECT id, Account_Name, Phone, Email, Website
                      FROM Accounts
                      WHERE Account_Name LIKE '%${searchTerm}%'
-                     LIMIT 20`;  // ✅ FIXED: Use Accounts table and Account_Name field
+                     LIMIT 20`;
 
   const endpoint = '/coql';
   const result = await makeBiginRequest('POST', endpoint, {
@@ -1861,7 +1661,7 @@ export async function searchBiginCompanies(searchTerm) {
       success: true,
       companies: companies.map(company => ({
         id: company.id,
-        name: company.Account_Name || company.Company_Name || 'Unnamed Company',  // ✅ FIXED: Try Account_Name first
+        name: company.Account_Name || company.Company_Name || 'Unnamed Company',
         phone: company.Phone || '',
         email: company.Email || '',
         website: company.Website || ''
@@ -1872,27 +1672,21 @@ export async function searchBiginCompanies(searchTerm) {
   return result;
 }
 
-/**
- * Create a new company in Zoho Bigin
- * @param {Object} companyData - Company information
- * @returns {Promise<Object>} Creation result
- */
 export async function createBiginCompany(companyData) {
   console.log(`🏢 Creating new Bigin company: ${companyData.name}`);
 
   const payload = {
     data: [{
-      Account_Name: companyData.name,           // ✅ FIXED: Correct Bigin field name for Accounts
+      Account_Name: companyData.name,
       Phone: companyData.phone || '',
       Email: companyData.email || '',
       Website: companyData.website || '',
-      Billing_Street: companyData.address || '', // ✅ Correct Bigin field name
-      // Add any custom fields as needed
+      Billing_Street: companyData.address || '',
       Description: `Created by EnviroMaster system on ${new Date().toISOString()}`
     }]
   };
 
-  const result = await makeBiginRequest('POST', '/Accounts', payload);  // ✅ FIXED: Use Accounts endpoint
+  const result = await makeBiginRequest('POST', '/Accounts', payload);
 
   if (result.success) {
     const createdCompany = result.data?.data?.[0];
@@ -1923,26 +1717,15 @@ export async function createBiginCompany(companyData) {
   return result;
 }
 
-/**
- * PIPELINES (DEALS) MODULE METHODS
- */
-
-/**
- * Create a new deal (pipeline record) in Zoho Bigin
- * @param {Object} dealData - Deal information
- * @returns {Promise<Object>} Creation result
- */
 export async function createBiginDeal(dealData) {
   console.log(`💼 Creating new Bigin deal: ${dealData.dealName}`);
 
   const record = {
-    // REQUIRED
-    Deal_Name: dealData.dealName,                  // e.g. "PDF Documents Storage"
+    Deal_Name: dealData.dealName,
     Sub_Pipeline: dealData.subPipelineName
-                  || "Sales Pipeline Standard",    // from your pipelineName
-    Stage: dealData.stage || "Qualification",      // or "Proposal/Price Quote"
+                  || "Sales Pipeline Standard",
+    Stage: dealData.stage || "Qualification",
 
-    // OPTIONAL BUT RECOMMENDED
     Amount: dealData.amount ?? 0,
     Closing_Date: dealData.closingDate
                   || new Date().toISOString().split("T")[0],
@@ -1951,12 +1734,10 @@ export async function createBiginDeal(dealData) {
       || `EnviroMaster service proposal created on ${new Date().toISOString()}`
   };
 
-  // Link to company (Account_Name lookup)
   if (dealData.companyId) {
     record.Account_Name = { id: dealData.companyId };
   }
 
-  // Link to contact (Contact_Name lookup)
   if (dealData.contactId) {
     record.Contact_Name = { id: dealData.contactId };
   }
@@ -1968,10 +1749,9 @@ export async function createBiginDeal(dealData) {
     JSON.stringify(payload, null, 2)
   );
 
-  // IMPORTANT: v2 + Pipelines module, not v1 + Deals
   const result = await makeBiginRequest(
     "POST",
-    "/Pipelines",     // <<--- change from '/Deals' to '/Pipelines'
+    "/Pipelines",
     payload
   );
 
@@ -2005,20 +1785,9 @@ export async function createBiginDeal(dealData) {
   return result;
 }
 
-/**
- * NOTES MODULE METHODS
- */
-
-/**
- * Create a note attached to a deal
- * @param {string} dealId - Zoho deal ID
- * @param {Object} noteData - Note information
- * @returns {Promise<Object>} Creation result
- */
 export async function createBiginNote(dealId, noteData) {
   console.log(`📝 Creating note for deal ${dealId}: ${noteData.title}`);
 
-  // ✅ FIX: Check what fields Notes module actually requires
   try {
     console.log(`🔍 [NOTE CREATION] Checking Notes module field requirements...`);
     const notesFields = await getBiginModuleFields('Notes');
@@ -2037,18 +1806,16 @@ export async function createBiginNote(dealId, noteData) {
 
   const payload = {
     data: [{
-      Note_Title: noteData.title || 'EnviroMaster Agreement Update',  // ✅ Correct Bigin field name
-      Note_Content: noteData.content,                                 // ✅ Correct Bigin field name
-      Parent_Id: dealId,                                              // ✅ Links note to the deal
-      $se_module: 'Deals',                                           // ✅ FIX: Specify which module the parent belongs to
-      // Optional: set owner, created time, etc.
+      Note_Title: noteData.title || 'EnviroMaster Agreement Update',
+      Note_Content: noteData.content,
+      Parent_Id: dealId,
+      $se_module: 'Deals',
     }]
   };
 
   console.log(`🔍 [NOTE CREATION] Payload:`, JSON.stringify(payload, null, 2));
 
-  // ✅ V2 FIX: Use Notes module directly, not nested under Deals
-  const endpoint = `/Notes`;  // ✅ FIXED: Use direct Notes endpoint for v2
+  const endpoint = `/Notes`;
   console.log(`🔍 [NOTE CREATION] Using v2 Notes endpoint: ${endpoint}`);
 
   const result = await makeBiginRequest('POST', endpoint, payload);
@@ -2079,7 +1846,6 @@ export async function createBiginNote(dealId, noteData) {
     } else {
       console.error(`❌ Note creation failed:`, result.data);
 
-      // ✅ FIX: Extract actual error message from Zoho response
       const zohoError = result.data?.data?.[0];
       const errorMessage = zohoError?.message || zohoError?.details || 'Unknown Zoho error';
 
@@ -2087,14 +1853,13 @@ export async function createBiginNote(dealId, noteData) {
 
       return {
         success: false,
-        error: errorMessage  // Return the actual error message, not the whole object
+        error: errorMessage
       };
     }
   }
 
   console.error(`❌ Note creation API call failed:`, result.error);
 
-  // ✅ FIX: Extract error message from failed API call
   const errorMessage = result.error?.message || result.error || 'Unknown API error';
 
   return {
@@ -2103,18 +1868,6 @@ export async function createBiginNote(dealId, noteData) {
   };
 }
 
-/**
- * FILES/ATTACHMENTS MODULE METHODS
- */
-
-/**
- * Upload a file to a deal in Zoho Bigin
- * @param {string} dealId - Zoho deal ID
- * @param {Buffer} pdfBuffer - File buffer
- * @param {string} fileName - File name
- * @param {Object} [options] - Optional parameters (contentType)
- * @returns {Promise<Object>} Upload result
- */
 export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {}) {
   const contentType = options.contentType || "application/pdf";
   console.log(`📎 Uploading file to deal ${dealId}: ${fileName} (${pdfBuffer.length} bytes, contentType=${contentType})`);
@@ -2123,17 +1876,15 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {})
     const accessToken = await getZohoAccessToken();
     const baseUrl = getBiginBaseUrl();
 
-    // Use filename as-is (extension already set correctly by caller)
     const sanitizedFileName = fileName;
 
     const formData = new FormData();
     formData.append('file', pdfBuffer, {
       filename: sanitizedFileName,
       contentType,
-      knownLength: pdfBuffer.length  // ✅ ADDED: Explicitly set Content-Length
+      knownLength: pdfBuffer.length
     });
 
-    // ✅ V2 FIX: Upload to deal's attachments using Pipelines module (matches deal creation endpoint)
     const uploadUrl = `${baseUrl}/Pipelines/${dealId}/Attachments`;
     console.log(`🔍 [FILE UPLOAD] URL: ${uploadUrl}`);
     console.log(`🔍 [FILE UPLOAD] File metadata:`, {
@@ -2148,9 +1899,9 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {})
       headers: {
         ...formData.getHeaders(),
         'Authorization': `Zoho-oauthtoken ${accessToken}`,
-        'Content-Type': formData.getHeaders()['content-type']  // ✅ ADDED: Explicit content-type
+        'Content-Type': formData.getHeaders()['content-type']
       },
-      maxContentLength: Infinity,  // ✅ ADDED: Allow large files
+      maxContentLength: Infinity,
       maxBodyLength: Infinity
     });
 
@@ -2201,14 +1952,6 @@ export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {})
   }
 }
 
-/**
- * MODULE DISCOVERY METHODS
- */
-
-/**
- * Get available modules in Zoho Bigin
- * @returns {Promise<Object>} Modules list
- */
 export async function getBiginModules() {
   console.log(`📋 Fetching available Bigin modules...`);
 
@@ -2231,11 +1974,6 @@ export async function getBiginModules() {
   return result;
 }
 
-/**
- * Get field metadata for a specific module
- * @param {string} moduleName - Module API name (e.g., 'Companies', 'Pipelines')
- * @returns {Promise<Object>} Field metadata
- */
 export async function getBiginModuleFields(moduleName) {
   console.log(`📋 Fetching field metadata for ${moduleName} module...`);
 
@@ -2255,14 +1993,14 @@ export async function getBiginModuleFields(moduleName) {
     }
     return {
       success: true,
-      moduleName: moduleName, // ✅ Add module name for debugging
+      moduleName: moduleName,
       fields: fields.map(field => ({
         apiName: field.api_name,
         displayLabel: field.display_label,
         dataType: field.data_type,
         required: field.required,
         readOnly: field.read_only,
-        pickListValues: field.pick_list_values || null // ✅ Important for Pipeline/Stage validation
+        pickListValues: field.pick_list_values || null
       }))
     };
   }
@@ -2271,14 +2009,9 @@ export async function getBiginModuleFields(moduleName) {
   return result;
 }
 
-/**
- * Get available pipelines with their IDs
- * @returns {Promise<Object>} Pipelines list with IDs
- */
 export async function getBiginPipelines() {
   console.log(`📋 Fetching available Bigin pipelines with IDs...`);
 
-  // Try to get pipelines from settings or a dedicated endpoint
   const endpoints = [
     '/settings/pipelines',
     '/Pipelines',
@@ -2300,7 +2033,6 @@ export async function getBiginPipelines() {
     }
   }
 
-  // Fallback: return empty list
   console.log(`⚠️ Could not fetch pipeline IDs - using fallback`);
   return {
     success: false,
@@ -2311,7 +2043,6 @@ export async function getBiginPipelineStages() {
   console.log(`🔍 Fetching pipeline and stage options from Bigin...`);
 
   try {
-    // ✅ V2 FIX: Try 'Deals' module first (more likely to work than 'Pipelines')
     console.log(`🔍 Trying to fetch fields from 'Deals' module first...`);
     let fieldsResult = await getBiginModuleFields('Deals');
 
@@ -2339,7 +2070,6 @@ export async function getBiginPipelineStages() {
     console.log(`🔍 [DEBUG] Looking for pipeline fields: Sub_Pipeline, Pipeline, Pipeline_Name`);
     console.log(`🔍 [DEBUG] Looking for stage fields: Stage, Stage_Name`);
 
-    // ✅ V2 FIX: Look for Sub_Pipeline field (not Pipeline field)
     const pipelineField = fields.find(f =>
       f.apiName === 'Sub_Pipeline' ||
       f.apiName === 'Pipeline' ||
@@ -2353,7 +2083,6 @@ export async function getBiginPipelineStages() {
     console.log(`🔍 [DEBUG] Pipeline field found:`, pipelineField?.apiName, 'with', pipelineField?.pickListValues?.length || 0, 'values');
     console.log(`🔍 [DEBUG] Stage field found:`, stageField?.apiName, 'with', stageField?.pickListValues?.length || 0, 'values');
 
-    // ✅ FIX: Use known working pipeline when no picklist values
     const pipelineValues = pipelineField?.pickListValues;
     const pipelines = (pipelineValues && pipelineValues.length > 0) ? pipelineValues : [
       { display_value: 'Sales Pipeline Standard', actual_value: 'Sales Pipeline Standard' }
@@ -2391,7 +2120,6 @@ export async function getBiginPipelineStages() {
     return {
       success: false,
       error: error.message,
-      // Provide fallback values that match your working system
       pipelines: [
         { label: 'Sales Pipeline Standard', value: 'Sales Pipeline Standard' }
       ],
@@ -2407,12 +2135,6 @@ export async function getBiginPipelineStages() {
   }
 }
 
-/**
- * Validate pipeline and stage values against Zoho Bigin
- * @param {string} pipelineName - Pipeline to validate
- * @param {string} stageName - Stage to validate
- * @returns {Promise<Object>} Validation result
- */
 export async function validatePipelineStage(pipelineName, stageName) {
   console.log(`🔍 Validating pipeline: "${pipelineName}", stage: "${stageName}"`);
 
@@ -2420,7 +2142,6 @@ export async function validatePipelineStage(pipelineName, stageName) {
     const pipelineStages = await getBiginPipelineStages();
 
     if (!pipelineStages.success) {
-      // If we can't validate, allow the values and let Zoho reject if invalid
       console.log(`⚠️ Could not validate against Zoho, allowing values`);
       return {
         success: true,
@@ -2434,7 +2155,6 @@ export async function validatePipelineStage(pipelineName, stageName) {
     const validPipelines = pipelineStages.pipelines;
     const validStages = pipelineStages.stages;
 
-    // Find exact or case-insensitive matches
     const matchingPipeline = validPipelines.find(p =>
       p.value === pipelineName || p.label.toLowerCase() === pipelineName.toLowerCase()
     );
@@ -2462,9 +2182,8 @@ export async function validatePipelineStage(pipelineName, stageName) {
         error: `Invalid stage "${stageName}"`,
         validPipelines: validPipelines,
         validStages: validStages,
-        // ✅ V6 FIX: Provide correct fallback stage
         correctedPipeline: pipelineName,
-        correctedStage: 'Proposal/Price Quote'  // ✅ Use valid picklist value
+        correctedStage: 'Proposal/Price Quote'
       };
     }
 
@@ -2478,7 +2197,6 @@ export async function validatePipelineStage(pipelineName, stageName) {
 
   } catch (error) {
     console.error(`❌ Pipeline/stage validation error:`, error.message);
-    // Allow values if validation fails
     return {
       success: true,
       valid: true,

@@ -1,30 +1,18 @@
 import PricingBackupService from '../services/pricingBackupService.js';
 
-/**
- * Middleware to create pricing backups before changes are applied
- * This middleware should be used before pricing update operations
- */
 class PricingChangeDetector {
 
-  /**
-   * Middleware for PriceFix updates
-   * Triggers backup before PriceFix changes are applied
-   */
   static async beforePriceFixUpdate(req, res, next) {
     try {
-      // Extract admin user from request (assuming authentication middleware sets req.user)
       const changedBy = req.user ? req.user._id : null;
       const adminUsername = req.user ? req.user.username : 'Unknown';
 
-      // Determine which pricing areas are being changed based on request body
       const changedAreas = PricingChangeDetector.detectPriceFixChangedAreas(req.body);
 
-      // Create change description
       const changeDescription = `PriceFix update by ${adminUsername}: ${changedAreas.join(', ')}`;
 
       console.log(`[Pricing Backup] Triggering backup before PriceFix update by ${adminUsername}`);
 
-      // Create backup if needed (only once per day)
       const backupResult = await PricingBackupService.createBackupIfNeeded({
         trigger: 'pricefix_update',
         changedBy,
@@ -33,7 +21,6 @@ class PricingChangeDetector {
         changeCount: Object.keys(req.body).length
       });
 
-      // Log the backup result
       if (backupResult.success) {
         if (backupResult.created) {
           console.log(`[Pricing Backup] Backup created: ${backupResult.backup.changeDayId}`);
@@ -48,27 +35,20 @@ class PricingChangeDetector {
         req.pricingBackupError = backupResult.error;
       }
 
-      // Continue to the actual update operation
       next();
 
     } catch (error) {
       console.error('[Pricing Backup] Middleware error:', error);
-      // Don't block the update operation if backup fails
       req.pricingBackupError = error.message;
       next();
     }
   }
 
-  /**
-   * Middleware for ProductCatalog updates
-   * Triggers backup before ProductCatalog changes are applied
-   */
   static async beforeProductCatalogUpdate(req, res, next) {
     try {
       const changedBy = req.user ? req.user._id : null;
       const adminUsername = req.user ? req.user.username : 'Unknown';
 
-      // Determine update type (full replacement vs partial)
       const isPartialUpdate = req.route.path.includes('/partial');
       const changedAreas = PricingChangeDetector.detectProductCatalogChangedAreas(req.body, isPartialUpdate);
 
@@ -88,7 +68,6 @@ class PricingChangeDetector {
         changeCount: PricingChangeDetector.countProductCatalogChanges(req.body, isPartialUpdate)
       });
 
-      // Log backup result
       if (backupResult.success) {
         if (backupResult.created) {
           console.log(`[Pricing Backup] Backup created: ${backupResult.backup.changeDayId}`);
@@ -112,16 +91,11 @@ class PricingChangeDetector {
     }
   }
 
-  /**
-   * Middleware for ServiceConfig updates
-   * Triggers backup before ServiceConfig changes are applied
-   */
   static async beforeServiceConfigUpdate(req, res, next) {
     try {
       const changedBy = req.user ? req.user._id : null;
       const adminUsername = req.user ? req.user.username : 'Unknown';
 
-      // Determine which service is being updated
       const serviceId = req.body.serviceId || req.params.serviceId || 'unknown';
       const isPartialUpdate = req.route.path.includes('/partial');
       const changedAreas = PricingChangeDetector.detectServiceConfigChangedAreas(serviceId, req.body, isPartialUpdate);
@@ -138,7 +112,6 @@ class PricingChangeDetector {
         changeCount: Object.keys(req.body).length
       });
 
-      // Log backup result
       if (backupResult.success) {
         if (backupResult.created) {
           console.log(`[Pricing Backup] Backup created: ${backupResult.backup.changeDayId}`);
@@ -162,21 +135,15 @@ class PricingChangeDetector {
     }
   }
 
-  /**
-   * Detect which PriceFix areas are being changed
-   * @param {Object} requestBody - The update request body
-   * @returns {Array} Array of changed area identifiers
-   */
   static detectPriceFixChangedAreas(requestBody) {
     const changedAreas = [];
 
     if (!requestBody.services) {
-      return ['other']; // Use 'other' instead of 'pricefix_general' - it's a valid enum value
+      return ['other'];
     }
 
     const services = requestBody.services;
 
-    // Check each service type for changes
     if (services.restroomHygiene) changedAreas.push('pricefix_services');
     if (services.foamingDrain) changedAreas.push('pricefix_services');
     if (services.scrubService) changedAreas.push('pricefix_services');
@@ -189,12 +156,6 @@ class PricingChangeDetector {
     return changedAreas.length > 0 ? changedAreas : ['pricefix_services'];
   }
 
-  /**
-   * Detect which ProductCatalog areas are being changed
-   * @param {Object} requestBody - The update request body
-   * @param {boolean} isPartialUpdate - Whether this is a partial update
-   * @returns {Array} Array of changed area identifiers
-   */
   static detectProductCatalogChangedAreas(requestBody, isPartialUpdate) {
     const changedAreas = [];
 
@@ -209,7 +170,6 @@ class PricingChangeDetector {
       changedAreas.push('product_catalog_families');
     }
 
-    // For partial updates, look for specific family changes
     if (isPartialUpdate) {
       Object.keys(requestBody).forEach(key => {
         if (key !== 'families' && key !== 'version' && key !== 'lastUpdated') {
@@ -221,13 +181,6 @@ class PricingChangeDetector {
     return changedAreas.length > 0 ? changedAreas : ['product_catalog_families'];
   }
 
-  /**
-   * Detect which ServiceConfig areas are being changed
-   * @param {string} serviceId - The service being updated
-   * @param {Object} requestBody - The update request body
-   * @param {boolean} isPartialUpdate - Whether this is a partial update
-   * @returns {Array} Array of changed area identifiers
-   */
   static detectServiceConfigChangedAreas(serviceId, requestBody, isPartialUpdate) {
     const serviceMapping = {
       'saniclean': 'service_config_saniclean',
@@ -246,12 +199,6 @@ class PricingChangeDetector {
     return [mappedService];
   }
 
-  /**
-   * Count the number of changes in a ProductCatalog update
-   * @param {Object} requestBody - The update request body
-   * @param {boolean} isPartialUpdate - Whether this is a partial update
-   * @returns {number} Number of changes
-   */
   static countProductCatalogChanges(requestBody, isPartialUpdate) {
     let changeCount = 0;
 
@@ -260,12 +207,11 @@ class PricingChangeDetector {
         if (family.products && Array.isArray(family.products)) {
           changeCount += family.products.length;
         } else {
-          changeCount += 1; // Family-level change
+          changeCount += 1;
         }
       });
     }
 
-    // For partial updates, count top-level changes
     if (isPartialUpdate) {
       changeCount += Object.keys(requestBody).length;
     }
@@ -273,17 +219,10 @@ class PricingChangeDetector {
     return Math.max(changeCount, 1);
   }
 
-  /**
-   * Response middleware to add backup information to API responses
-   * Use this after successful pricing updates to inform clients about backup status
-   */
   static addBackupInfoToResponse(req, res, next) {
-    // Store original json method
     const originalJson = res.json;
 
-    // Override json method to add backup info
     res.json = function(body) {
-      // Add backup information if available
       if (req.pricingBackupCreated || req.pricingBackupSkipped || req.pricingBackupError) {
         body.pricingBackup = {
           backupCreated: req.pricingBackupCreated || false,
@@ -293,7 +232,6 @@ class PricingChangeDetector {
         };
       }
 
-      // Call original json method
       originalJson.call(this, body);
     };
 

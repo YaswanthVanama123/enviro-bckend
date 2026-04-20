@@ -1,17 +1,8 @@
 import PricingBackupService from '../services/pricingBackupService.js';
 import BackupPricing from '../models/BackupPricing.js';
 
-/**
- * Controller for managing pricing backups
- * Provides endpoints for creating, listing, restoring, and managing pricing backups
- */
 class PricingBackupController {
 
-  /**
-   * Manually create a backup (for admin use)
-   * POST /api/pricing-backup/create
-   * Body: { changeDescription?: string, forceReplace?: boolean }
-   */
   static async createManualBackup(req, res) {
     try {
       const { changeDescription = 'Manual backup created by admin', forceReplace = false } = req.body;
@@ -20,7 +11,6 @@ class PricingBackupController {
 
       console.log(`[Backup Controller] Creating manual backup by ${adminUsername}, forceReplace: ${forceReplace}`);
 
-      // Use the manual backup method
       const backupResult = await PricingBackupService.createManualBackup({
         changedBy,
         changedAreas: ['other'],
@@ -64,14 +54,10 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Get list of available backups
-   * GET /api/pricing-backup/list?limit=10
-   */
   static async getBackupList(req, res) {
     try {
       const { limit = 10 } = req.query;
-      const parsedLimit = Math.min(parseInt(limit) || 10, 50); // Cap at 50
+      const parsedLimit = Math.min(parseInt(limit) || 10, 50);
 
       const backupsResult = await PricingBackupService.getAvailableBackups(parsedLimit);
 
@@ -104,10 +90,6 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Get detailed information about a specific backup
-   * GET /api/pricing-backup/details/:changeDayId
-   */
   static async getBackupDetails(req, res) {
     try {
       const { changeDayId } = req.params;
@@ -145,11 +127,6 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Restore pricing data from a backup
-   * POST /api/pricing-backup/restore
-   * Body: { changeDayId: string, restorationNotes?: string }
-   */
   static async restoreFromBackup(req, res) {
     try {
       const { changeDayId, restorationNotes = '' } = req.body;
@@ -203,10 +180,6 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Get backup system statistics and health information
-   * GET /api/pricing-backup/statistics
-   */
   static async getBackupStatistics(req, res) {
     try {
       const statisticsResult = await PricingBackupService.getBackupStatistics();
@@ -236,10 +209,6 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Manually enforce retention policy
-   * POST /api/pricing-backup/enforce-retention
-   */
   static async enforceRetentionPolicy(req, res) {
     try {
       const adminUsername = req.user ? req.user.username : 'Unknown Admin';
@@ -265,11 +234,6 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Delete specific backups
-   * DELETE /api/pricing-backup/delete
-   * Body: { changeDayIds: string[] }
-   */
   static async deleteBackups(req, res) {
     try {
       const { changeDayIds } = req.body;
@@ -316,10 +280,6 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Get backup snapshot data (for preview before restoration)
-   * GET /api/pricing-backup/snapshot/:changeDayId
-   */
   static async getBackupSnapshot(req, res) {
     try {
       const { changeDayId } = req.params;
@@ -340,10 +300,8 @@ class PricingBackupController {
         });
       }
 
-      // Get the decompressed snapshot
       const snapshot = backup.getSnapshot();
 
-      // If preview mode, return summarized version with sample documents
       if (preview === 'true') {
         const previewData = {
           timestamp: snapshot.timestamp,
@@ -353,23 +311,19 @@ class PricingBackupController {
             priceFix: {
               count: snapshot.dataTypes?.priceFix?.count || 0,
               hasData: (snapshot.dataTypes?.priceFix?.count || 0) > 0,
-              // Include ALL pricing documents for hierarchical view
               documents: snapshot.dataTypes?.priceFix?.documents || []
             },
             productCatalog: {
               activeCount: snapshot.dataTypes?.productCatalog?.activeCount || 0,
               totalCount: snapshot.dataTypes?.productCatalog?.totalCount || 0,
               hasData: (snapshot.dataTypes?.productCatalog?.totalCount || 0) > 0,
-              // Include complete active catalog with ALL families and products
               active: snapshot.dataTypes?.productCatalog?.active || null,
-              // Include ALL catalogs for complete view
               all: snapshot.dataTypes?.productCatalog?.all || []
             },
             serviceConfigs: {
               count: snapshot.dataTypes?.serviceConfigs?.count || 0,
               activeCount: snapshot.dataTypes?.serviceConfigs?.activeCount || 0,
               hasData: (snapshot.dataTypes?.serviceConfigs?.count || 0) > 0,
-              // Include ALL service configs for hierarchical view
               documents: snapshot.dataTypes?.serviceConfigs?.documents || []
             }
           }
@@ -387,7 +341,6 @@ class PricingBackupController {
           timestamp: new Date().toISOString()
         });
       } else {
-        // Return full snapshot (be careful with large data)
         return res.status(200).json({
           success: true,
           message: 'Full backup snapshot retrieved',
@@ -410,31 +363,21 @@ class PricingBackupController {
     }
   }
 
-  /**
-   * Health check endpoint for backup system
-   * GET /api/pricing-backup/health
-   *
-   * ✅ OPTIMIZED: Single aggregation query instead of 4 separate queries
-   */
   static async getBackupSystemHealth(req, res) {
     try {
       const startTime = Date.now();
       console.log('[BACKUP-HEALTH] Starting optimized health check...');
 
-      // ⚡ OPTIMIZED: Single aggregation with $facet for all health checks
       const healthData = await BackupPricing.aggregate([
         {
           $facet: {
-            // Total backups count
             totalCount: [{ $count: 'count' }],
 
-            // Unique changeDays
             uniqueChangeDays: [
               { $group: { _id: '$changeDay' } },
               { $count: 'count' }
             ],
 
-            // Check if backup exists for today
             todayBackup: [
               {
                 $match: {
@@ -445,7 +388,6 @@ class PricingBackupController {
               { $project: { _id: 1 } }
             ],
 
-            // Most recent backup
             recentBackup: [
               { $sort: { changeDay: -1, createdAt: -1 } },
               { $limit: 1 },
@@ -463,7 +405,6 @@ class PricingBackupController {
 
       const queryTime = Date.now() - startTime;
 
-      // Extract results from aggregation
       const result = healthData[0];
       const totalBackups = result.totalCount[0]?.count || 0;
       const uniqueChangeDaysCount = result.uniqueChangeDays[0]?.count || 0;
@@ -487,7 +428,6 @@ class PricingBackupController {
         warnings: []
       };
 
-      // Add warnings if needed
       if (uniqueChangeDaysCount > 10) {
         health.warnings.push('Retention policy may need enforcement - more than 10 change-days stored');
         health.status = 'warning';

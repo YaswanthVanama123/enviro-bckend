@@ -1,8 +1,6 @@
-// src/controllers/manualUploadController.js
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
 import { uploadToZohoBigin, uploadToZohoCRM } from "../services/zohoService.js";
 
-// POST /api/manual-upload - Upload a PDF manually
 export async function uploadManualPdf(req, res) {
   try {
     if (!req.file) {
@@ -11,7 +9,6 @@ export async function uploadManualPdf(req, res) {
 
     const { description, uploadedBy } = req.body;
 
-    // Create document record
     const doc = new ManualUploadDocument({
       fileName: req.file.originalname,
       originalFileName: req.file.originalname,
@@ -25,7 +22,6 @@ export async function uploadManualPdf(req, res) {
 
     await doc.save();
 
-    // Upload to Zoho in background
     uploadToZohoServices(doc._id.toString());
 
     res.status(201).json({
@@ -48,7 +44,6 @@ export async function uploadManualPdf(req, res) {
   }
 }
 
-// Background function to upload to Zoho
 async function uploadToZohoServices(docId) {
   try {
     const doc = await ManualUploadDocument.findById(docId);
@@ -57,12 +52,11 @@ async function uploadToZohoServices(docId) {
     doc.status = "processing";
     await doc.save();
 
-    // Upload to Zoho Bigin
     try {
       const biginResult = await uploadToZohoBigin(
         doc.pdfBuffer,
         doc.fileName,
-        null // No deal ID for manual uploads
+        null
       );
       doc.zoho.bigin = {
         dealId: null,
@@ -73,12 +67,11 @@ async function uploadToZohoServices(docId) {
       console.error("Zoho Bigin upload failed:", biginErr);
     }
 
-    // Upload to Zoho CRM
     try {
       const crmResult = await uploadToZohoCRM(
         doc.pdfBuffer,
         doc.fileName,
-        null // No deal ID for manual uploads
+        null
       );
       doc.zoho.crm = {
         dealId: null,
@@ -107,7 +100,6 @@ async function uploadToZohoServices(docId) {
   }
 }
 
-// GET /api/manual-upload - Get all manual uploads
 export async function getManualUploads(req, res) {
   try {
     const { limit = 50, skip = 0, status } = req.query;
@@ -118,7 +110,7 @@ export async function getManualUploads(req, res) {
     }
 
     const documents = await ManualUploadDocument.find(query)
-      .select("-pdfBuffer") // Don't send buffer in list
+      .select("-pdfBuffer")
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip));
@@ -141,13 +133,10 @@ export async function getManualUploads(req, res) {
   }
 }
 
-// GET /api/manual-upload/:id - Get single upload
-// ✅ OPTIMIZED: Added lean() for faster queries
 export async function getManualUploadById(req, res) {
   try {
     const { id } = req.params;
 
-    // ✅ OPTIMIZED: Use lean() for plain JS object (30-50% faster)
     const doc = await ManualUploadDocument.findById(id)
       .select("-pdfBuffer")
       .lean()
@@ -157,7 +146,6 @@ export async function getManualUploadById(req, res) {
       return res.status(404).json({ error: "Document not found" });
     }
 
-    // ✅ OPTIMIZED: Set cache-busting headers to prevent stale data
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -175,7 +163,6 @@ export async function getManualUploadById(req, res) {
   }
 }
 
-// GET /api/manual-upload/:id/download - Download PDF
 export async function downloadManualUpload(req, res) {
   try {
     const { id } = req.params;
@@ -201,7 +188,6 @@ export async function downloadManualUpload(req, res) {
   }
 }
 
-// PATCH /api/manual-upload/:id/status - Update manual upload status
 export async function updateManualUploadStatus(req, res) {
   try {
     const { id } = req.params;
@@ -209,7 +195,6 @@ export async function updateManualUploadStatus(req, res) {
 
     console.log(`🔄 [MANUAL-UPLOAD-STATUS] Updating manual upload ${id} status to: ${status}`);
 
-    // Validate status
     const validStatuses = ["uploaded", "processing", "completed", "failed", "pending_approval", "approved_salesman", "approved_admin"];
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({
@@ -219,7 +204,6 @@ export async function updateManualUploadStatus(req, res) {
       });
     }
 
-    // ✅ OPTIMIZED: Use findByIdAndUpdate with new:true to get updated doc in one query
     const doc = await ManualUploadDocument.findByIdAndUpdate(
       id,
       { status, updatedAt: new Date() },
@@ -236,7 +220,6 @@ export async function updateManualUploadStatus(req, res) {
 
     console.log(`✅ [MANUAL-UPLOAD-STATUS] Updated manual upload ${doc.fileName} status to ${status}`);
 
-    // ✅ FIXED: Set cache-busting headers to prevent stale data on subsequent GET
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -261,7 +244,6 @@ export async function updateManualUploadStatus(req, res) {
   }
 }
 
-// DELETE /api/manual-upload/:id - Delete upload
 export async function deleteManualUpload(req, res) {
   try {
     const { id } = req.params;

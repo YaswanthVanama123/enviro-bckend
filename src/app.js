@@ -1,4 +1,3 @@
-// src/app.js
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -25,35 +24,27 @@ import emailTemplateRoutes from './routes/emailTemplateRoutes.js';
 import serviceAgreementTemplateRoutes from './routes/serviceAgreementTemplateRoutes.js';
 
 
-// import { ensureDefaultAdmin } from "./models/AdminUser.js";
-
 const app = express();
 
-// Ensure uploads directory exists at startup
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, '../../uploads/service-images');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-// Serve uploaded files as static assets
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
-// ✅ PRODUCTION: Security headers with Helmet
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable if you need to load external resources
-  crossOriginEmbedderPolicy: false, // Disable if needed for CORS
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
 }));
 
-// ✅ PRODUCTION: Configure CORS with environment-based origin restrictions
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:5173']; // Default for development
+  : ['http://localhost:3000', 'http://localhost:5173'];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
-    // In production, strictly enforce allowed origins
     if (process.env.NODE_ENV === 'production') {
       if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
@@ -61,7 +52,6 @@ const corsOptions = {
         callback(new Error(`CORS policy: Origin ${origin} is not allowed`));
       }
     } else {
-      // In development, allow all origins
       callback(null, true);
     }
   },
@@ -72,14 +62,12 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(compression({ threshold: 0 }));
 
-// ✅ PRODUCTION: Only log HTTP requests in development mode
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
 app.use(express.json({ limit: `${PDF_MAX_BODY_MB}mb` }));
 
-// ✅ PRODUCTION: Enhanced health check endpoint with detailed monitoring
 app.get('/health', async (req, res) => {
   const healthCheck = {
     status: 'ok',
@@ -90,7 +78,6 @@ app.get('/health', async (req, res) => {
     version: process.env.npm_package_version || '1.0.0'
   };
 
-  // Check database connection
   try {
     const mongoose = await import('mongoose');
     if (mongoose.default.connection.readyState === 1) {
@@ -113,7 +100,6 @@ app.get('/health', async (req, res) => {
     healthCheck.status = 'degraded';
   }
 
-  // Memory usage
   const memUsage = process.memoryUsage();
   healthCheck.memory = {
     rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
@@ -121,21 +107,17 @@ app.get('/health', async (req, res) => {
     heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`
   };
 
-  // CPU usage (simple check)
   healthCheck.cpu = {
     usage: process.cpuUsage()
   };
 
-  // Response time
   healthCheck.responseTime = `${Date.now() - req._startTime}ms`;
 
-  // Set appropriate HTTP status code
   const httpStatus = healthCheck.status === 'ok' ? 200 : 503;
 
   res.status(httpStatus).json(healthCheck);
 });
 
-// Middleware to track request start time for health check
 app.use((req, _res, next) => {
   req._startTime = Date.now();
   next();
@@ -143,7 +125,6 @@ app.use((req, _res, next) => {
 
 
 app.use('/api/proposals', proposalRoutes);
-// app.use("/api/prices",    priceFixRoutes);
 app.use("/api/pdf",       pdfRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/pricefix", priceFixRoutes);
@@ -160,4 +141,3 @@ app.use("/api/email-template", emailTemplateRoutes);
 app.use("/api/service-agreement-template", serviceAgreementTemplateRoutes);
 
 export default app;
- 

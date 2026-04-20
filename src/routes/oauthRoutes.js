@@ -1,4 +1,3 @@
-// src/routes/oauthRoutes.js
 import { Router } from "express";
 import {
   handleZohoOAuthCallback,
@@ -8,27 +7,19 @@ import {
 
 const router = Router();
 
-/**
- * Utility to mask sensitive config values for display.
- */
 const maskValue = (value, length = 6) => {
   if (!value) return "Not configured";
   return `${value.substring(0, Math.min(length, value.length))}...`;
 };
 
-/**
- * GET /oauth/zoho/auth
- * Generate Zoho OAuth authorization URL
- */
 router.get("/zoho/auth", async (req, res) => {
   try {
-    console.log("🔐 Generating Zoho OAuth authorization URL...");
+    console.log("Generating Zoho OAuth authorization URL...");
 
     const authUrl = generateZohoAuthUrl();
 
-    console.log("✅ OAuth URL generated successfully");
+    console.log("OAuth URL generated successfully");
 
-    // You can either redirect directly or return the URL
     res.json({
       success: true,
       authUrl,
@@ -36,7 +27,7 @@ router.get("/zoho/auth", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Failed to generate OAuth URL:", error.message);
+    console.error("Failed to generate OAuth URL:", error.message);
     res.status(500).json({
       success: false,
       error: error.message
@@ -44,25 +35,21 @@ router.get("/zoho/auth", async (req, res) => {
   }
 });
 
-/**
- * GET /oauth/callback
- * Handle OAuth callback from Zoho
- */
 router.get("/callback", async (req, res) => {
   try {
     const { code, location } = req.query;
 
-    console.log("🔐 OAuth callback received:");
-    console.log("  ├ Authorization code:", code ? code.substring(0, 20) + "..." : "MISSING");
-    console.log("  ├ Location:", location);
-    console.log("  └ Full query:", JSON.stringify(req.query, null, 2));
+    console.log("OAuth callback received:");
+    console.log("  Authorization code:", code ? code.substring(0, 20) + "..." : "MISSING");
+    console.log("  Location:", location);
+    console.log("  Full query:", JSON.stringify(req.query, null, 2));
 
     if (!code) {
-      console.error("❌ No authorization code received");
+      console.error("No authorization code received");
       return res.status(400).send(`
         <html>
           <body style="font-family: Arial, sans-serif; padding: 40px;">
-            <h1 style="color: #dc3545;">❌ OAuth Error</h1>
+            <h1 style="color: #dc3545;">OAuth Error</h1>
             <p>No authorization code received from Zoho.</p>
             <p>Please try the OAuth flow again.</p>
             <a href="/oauth/zoho/auth" style="background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Retry Authorization</a>
@@ -71,24 +58,23 @@ router.get("/callback", async (req, res) => {
       `);
     }
 
-    console.log("🔄 Exchanging authorization code for tokens...");
+    console.log("Exchanging authorization code for tokens...");
 
     const tokens = await handleZohoOAuthCallback(code, location);
 
     if (tokens.success) {
-      console.log("✅ OAuth flow completed successfully!");
-      console.log("  ├ Access token length:", tokens.access_token?.length || 0);
-      console.log("  ├ Refresh token length:", tokens.refresh_token?.length || 0);
-      console.log("  └ Expires in:", tokens.expires_in, "seconds");
+      console.log("OAuth flow completed successfully!");
+      console.log("  Access token length:", tokens.access_token?.length || 0);
+      console.log("  Refresh token length:", tokens.refresh_token?.length || 0);
+      console.log("  Expires in:", tokens.expires_in, "seconds");
 
       const clientId = process.env.ZOHO_CLIENT_ID;
       const clientSecret = process.env.ZOHO_CLIENT_SECRET;
 
-      // Success page
       res.send(`
         <html>
           <body style="font-family: Arial, sans-serif; padding: 40px;">
-            <h1 style="color: #28a745;">✅ OAuth Setup Complete!</h1>
+            <h1 style="color: #28a745;">OAuth Setup Complete!</h1>
             <p>Zoho integration has been successfully configured.</p>
             <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
               <h3>Token Information:</h3>
@@ -107,13 +93,12 @@ router.get("/callback", async (req, res) => {
         </html>
       `);
     } else {
-      console.error("❌ OAuth flow failed:", tokens.error);
+      console.error("OAuth flow failed:", tokens.error);
 
-      // Error page
       res.status(500).send(`
         <html>
           <body style="font-family: Arial, sans-serif; padding: 40px;">
-            <h1 style="color: #dc3545;">❌ OAuth Failed</h1>
+            <h1 style="color: #dc3545;">OAuth Failed</h1>
             <p>Failed to exchange authorization code for tokens.</p>
             <div style="background: #f8d7da; padding: 20px; border-radius: 5px; margin: 20px 0;">
               <strong>Error:</strong> ${tokens.error}
@@ -125,13 +110,13 @@ router.get("/callback", async (req, res) => {
     }
 
   } catch (error) {
-    console.error("❌ OAuth callback error:", error.message);
-    console.error("❌ Full error:", error);
+    console.error("OAuth callback error:", error.message);
+    console.error("Full error:", error);
 
     res.status(500).send(`
       <html>
         <body style="font-family: Arial, sans-serif; padding: 40px;">
-          <h1 style="color: #dc3545;">❌ Server Error</h1>
+          <h1 style="color: #dc3545;">Server Error</h1>
           <p>An unexpected error occurred during OAuth processing.</p>
           <div style="background: #f8d7da; padding: 20px; border-radius: 5px; margin: 20px 0;">
             <strong>Error:</strong> ${error.message}
@@ -143,13 +128,9 @@ router.get("/callback", async (req, res) => {
   }
 });
 
-/**
- * GET /oauth/test-zoho
- * Test the Zoho integration after OAuth setup
- */
 router.get("/test-zoho", async (req, res) => {
   try {
-    console.log("🧪 Running Zoho integration diagnostics...");
+    console.log("Running Zoho integration diagnostics...");
 
     const results = await runZohoDiagnostics();
 
@@ -159,7 +140,7 @@ router.get("/test-zoho", async (req, res) => {
     res.send(`
       <html>
         <body style="font-family: Arial, sans-serif; padding: 40px;">
-          <h1>🧪 Zoho Integration Test Results</h1>
+          <h1>Zoho Integration Test Results</h1>
           <div style="background: ${passCount === totalTests ? '#d4edda' : '#f8d7da'}; padding: 20px; border-radius: 5px; margin: 20px 0;">
             <h2>Overall Score: ${passCount}/${totalTests} tests passed</h2>
           </div>
@@ -169,7 +150,7 @@ router.get("/test-zoho", async (req, res) => {
             ${Object.entries(results).filter(([k]) => k !== 'error').map(([key, result]) => `
               <div style="margin: 10px 0; padding: 10px; background: ${result.success ? '#d4edda' : '#f8d7da'}; border-radius: 3px;">
                 <strong>${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</strong>
-                ${result.success ? '✅ PASS' : '❌ FAIL'}
+                ${result.success ? 'PASS' : 'FAIL'}
                 ${result.error ? `<br><small>Error: ${result.error}</small>` : ''}
                 ${result.baseUrl ? `<br><small>Endpoint: ${result.baseUrl}</small>` : ''}
                 ${result.dealCount !== undefined ? `<br><small>Deals found: ${result.dealCount}</small>` : ''}
@@ -186,7 +167,7 @@ router.get("/test-zoho", async (req, res) => {
     `);
 
   } catch (error) {
-    console.error("❌ Test failed:", error.message);
+    console.error("Test failed:", error.message);
     res.status(500).json({
       success: false,
       error: error.message
@@ -194,26 +175,21 @@ router.get("/test-zoho", async (req, res) => {
   }
 });
 
-/**
- * GET /oauth/debug
- * Debug current OAuth configuration
- */
 router.get("/debug", async (req, res) => {
   try {
     const clientId = process.env.ZOHO_CLIENT_ID;
     const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    // ✅ PRODUCTION: Require ZOHO_REDIRECT_URI environment variable
     const redirectUri = process.env.ZOHO_REDIRECT_URI;
 
-    console.log("🔍 [DEBUG] OAuth Configuration Check");
-    console.log("  ├ Client ID:", clientId ? `${clientId.substring(0, 20)}...` : "MISSING");
-    console.log("  ├ Client Secret:", clientSecret ? `${clientSecret.substring(0, 10)}...` : "MISSING");
-    console.log("  └ Redirect URI:", redirectUri || "MISSING");
+    console.log("[DEBUG] OAuth Configuration Check");
+    console.log("  Client ID:", clientId ? `${clientId.substring(0, 20)}...` : "MISSING");
+    console.log("  Client Secret:", clientSecret ? `${clientSecret.substring(0, 10)}...` : "MISSING");
+    console.log("  Redirect URI:", redirectUri || "MISSING");
 
     res.send(`
       <html>
         <body style="font-family: Arial, sans-serif; padding: 40px;">
-          <h1>🔍 OAuth Configuration Debug</h1>
+          <h1>OAuth Configuration Debug</h1>
 
           <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
             <h3>Current Configuration:</h3>
@@ -223,7 +199,7 @@ router.get("/debug", async (req, res) => {
           </div>
 
           <div style="background: #e7f3ff; padding: 20px; border-radius: 5px; margin: 20px 0;">
-            <h3>❌ "invalid_client" Error Troubleshooting:</h3>
+            <h3>"invalid_client" Error Troubleshooting:</h3>
             <ol>
               <li><strong>Check Zoho Console:</strong> Visit <a href="https://api-console.zoho.com/" target="_blank">api-console.zoho.com</a></li>
               <li><strong>Find Your App:</strong> Look for Client ID: <code>${clientId}</code></li>
@@ -235,12 +211,12 @@ router.get("/debug", async (req, res) => {
           </div>
 
           <div style="background: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0;">
-            <h3>🔑 Required App Settings in Zoho:</h3>
+            <h3>Required App Settings in Zoho:</h3>
             <p><strong>Client Type:</strong> Server-based Applications</p>
             <p><strong>Redirect URI:</strong> <code>${redirectUri || 'NOT CONFIGURED'}</code></p>
             <p><strong>Scopes:</strong> ZohoBigin.modules.ALL, ZohoBigin.modules.attachments.ALL, ZohoBigin.settings.ALL</p>
             <p style="margin-top: 10px; padding: 10px; background: #ffc107; border-radius: 3px;">
-              <strong>⚠️ Important:</strong> Make sure your Zoho app has these exact scopes enabled.
+              <strong>Important:</strong> Make sure your Zoho app has these exact scopes enabled.
               If you previously used different scopes, you must regenerate the refresh token by completing the OAuth flow again.
             </p>
           </div>
@@ -254,7 +230,7 @@ router.get("/debug", async (req, res) => {
     `);
 
   } catch (error) {
-    console.error("❌ Debug failed:", error.message);
+    console.error("Debug failed:", error.message);
     res.status(500).json({
       success: false,
       error: error.message

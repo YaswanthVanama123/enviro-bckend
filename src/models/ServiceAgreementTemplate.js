@@ -1,4 +1,3 @@
-// src/models/ServiceAgreementTemplate.js
 import mongoose from 'mongoose';
 
 const serviceAgreementTemplateSchema = new mongoose.Schema({
@@ -8,7 +7,6 @@ const serviceAgreementTemplateSchema = new mongoose.Schema({
     unique: true,
     default: 'default'
   },
-  // Terms
   term1: {
     type: String,
     required: true,
@@ -49,7 +47,6 @@ const serviceAgreementTemplateSchema = new mongoose.Schema({
     required: true,
     default: "Agreement term shall be for thirty-six (36) months from execution and shall automatically renew for another like term unless Enviro-Master is provided written notice of Customer's desire to discontinue service thirty (30) days prior to expiration of any term. This Agreement is subject to the terms and conditions on its reverse side."
   },
-  // Labels
   titleText: {
     type: String,
     required: true,
@@ -136,10 +133,8 @@ const serviceAgreementTemplateSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// ✅ OPTIMIZED: Add index on isActive for faster queries
 serviceAgreementTemplateSchema.index({ isActive: 1 });
 
-// ✅ OPTIMIZED: Ensure only one active template at a time
 serviceAgreementTemplateSchema.pre('save', async function(next) {
   if (this.isActive && this.isModified('isActive')) {
     await mongoose.model('ServiceAgreementTemplate').updateMany(

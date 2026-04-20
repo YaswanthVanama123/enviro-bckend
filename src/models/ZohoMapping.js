@@ -1,20 +1,13 @@
-// src/models/ZohoMapping.js
 import mongoose from 'mongoose';
 
-/**
- * Schema for storing Zoho Bigin integration mappings
- * Links internal agreements to Zoho companies, deals, and uploaded files
- */
 const zohoMappingSchema = new mongoose.Schema({
-  // Link to internal agreement/document
   agreementId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
     ref: 'CustomerHeaderDoc',
-    unique: true // One mapping per agreement
+    unique: true
   },
 
-  // Zoho Company Information
   zohoCompany: {
     id: {
       type: String,
@@ -33,7 +26,6 @@ const zohoMappingSchema = new mongoose.Schema({
     }
   },
 
-  // Zoho Deal/Pipeline Information
   zohoDeal: {
     id: {
       type: String,
@@ -57,14 +49,12 @@ const zohoMappingSchema = new mongoose.Schema({
     }
   },
 
-  // Zoho Module Information (for future extensibility)
   moduleName: {
     type: String,
     default: 'Pipelines',
     description: "Zoho module name (Pipelines, Contacts, etc.)"
   },
 
-  // Upload Status Tracking
   lastUploadStatus: {
     type: String,
     enum: ['success', 'failed', 'partial'],
@@ -78,7 +68,6 @@ const zohoMappingSchema = new mongoose.Schema({
     description: "Details of the last error (if any)"
   },
 
-  // Failed Upload Attempts (for retry logic)
   failedUploads: [{
     attemptedAt: {
       type: Date,
@@ -99,7 +88,6 @@ const zohoMappingSchema = new mongoose.Schema({
     }
   }],
 
-  // Upload History - Track all uploads for this agreement
   uploads: [{
     version: {
       type: Number,
@@ -108,7 +96,7 @@ const zohoMappingSchema = new mongoose.Schema({
     },
     zohoNoteId: {
       type: String,
-      required: false,  // ✅ FIX: Allow null for bulk uploads that skip note creation
+      required: false,
       default: null,
       description: "Zoho Note record ID for this upload (null if note creation skipped)"
     },
@@ -138,7 +126,6 @@ const zohoMappingSchema = new mongoose.Schema({
     }
   }],
 
-  // Metadata
   createdAt: {
     type: Date,
     default: Date.now
@@ -148,7 +135,6 @@ const zohoMappingSchema = new mongoose.Schema({
     default: Date.now
   },
 
-  // Current state tracking
   currentVersion: {
     type: Number,
     default: 1,
@@ -160,7 +146,6 @@ const zohoMappingSchema = new mongoose.Schema({
   }
 });
 
-// Update timestamp on save
 zohoMappingSchema.pre('save', function(next) {
   this.updatedAt = new Date();
   if (this.uploads && this.uploads.length > 0) {
@@ -170,13 +155,11 @@ zohoMappingSchema.pre('save', function(next) {
   next();
 });
 
-// Indexes for performance
 zohoMappingSchema.index({ agreementId: 1 }, { unique: true });
 zohoMappingSchema.index({ 'zohoCompany.id': 1 });
 zohoMappingSchema.index({ 'zohoDeal.id': 1 });
 zohoMappingSchema.index({ createdAt: -1 });
 
-// Instance methods
 zohoMappingSchema.methods.isFirstTimeUpload = function() {
   return !this.uploads || this.uploads.length === 0;
 };
@@ -200,7 +183,6 @@ zohoMappingSchema.methods.addUpload = function(uploadData) {
   return version;
 };
 
-// Static methods
 zohoMappingSchema.statics.findByAgreementId = function(agreementId) {
   return this.findOne({ agreementId });
 };

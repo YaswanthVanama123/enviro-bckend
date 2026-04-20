@@ -1,9 +1,7 @@
-// src/config/db.js
 import mongoose from 'mongoose';
 
 const connectDB = async () => {
   try {
-    // ✅ PRODUCTION: Require MONGO_URI environment variable
     const uri = process.env.MONGO_URI;
 
     if (!uri) {
@@ -19,7 +17,6 @@ const connectDB = async () => {
   } catch (err) {
     console.error('❌ MongoDB connection failed:', err.message);
 
-    // In production, exit if database connection fails
     if (process.env.NODE_ENV === 'production') {
       console.error('⚠️  Cannot start server without database in production mode');
       process.exit(1);

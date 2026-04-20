@@ -1,4 +1,3 @@
-// src/validations/productCatalogValidation.js
 import Joi from "joi";
 
 const priceSchema = Joi.object({
@@ -26,13 +25,12 @@ const priceSchema = Joi.object({
   quantityPerCase: Joi.number().optional(),
   quantityPerCaseLabel: Joi.string().optional(),
 
-  // Added new fields for product catalog enhancements
   frequency: Joi.string().allow('').optional(),
   description: Joi.string().allow('').optional(),
 
   displayByAdmin: Joi.boolean().optional(),
 
-  _delete: Joi.boolean().optional(), // allow delete flag
+  _delete: Joi.boolean().optional(),
 });
 
 const familySchema = Joi.object({

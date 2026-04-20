@@ -1,7 +1,5 @@
-// src/validations/serviceConfigValidation.js
 import Joi from "joi";
 
-// Base object for create/replace
 const baseSchema = {
   serviceId: Joi.string().trim().required(),
   version: Joi.string().trim().required(),
@@ -9,14 +7,12 @@ const baseSchema = {
   label: Joi.string().allow("").optional(),
   description: Joi.string().allow("").optional(),
 
-  // pricing config JSON (kept flexible)
   config: Joi.object().unknown(true).required(),
 
-  // default form state JSON
   defaultFormState: Joi.object().unknown(true).optional(),
 
   isActive: Joi.boolean().optional(),
-  adminByDisplay: Joi.boolean().optional(), // ✅ Added missing field
+  adminByDisplay: Joi.boolean().optional(),
   tags: Joi.array().items(Joi.string()).optional(),
   images: Joi.array().items(
     Joi.object({ url: Joi.string().uri().required(), caption: Joi.string().allow("").optional() })
@@ -38,7 +34,7 @@ const partialUpdateServiceConfigSchema = Joi.object({
   config: Joi.object().unknown(true).optional(),
   defaultFormState: Joi.object().unknown(true).optional(),
   isActive: Joi.boolean().optional(),
-  adminByDisplay: Joi.boolean().optional(), // ✅ Added missing field
+  adminByDisplay: Joi.boolean().optional(),
   tags: Joi.array().items(Joi.string()).optional(),
   images: Joi.array().items(
     Joi.object({ url: Joi.string().uri().required(), caption: Joi.string().allow("").optional() })
@@ -46,7 +42,7 @@ const partialUpdateServiceConfigSchema = Joi.object({
   links: Joi.array().items(
     Joi.object({ label: Joi.string().required(), url: Joi.string().uri().required() })
   ).optional(),
-}).min(1); // at least one field must be present
+}).min(1);
 
 export function validateCreateServiceConfig(payload) {
   return createServiceConfigSchema.validate(payload, { abortEarly: false });

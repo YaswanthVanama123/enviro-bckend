@@ -1,4 +1,3 @@
-// src/controllers/pdfController.js
 import axios from "axios";
 import mongoose from "mongoose";
 import {
@@ -15,27 +14,23 @@ import { uploadToZohoBigin, getZohoAccessToken, testZohoAccess, runZohoDiagnosti
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
 import ServiceConfig from "../models/ServiceConfig.js";
-import ManualUploadDocument from "../models/ManualUploadDocument.js"; // ✅ NEW: For optimized file storage
-import VersionPdf from "../models/VersionPdf.js"; // ✅ NEW: For version PDFs
-import PriceOverrideLog from "../models/PriceOverrideLog.js"; // ✅ NEW: For price override logging
-import VersionChangeLog from "../models/VersionChangeLog.js"; // ✅ NEW: For version-based change logging
-import Log from "../models/Log.js"; // ✅ NEW: For MongoDB-based version log files (TXT)
-// Helper to consistently check if an agreement is already marked deleted
+import ManualUploadDocument from "../models/ManualUploadDocument.js";
+import VersionPdf from "../models/VersionPdf.js";
+import PriceOverrideLog from "../models/PriceOverrideLog.js";
+import VersionChangeLog from "../models/VersionChangeLog.js";
+import Log from "../models/Log.js";
+
 const isAgreementMarkedDeleted = async (agreementId) => {
   if (!agreementId || !mongoose.isValidObjectId(agreementId)) return false;
   const agreement = await CustomerHeaderDoc.findById(agreementId).select('isDeleted').lean();
   return agreement?.isDeleted === true;
 };
-// import mongoose from "mongoose"; // ✅ Add mongoose import for ObjectId handling
-
-/* ------------ health + low-level compile endpoints ------------ */
 
 export async function pdfHealth(_req, res) {
   const info = await getPdfHealth();
   res.json(info);
 }
 
-// ✅ NEW: Test endpoint to verify Zoho API integration
 export async function testZohoAccessEndpoint(_req, res) {
   try {
     console.log("🧪 [TEST-ENDPOINT] Testing Zoho access...");
@@ -55,7 +50,6 @@ export async function testZohoAccessEndpoint(_req, res) {
   }
 }
 
-// ✅ V7: Comprehensive Zoho diagnostics endpoint
 export async function runZohoDiagnosticsEndpoint(_req, res) {
   try {
     console.log("🧪 [DIAGNOSTICS-ENDPOINT] Running comprehensive Zoho diagnostics...");
@@ -76,7 +70,6 @@ export async function runZohoDiagnosticsEndpoint(_req, res) {
   }
 }
 
-// ✅ V10: Layout+Pipeline compatibility test endpoint
 export async function testV10CompatibilityEndpoint(_req, res) {
   try {
     console.log("🧪 [V10-TEST-ENDPOINT] Testing V10 Layout+Pipeline compatibility matching...");
@@ -164,9 +157,7 @@ export async function compileFromProposalFile(_req, res) {
   }
 }
 
-/* ------------ CUSTOMER HEADER FLOW (CustomerHeaderDoc) ------------ */
 
-// compile ONLY, no DB
 export async function compileCustomerHeaderPdf(req, res) {
   try {
     const { buffer, filename } = await compileCustomerHeader(req.body || {});
@@ -181,62 +172,23 @@ export async function compileCustomerHeaderPdf(req, res) {
   }
 }
 
-// POST /api/pdf/customer-header  (compile + store CustomerHeaderDoc)
-// Supports DRAFT (no PDF) and FINAL (with PDF + Zoho)
 export async function compileAndStoreCustomerHeader(req, res) {
   try {
     const body = req.body || {};
-    // ✅ FIXED: Respect status from frontend (for Red/Green Line approval workflow)
-    // Frontend now sends "saved" (green line), "pending_approval" (red/neutral line), or "draft"
-    let status = body.status || "draft"; // Default to "draft" only if no status provided
+    let status = body.status || "draft";
     const isDraft = status === "draft";
 
-    // Prepare payload structure
+
     const payload = {
       headerTitle: body.headerTitle || "",
       headerRows: body.headerRows || [],
       products: body.products || {},
       services: body.services || {},
       agreement: body.agreement || {},
-      serviceAgreement: body.serviceAgreement || null, // ✅ Save Service Agreement data
+      serviceAgreement: body.serviceAgreement || null,
       summary: body.summary || null,
       includeProductsTable: body.includeProductsTable !== false,
     };
-
-    // DEBUG: Log the products structure being sent from frontend
-    // console.log("🐛 [DEBUG] Products payload structure:", JSON.stringify(body.products, null, 2));
-    // console.log("🐛 [DEBUG] Custom columns from products:", JSON.stringify(body.products?.customColumns, null, 2));
-
-    // DEBUG: Log the services structure being sent from frontend
-    // console.log("🐛 [DEBUG] Services payload structure:", JSON.stringify(body.services, null, 2));
-    if (body.services?.refreshPowerScrub) {
-      // console.log("🐛 [DEBUG] REFRESH POWER SCRUB - Full service data:", JSON.stringify(body.services.refreshPowerScrub, null, 2));
-      if (body.services.refreshPowerScrub.services) {
-        // console.log("🐛 [DEBUG] REFRESH POWER SCRUB - Services breakdown:", JSON.stringify(body.services.refreshPowerScrub.services, null, 2));
-      }
-    }
-    if (body.products) {
-      // Check for NEW 2-category format (products[] + dispensers[])
-      if (body.products.products && body.products.dispensers) {
-        // console.log("🐛 [DEBUG] NEW FORMAT - Product counts:", {
-        //   mergedProducts: (body.products.products || []).length,
-        //   dispensers: (body.products.dispensers || []).length
-        // });
-        // console.log("🐛 [DEBUG] Sample merged product:", body.products.products[0]);
-        // console.log("🐛 [DEBUG] Sample dispenser:", body.products.dispensers[0]);
-      }
-      // Check for OLD 3-category format (for backward compatibility)
-      else if (body.products.smallProducts || body.products.bigProducts || body.products.dispensers) {
-        // console.log("🐛 [DEBUG] OLD FORMAT - Product counts:", {
-        //   smallProducts: (body.products.smallProducts || []).length,
-        //   bigProducts: (body.products.bigProducts || []).length,
-        //   dispensers: (body.products.dispensers || []).length
-        // });
-      }
-      else {
-        // console.log("🐛 [DEBUG] UNKNOWN FORMAT - Product keys:", Object.keys(body.products));
-      }
-    }
 
     let buffer = null;
     let filename = "customer-header.pdf";
@@ -245,36 +197,26 @@ export async function compileAndStoreCustomerHeader(req, res) {
       crm: { dealId: null, fileId: null, url: null },
     };
 
-    // ✅ FIXED: Define at function scope
     let zohoUploadSuccess = false;
-    let zohoErrors = []; // ✅ FIXED: Define at function scope
+    let zohoErrors = [];
 
-    // ✅ NEW: For non-draft, we'll create agreement first, then PDF goes to VersionPdf collection
-    // No PDF compilation here - that happens in version creation step
     if (!isDraft) {
       console.log("📄 Non-draft mode: Agreement will be created, PDF will go to VersionPdf collection");
 
-      // Set zoho data to empty for now (will be populated when user uploads to Zoho)
       zohoData.bigin = { dealId: null, fileId: null, url: null };
       zohoData.crm = { dealId: null, fileId: null, url: null };
 
-      // Mark as successful since we're not doing Zoho upload here
       zohoUploadSuccess = true;
       console.log("💾 No immediate PDF compilation - PDF will be stored in VersionPdf collection");
     }
 
-    // DEBUG: Log the full payload before storing to database
-    // console.log("🐛 [DEBUG] PAYLOAD BEFORE STORAGE:", JSON.stringify(payload, null, 2));
-    // console.log("🐛 [DEBUG] PAYLOAD SERVICES KEYS:", Object.keys(payload.services || {}));
-
-    // Create document in database
     const doc = await CustomerHeaderDoc.create({
       payload,
       pdf_meta: {
         sizeBytes: 0,
         contentType: "application/pdf",
         storedAt: null,
-        pdfBuffer: null, // ✅ NEW: No PDF stored in CustomerHeaderDoc - all PDFs go to VersionPdf
+        pdfBuffer: null,
         externalUrl: null,
       },
       status,
@@ -283,20 +225,12 @@ export async function compileAndStoreCustomerHeader(req, res) {
       zoho: zohoData,
     });
 
-    // ✅ Log document creation confirmation
     console.log(`✅ Agreement document created: ${doc._id} (PDF will be stored in VersionPdf collection)`);
 
-    // console.log(`Document created with ID: ${doc._id}, status: ${status}`);
-
-    // DEBUG: Log what was actually stored in the database
     const storedDoc = await CustomerHeaderDoc.findById(doc._id).lean();
-    // console.log("🐛 [DEBUG] STORED DOC SERVICES:", JSON.stringify(storedDoc.payload.services, null, 2));
     if (storedDoc.payload.services?.refreshPowerScrub) {
-      // console.log("🐛 [DEBUG] STORED REFRESH POWER SCRUB:", JSON.stringify(storedDoc.payload.services.refreshPowerScrub, null, 2));
     }
 
-    // ✅ NEW: Return JSON response for both draft and final status
-    // PDF creation happens later in version system, not here
     res.setHeader("X-CustomerHeaderDoc-Id", doc._id.toString());
     return res.status(201).json({
       success: true,
@@ -308,7 +242,6 @@ export async function compileAndStoreCustomerHeader(req, res) {
   } catch (err) {
     console.error("compileAndStoreCustomerHeader error:", err);
 
-    // ✅ TESTING FIX: Handle MongoDB connection issues gracefully
     const isMongoConnectionError = mongoose.connection.readyState === 0 ||
                                    err?.message?.includes('MongoDB') ||
                                    err?.message?.includes('mongoose') ||
@@ -318,14 +251,10 @@ export async function compileAndStoreCustomerHeader(req, res) {
     if (isMongoConnectionError) {
       console.log("⚠️ [TESTING MODE] MongoDB not connected - generating mock response for frontend testing");
 
-      // Generate mock document ID for testing
       const mockDocId = new mongoose.Types.ObjectId().toString();
 
-      // Set header for frontend ID extraction
       res.setHeader("X-CustomerHeaderDoc-Id", mockDocId);
 
-      // Return successful response for testing (matches normal flow)
-      // ✅ FIXED: Respect status from frontend for approval workflow
       const testStatus = req.body?.status || "draft";
       const isDraft = testStatus === "draft";
 
@@ -339,19 +268,16 @@ export async function compileAndStoreCustomerHeader(req, res) {
           testing: true
         });
       } else {
-        // ✅ FIXED: Return actual status from frontend (saved or pending_approval)
         return res.status(201).json({
           success: true,
           _id: mockDocId,
-          status: testStatus, // Use the actual status from frontend
+          status: testStatus,
           createdAt: new Date().toISOString(),
           message: "Agreement created successfully - PDF will be generated in version system",
           testing: true
         });
       }
     }
-
-    // Original error handling for real errors
     res.status(500).json({
       success: false,
       error: "Failed to save document",
@@ -360,7 +286,6 @@ export async function compileAndStoreCustomerHeader(req, res) {
   }
 }
 
-// GET /api/pdf/customer-headers  (full list, paged)
 export async function getCustomerHeaders(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -369,9 +294,7 @@ export async function getCustomerHeaders(req, res) {
       100
     );
 
-    // Check if we're in development mode without database
     if (mongoose.connection.readyState === 0) {
-      // console.log('⚠️ Database not connected, returning empty list for PDF testing');
       return res.json({ total: 0, page, limit, items: [] });
     }
 
@@ -387,7 +310,6 @@ export async function getCustomerHeaders(req, res) {
   } catch (err) {
     console.error("getCustomerHeaders error:", err);
 
-    // If it's a database timeout, return empty list for testing
     if (err.message.includes('buffering timed out')) {
       console.log('⚠️ Database timeout, returning empty list for PDF testing');
       return res.json({ total: 0, page: 1, limit: 20, items: [] });
@@ -399,7 +321,6 @@ export async function getCustomerHeaders(req, res) {
   }
 }
 
-// GET /api/pdf/customer-headers/:id (full doc, no Zoho fetch)
 export async function getCustomerHeaderById(req, res) {
   try {
     const { id } = req.params;
@@ -410,9 +331,7 @@ export async function getCustomerHeaderById(req, res) {
         .json({ error: "bad_request", detail: "Invalid id" });
     }
 
-    // Check if we're in development mode without database
     if (mongoose.connection.readyState === 0) {
-      // console.log('⚠️ Database not connected, returning mock data for PDF testing');
       return res.json({
         _id: id,
         payload: {
@@ -428,11 +347,6 @@ export async function getCustomerHeaderById(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Exclude heavy fields not needed for viewing
-    // - pdf_meta.pdfBuffer: Large binary PDF data (can be MBs) - not needed, frontend uses /pdf/view endpoint
-    // - attachedFiles: Not needed for main document view
-    // - versions: Version history not needed for main view
-    // - zoho: Integration data not needed for viewing
     const doc = await CustomerHeaderDoc.findById(id)
       .select('-pdf_meta.pdfBuffer -attachedFiles -versions -zoho')
       .lean();
@@ -446,7 +360,6 @@ export async function getCustomerHeaderById(req, res) {
   } catch (err) {
     console.error("getCustomerHeaderById error:", err);
 
-    // If it's a database timeout, return mock data for testing
     if (err.message.includes('buffering timed out')) {
       console.log('⚠️ Database timeout, returning mock data for PDF testing');
       return res.json({
@@ -470,8 +383,6 @@ export async function getCustomerHeaderById(req, res) {
   }
 }
 
-// GET /api/pdf/customer-headers/:id/edit-format
-// Special endpoint that converts stored data to frontend-expected format for editing
 export async function getCustomerHeaderForEdit(req, res) {
   try {
     const { id } = req.params;
@@ -482,11 +393,6 @@ export async function getCustomerHeaderForEdit(req, res) {
         .json({ error: "bad_request", detail: "Invalid id" });
     }
 
-    // ⚡ OPTIMIZED: Exclude heavy fields not needed for editing
-    // - pdf_meta.pdfBuffer: Large binary PDF data (can be MBs)
-    // - attachedFiles: Not needed for editing the main form
-    // - versions: Version history not needed for editing current document
-    // - zoho: Integration data not needed for editing
     const doc = await CustomerHeaderDoc.findById(id)
       .select('-pdf_meta.pdfBuffer -attachedFiles -versions -zoho')
       .lean();
@@ -498,88 +404,68 @@ export async function getCustomerHeaderForEdit(req, res) {
 
     console.log(`🔄 [EDIT FORMAT] Converting document for edit mode - ID: ${id}`);
 
-    // Convert stored format to edit-friendly format while preserving ALL data
     const originalProducts = doc.payload?.products || {};
-
-    // console.log(`🔄 [EDIT FORMAT] Original storage format detected:`, {
-    //   hasProducts: !!(originalProducts.products),
-    //   hasSmallProducts: !!(originalProducts.smallProducts),
-    //   hasBigProducts: !!(originalProducts.bigProducts),
-    //   hasDispensers: !!(originalProducts.dispensers),
-    //   hasCustomColumns: !!(originalProducts.customColumns),
-    //   customColumnsContent: originalProducts.customColumns,
-    //   productsCount: (originalProducts.products || []).length,
-    //   smallProductsCount: (originalProducts.smallProducts || []).length,
-    //   bigProductsCount: (originalProducts.bigProducts || []).length,
-    //   dispensersCount: (originalProducts.dispensers || []).length
-    // });
 
     let mergedProductsArray = [];
 
-    // Handle NEW format (products[] array exists)
     if (originalProducts.products && Array.isArray(originalProducts.products)) {
-      // console.log(`🆕 [EDIT FORMAT] Using NEW format - found ${originalProducts.products.length} products in merged array`);
       mergedProductsArray = originalProducts.products.map(p => ({
         ...p,
-        // Preserve existing _productType or infer from product structure
+
         _productType: p._productType || (p.amount !== undefined ? 'big' : 'small'),
-        // Ensure all critical fields are preserved
+
         productKey: p.productKey,
         customName: p.customName || p.displayName,
         displayName: p.displayName || p.customName,
         qty: p.qty || 0,
-        // Handle both small product (unitPrice) and big product (amount) fields
+
         unitPrice: p.unitPrice,
         unitPriceOverride: p.unitPriceOverride,
         amount: p.amount,
         amountOverride: p.amountOverride,
-        frequency: p.frequency || '', // ← PRESERVE frequency
+        frequency: p.frequency || '', 
         total: p.total || p.extPrice,
         extPrice: p.extPrice || p.total
       }));
     }
-    // Handle OLD format (smallProducts[] + bigProducts[] arrays exist)
     else {
-      // console.log(`🔄 [EDIT FORMAT] Using OLD format - merging ${(originalProducts.smallProducts || []).length} small + ${(originalProducts.bigProducts || []).length} big products`);
       mergedProductsArray = [
         ...(originalProducts.smallProducts || []).map(p => ({
           ...p,
           _productType: 'small',
-          // Ensure all critical fields are preserved
+
           productKey: p.productKey,
           customName: p.customName || p.displayName,
           displayName: p.displayName || p.customName,
           qty: p.qty || 0,
           unitPrice: p.unitPrice,
           unitPriceOverride: p.unitPriceOverride,
-          frequency: p.frequency || '', // ← PRESERVE frequency
+          frequency: p.frequency || '',
           total: p.total || p.extPrice,
           extPrice: p.extPrice || p.total
         })),
         ...(originalProducts.bigProducts || []).map(p => ({
           ...p,
           _productType: 'big',
-          // Ensure all critical fields are preserved
+
           productKey: p.productKey,
           customName: p.customName || p.displayName,
           displayName: p.displayName || p.customName,
           qty: p.qty || 0,
           amount: p.amount,
           amountOverride: p.amountOverride,
-          frequency: p.frequency || '', // ← PRESERVE frequency
+          frequency: p.frequency || '',
           total: p.total
         }))
       ];
     }
 
     const convertedProducts = {
-      // Use the merged products array
       products: mergedProductsArray,
-      // Keep dispensers separate with enhanced data preservation
       dispensers: (originalProducts.dispensers || []).map(d => ({
         ...d,
         _productType: 'dispenser',
-        // Ensure all critical fields are preserved for dispensers
+
         productKey: d.productKey,
         customName: d.customName || d.displayName,
         displayName: d.displayName || d.customName,
@@ -588,25 +474,18 @@ export async function getCustomerHeaderForEdit(req, res) {
         warrantyPriceOverride: d.warrantyPriceOverride,
         replacementRate: d.replacementRate,
         replacementPriceOverride: d.replacementPriceOverride,
-        frequency: d.frequency || '', // ← CRITICAL: PRESERVE dispenser frequency
+        frequency: d.frequency || '',
         total: d.total
       }))
     };
 
-    // Log frequency preservation for debugging
-    // console.log(`🔄 [EDIT FORMAT] Dispenser frequency preservation:`);
     convertedProducts.dispensers.forEach((d, i) => {
-      // console.log(`  Dispenser ${i+1}: "${d.customName}" → frequency: "${d.frequency}"`);
     });
 
-    // SERVICES TRANSFORMATION: Convert stored format to form-expected format
     const originalServices = doc.payload?.services || {};
     const convertedServices = { ...originalServices };
 
-    // Special handling for Refresh Power Scrub
     if (originalServices.refreshPowerScrub) {
-      // console.log(`🔄 [EDIT FORMAT] Converting Refresh Power Scrub from stored format to form format`);
-
       const storedRPS = originalServices.refreshPowerScrub;
         const REFRESH_AREA_KEYS = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
         const hasTopLevelAreas = REFRESH_AREA_KEYS.every((areaKey) => storedRPS[areaKey] !== undefined);
@@ -617,9 +496,6 @@ export async function getCustomerHeaderForEdit(req, res) {
             contractMonths: storedRPS.contractMonths || 12
           };
         } else {
-          // console.log(`🔄 [EDIT FORMAT] Stored services keys:`, Object.keys(storedRPS.services || {}));
-
-      // Helper function to normalize frequency labels
       const normalizeFrequencyLabel = (freq) => {
         if (!freq || freq === "TBD") return "";
         const normalized = freq.toLowerCase();
@@ -627,10 +503,10 @@ export async function getCustomerHeaderForEdit(req, res) {
         if (normalized.includes("quarterly")) return "Quarterly";
         if (normalized.includes("monthly")) return "Monthly";
         if (normalized.includes("weekly")) return "Weekly";
-        return freq; // Return as-is if no match
+        return freq; 
       };
 
-      // Extract actual stored values from serviceInfo if available
+
       let hourlyRate = 200;
       let minimumVisit = 400;
       if (storedRPS.serviceInfo && storedRPS.serviceInfo.value) {
@@ -645,16 +521,16 @@ export async function getCustomerHeaderForEdit(req, res) {
         serviceId: storedRPS.serviceId,
         displayName: storedRPS.displayName,
         isActive: storedRPS.isActive,
-        // Extract actual stored values
+
         hourlyRate: hourlyRate,
         minimumVisit: minimumVisit,
-        frequency: "monthly", // Default - could be enhanced to extract from data
-        contractMonths: 12, // Default - could be enhanced to extract from data
+        frequency: "monthly", 
+        contractMonths: 12, 
         notes: storedRPS.notes || "",
         customFields: storedRPS.customFields || []
       };
 
-      // Convert each area from services structure back to direct area structure
+
       const areaMapping = {
         'dumpster': 'dumpster',
         'patio': 'patio',
@@ -685,13 +561,12 @@ export async function getCustomerHeaderForEdit(req, res) {
       };
 
       for (const [serviceKey, areaKey] of Object.entries(areaMapping)) {
-        // console.log(`🔄 [EDIT FORMAT] Checking ${serviceKey} → ${areaKey}`);
-        if (storedRPS.services[serviceKey] && storedRPS.services[serviceKey].enabled) {
-          // console.log(`🔄 [EDIT FORMAT] Processing enabled area: ${serviceKey} → ${areaKey}`);
-          const serviceData = storedRPS.services[serviceKey];
-          // console.log(`🔄 [EDIT FORMAT] Service data for ${serviceKey}:`, JSON.stringify(serviceData, null, 2));
 
-          // Map pricing method back to form format
+        if (storedRPS.services[serviceKey] && storedRPS.services[serviceKey].enabled) {
+
+          const serviceData = storedRPS.services[serviceKey];
+
+
           const pricingTypeMapping = {
             'Per Hour': 'perHour',
             'Per Worker': 'perWorker',
@@ -706,34 +581,34 @@ export async function getCustomerHeaderForEdit(req, res) {
             enabled: true,
             pricingType: pricingType,
 
-            // Per Worker fields
-            workers: 2, // Default
 
-            // Per Hour fields
-            hours: 0, // Default
-            hourlyRate: 200, // Default
+            workers: 2, 
 
-            // Square Feet fields
-            insideSqFt: 0, // Default
-            outsideSqFt: 0, // Default
-            insideRate: 0.6, // Default
-            outsideRate: 0.4, // Default
-            sqFtFixedFee: 200, // Default
 
-            // Custom Amount field
-            customAmount: 0, // Default
+            hours: 0, 
+            hourlyRate: 200, 
 
-            // Area-specific fields
-            kitchenSize: "smallMedium", // Default (for boh)
-            patioMode: "standalone", // Default (for patio)
-            includePatioAddon: false, // Default (for patio)
 
-            // Frequency and contract with normalized values
+            insideSqFt: 0, 
+            outsideSqFt: 0, 
+            insideRate: 0.6, 
+            outsideRate: 0.4, 
+            sqFtFixedFee: 200, 
+
+
+            customAmount: 0, 
+
+
+            kitchenSize: "smallMedium", 
+            patioMode: "standalone", 
+            includePatioAddon: false, 
+
+
             frequencyLabel: normalizeFrequencyLabel(serviceData.frequency?.value || "TBD"),
             contractMonths: serviceData.contract?.quantity || 12
           };
 
-          // Extract specific values based on pricing type
+
           if (pricingType === 'perHour' && serviceData.hours) {
             convertedArea.hours = Number(serviceData.hours.quantity) || 0;
             convertedArea.hourlyRate = Number(serviceData.hours.priceRate) || 200;
@@ -755,11 +630,9 @@ export async function getCustomerHeaderForEdit(req, res) {
             if (serviceData.plan) {
               if (areaKey === 'patio') {
                 convertedArea.patioMode = serviceData.plan.value === 'Upsell' ? 'upsell' : 'standalone';
-                // ✅ Extract patio add-on selection from stored data
                 if (serviceData.includePatioAddon) {
                   convertedArea.includePatioAddon = serviceData.includePatioAddon.value || false;
                 }
-                // console.log(`🔄 [EDIT FORMAT] Patio conversion: patioMode=${convertedArea.patioMode}, includePatioAddon=${convertedArea.includePatioAddon}`);
               } else if (areaKey === 'boh') {
                 convertedArea.kitchenSize = serviceData.plan.value === 'Large' ? 'large' : 'smallMedium';
                 const smallMediumQty = readNumericValue(serviceData.smallMediumQuantity);
@@ -794,16 +667,10 @@ export async function getCustomerHeaderForEdit(req, res) {
 
           convertedRPS[areaKey] = convertedArea;
 
-          // console.log(`🔄 [EDIT FORMAT] Converted ${serviceKey} → ${areaKey}:`, {
-          //   enabled: convertedArea.enabled,
-          //   pricingType: convertedArea.pricingType,
-          //   frequency: convertedArea.frequencyLabel,
-          //   converted: convertedArea
-          // });
+
         }
       }
 
-      // Add default disabled areas with all required fields
       const defaultAreas = ['dumpster', 'patio', 'walkway', 'foh', 'boh', 'other'];
       for (const areaKey of defaultAreas) {
         if (!convertedRPS[areaKey]) {
@@ -811,29 +678,23 @@ export async function getCustomerHeaderForEdit(req, res) {
             enabled: false,
             pricingType: "preset",
 
-            // Per Worker fields
             workers: 2,
 
-            // Per Hour fields
             hours: 0,
             hourlyRate: 200,
 
-            // Square Feet fields
             insideSqFt: 0,
             outsideSqFt: 0,
             insideRate: 0.6,
             outsideRate: 0.4,
             sqFtFixedFee: 200,
 
-            // Custom Amount field
             customAmount: 0,
 
-            // Area-specific fields
             kitchenSize: "smallMedium",
             patioMode: "standalone",
-            includePatioAddon: false, // ✅ NEW: Patio add-on selection
+            includePatioAddon: false,
 
-            // Frequency and contract
             frequencyLabel: "",
             contractMonths: 12
           };
@@ -843,26 +704,22 @@ export async function getCustomerHeaderForEdit(req, res) {
         convertedServices.refreshPowerScrub = convertedRPS;
         }
 
-      // console.log(`✅ [EDIT FORMAT] Refresh Power Scrub conversion complete`);
-      // console.log(`🔄 [EDIT FORMAT] Final converted RPS:`, JSON.stringify(convertedRPS, null, 2));
     }
 
-    // Create edit-friendly response AFTER services transformation
     const editResponse = {
       ...doc,
       payload: {
         ...doc.payload,
         products: {
           ...convertedProducts,
-          customColumns: originalProducts.customColumns || { products: [], dispensers: [] } // Include custom columns inside products
+          customColumns: originalProducts.customColumns || { products: [], dispensers: [] }
         },
-        services: convertedServices, // Use converted services instead of original
-        serviceAgreement: doc.payload.serviceAgreement || undefined, // ✅ Explicitly include service agreement data for editing
-        summary: doc.payload.summary || undefined, // ✨ Include saved summary for edit mode
+        services: convertedServices,
+        serviceAgreement: doc.payload.serviceAgreement || undefined,
+        summary: doc.payload.summary || undefined,
       },
       _editFormatMetadata: {
         originalStructure: {
-          // Show actual detected format
           format: originalProducts.products ? 'NEW (merged products array)' : 'OLD (separate small/big arrays)',
           products: (originalProducts.products || []).length,
           smallProducts: (originalProducts.smallProducts || []).length,
@@ -888,31 +745,15 @@ export async function getCustomerHeaderForEdit(req, res) {
       }
     };
 
-    // console.log(`✅ [EDIT FORMAT] Conversion complete - preserved ${convertedProducts.products.length} products and ${convertedProducts.dispensers.length} dispensers with frequencies`);
-
-    // Log product frequency preservation for debugging
     if (convertedProducts.products.length > 0) {
-      // console.log(`🔄 [EDIT FORMAT] Product frequency preservation:`);
       convertedProducts.products.forEach((p, i) => {
-        // console.log(`  Product ${i+1}: "${p.customName || p.displayName}" (${p._productType}) → frequency: "${p.frequency}"`);
       });
     }
 
-    // Log dispenser frequency preservation for debugging
     if (convertedProducts.dispensers.length > 0) {
-      // console.log(`🔄 [EDIT FORMAT] Dispenser frequency preservation:`);
       convertedProducts.dispensers.forEach((d, i) => {
-        // console.log(`  Dispenser ${i+1}: "${d.customName}" → frequency: "${d.frequency}"`);
       });
     }
-
-    // Debug: Show what customColumns are being returned
-    // console.log(`🔍 [EDIT FORMAT] CustomColumns debug:`, {
-    //   originalCustomColumns: originalProducts.customColumns,
-    //   returnedCustomColumns: originalProducts.customColumns || { products: [], dispensers: [] },
-    //   willIncludeInResponse: !!(originalProducts.customColumns),
-    //   editResponseCustomColumns: editResponse.payload.products.customColumns
-    // });
 
     res.json(editResponse);
   } catch (err) {
@@ -923,16 +764,12 @@ export async function getCustomerHeaderForEdit(req, res) {
   }
 }
 
-// PUT /api/pdf/customer-headers/:id  (optionally ?recompile=true)
-// Supports updating drafts and recompiling PDFs
 export async function updateCustomerHeader(req, res) {
   try {
     const { id } = req.params;
     const body = req.body || {};
     const recompile = req.query.recompile === "true";
 
-    // ⚡ OPTIMIZED: Exclude heavy pdfBuffer field initially
-    // We'll only write a new buffer if recompiling, so no need to load the old one
     const doc = await CustomerHeaderDoc.findById(id).select('-pdf_meta.pdfBuffer');
     if (!doc) {
       return res
@@ -946,29 +783,23 @@ export async function updateCustomerHeader(req, res) {
     const wasDraft = previousStatus === "draft";
     const isNowFinal = newStatus !== "draft";
 
-    // DEBUG: Log services data for updates
-    // console.log("🐛 [UPDATE DEBUG] Services payload structure:", JSON.stringify(body.services, null, 2));
     if (body.services?.refreshPowerScrub) {
-      // console.log("🐛 [UPDATE DEBUG] REFRESH POWER SCRUB - Full service data:", JSON.stringify(body.services.refreshPowerScrub, null, 2));
       if (body.services.refreshPowerScrub.services) {
-        // console.log("🐛 [UPDATE DEBUG] REFRESH POWER SCRUB - Services breakdown:", JSON.stringify(body.services.refreshPowerScrub.services, null, 2));
       }
     }
 
-    // Update payload fields
     doc.payload ||= {};
     if (body.headerTitle !== undefined) doc.payload.headerTitle = body.headerTitle;
     if (body.headerRows !== undefined) doc.payload.headerRows = body.headerRows;
     if (body.products !== undefined) doc.payload.products = body.products;
     if (body.services !== undefined) doc.payload.services = body.services;
     if (body.agreement !== undefined) doc.payload.agreement = body.agreement;
-    if (body.customColumns !== undefined) doc.payload.customColumns = body.customColumns; // Update custom columns
-    if (body.serviceAgreement !== undefined) doc.payload.serviceAgreement = body.serviceAgreement; // ✅ Save Service Agreement data
+    if (body.customColumns !== undefined) doc.payload.customColumns = body.customColumns;
+    if (body.serviceAgreement !== undefined) doc.payload.serviceAgreement = body.serviceAgreement;
     if (body.summary !== undefined) doc.payload.summary = body.summary;
     if (body.includeProductsTable !== undefined) doc.payload.includeProductsTable = body.includeProductsTable;
     doc.status = newStatus;
 
-    // Update Zoho references if provided
     doc.zoho ||= { bigin: {}, crm: {} };
     if (body.zoho?.bigin) {
       doc.zoho.bigin = { ...doc.zoho.bigin, ...body.zoho.bigin };
@@ -979,7 +810,6 @@ export async function updateCustomerHeader(req, res) {
 
     doc.updatedBy = req.admin?.id || doc.updatedBy;
 
-    // Determine if we need to compile PDF
     const shouldCompilePdf = recompile || (statusChanged && wasDraft && isNowFinal);
 
     let buffer = null;
@@ -988,24 +818,16 @@ export async function updateCustomerHeader(req, res) {
     if (shouldCompilePdf) {
       console.log(`Compiling PDF for document ${id}...`);
 
-      // DEBUG: Check what's stored in the database vs what's coming from frontend
-      // console.log('🔍 [DEBUG] Database doc.payload.products:', JSON.stringify(doc.payload.products, null, 2));
-      if (body.products) {
-        // console.log('🔍 [DEBUG] Frontend body.products:', JSON.stringify(body.products, null, 2));
-      }
-
       const productsData = body.products || doc.payload.products;
-      // console.log('🔍 [DEBUG] Using products data from:', body.products ? 'FRONTEND PAYLOAD' : 'STORED DATABASE');
-      // console.log('🔍 [DEBUG] Final products data structure:', JSON.stringify(productsData, null, 2));
 
       const pdfResult = await compileCustomerHeader({
         headerTitle: doc.payload.headerTitle,
         headerRows: doc.payload.headerRows,
-        products: productsData,  // Use the determined data source
+        products: productsData,
         services: body.services || doc.payload.services,
         agreement: doc.payload.agreement,
-        customColumns: doc.payload.products?.customColumns || body.products?.customColumns || { products: [], dispensers: [] }, // Pass custom columns from products section
-        serviceAgreement: body.serviceAgreement || doc.payload.serviceAgreement, // ✅ Pass Service Agreement data to PDF compiler
+        customColumns: doc.payload.products?.customColumns || body.products?.customColumns || { products: [], dispensers: [] },
+        serviceAgreement: body.serviceAgreement || doc.payload.serviceAgreement,
         summary: body.summary || doc.payload.summary,
         includeProductsTable: doc.payload.includeProductsTable !== false,
       });
@@ -1013,19 +835,14 @@ export async function updateCustomerHeader(req, res) {
       buffer = pdfResult.buffer;
       filename = pdfResult.filename || filename;
 
-      // ✅ SIMPLIFIED: Only store PDF in MongoDB during updates (no Zoho upload)
-      // Zoho upload only happens during initial "Save & Generate PDF" action
-
-      // Update PDF metadata
       doc.pdf_meta = {
         sizeBytes: buffer.length,
         contentType: "application/pdf",
         storedAt: new Date(),
-        pdfBuffer: buffer, // ✅ STORE PDF in MongoDB as Buffer (not base64)
+        pdfBuffer: buffer,
         externalUrl: doc.pdf_meta?.externalUrl || null,
       };
 
-      // ✅ Log PDF storage confirmation
       console.log(`✅ PDF updated in MongoDB: ${doc._id} (${buffer.length} bytes → ${doc.pdf_meta.sizeBytes} bytes Buffer)`);
     }
 
@@ -1033,18 +850,12 @@ export async function updateCustomerHeader(req, res) {
 
     console.log(`Document ${id} updated, status: ${doc.status}, compiled: ${shouldCompilePdf}`);
 
-    // ⚡ OPTIMIZED: Removed unnecessary second database fetch (was only for debugging)
-    // The updated doc data is already in memory from the save() operation
-
-    // ✅ SIMPLIFIED: Return response based on whether PDF was compiled (no Zoho dependency)
     if (buffer) {
-      // Return PDF if compiled successfully
       console.log("✅ [UPDATE SUCCESS] Returning PDF response");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
       return res.send(buffer);
     } else {
-      // ⚡ OPTIMIZED RESPONSE: Return only essential fields for non-PDF updates
       return res.json({
         success: true,
         doc: {
@@ -1056,7 +867,6 @@ export async function updateCustomerHeader(req, res) {
     }
   } catch (err) {
     console.error("updateCustomerHeader error:", err);
-    // ✅ Log detailed LaTeX error if available
     if (err.detail) {
       console.error("📄 LaTeX Compilation Error Details:", err.detail);
     }
@@ -1069,7 +879,6 @@ export async function updateCustomerHeader(req, res) {
   }
 }
 
-// PATCH /api/pdf/customer-headers/:id/status (update status only)
 export async function updateCustomerHeaderStatus(req, res) {
   try {
     const { id } = req.params;
@@ -1081,7 +890,7 @@ export async function updateCustomerHeaderStatus(req, res) {
         .json({ error: "bad_request", detail: "Invalid id" });
     }
 
-    // Validate status
+
     const validStatuses = ["saved", "draft", "pending_approval", "approved_admin", "approved_salesman"];
     if (!status || !validStatuses.includes(status)) {
       return res
@@ -1092,7 +901,6 @@ export async function updateCustomerHeaderStatus(req, res) {
         });
     }
 
-    // ⚡ OPTIMIZED: Exclude heavy pdfBuffer field - not needed for status update
     const doc = await CustomerHeaderDoc.findById(id).select('-pdf_meta.pdfBuffer');
     if (!doc) {
       return res
@@ -1100,12 +908,9 @@ export async function updateCustomerHeaderStatus(req, res) {
         .json({ error: "not_found", detail: "Document not found" });
     }
 
-    // Update status
     doc.status = status;
     doc.updatedBy = req.admin?.id || doc.updatedBy;
     await doc.save();
-
-    // console.log(`Document ${id} status updated to: ${status}`);
 
     res.json({
       success: true,
@@ -1125,16 +930,11 @@ export async function updateCustomerHeaderStatus(req, res) {
   }
 }
 
-/* ------------ ADMIN HEADER FLOW (AdminHeaderDoc) ------------ */
-
-// --- ADMIN HEADER FLOW (AdminHeaderDoc) ---
-
 export async function compileAndStoreAdminHeader(req, res) {
   try {
     const body = req.body || {};
     const { buffer, filename } = await compileCustomerHeader(body);
 
-    // Map body directly into schema fields
     const doc = await AdminHeaderDoc.create({
       headerTitle: body.headerTitle || "",
       headerRows: body.headerRows || [],
@@ -1151,12 +951,10 @@ export async function compileAndStoreAdminHeader(req, res) {
         storedAt: new Date(),
         externalUrl: null,
       },
-      status: body.status || "saved", // Default to "saved" instead of "draft"
+      status: body.status || "saved",
       createdBy: req.admin?.id || null,
       updatedBy: req.admin?.id || null,
       label: body.label || "",
-      // if you later add zohoBigin to the UI, map it here:
-      // zohoBigin: { ...body.zohoBigin },
     });
 
     res.setHeader("Content-Type", "application/pdf");
@@ -1208,9 +1006,6 @@ export async function getAdminHeaderById(req, res) {
         .json({ error: "Not found", detail: "AdminHeaderDoc not found" });
     }
 
-    // ⚡ OPTIMIZED: Fetch service configs with only needed fields
-    // Exclude heavy fields: config (huge pricing JSON), defaultFormState (large form data)
-    // Only fetch: serviceId, label, description, tags
     const activeServices = await ServiceConfig.find({
       isActive: true,
       adminByDisplay: { $ne: false }
@@ -1218,7 +1013,6 @@ export async function getAdminHeaderById(req, res) {
     .select('serviceId label description tags')
     .lean();
 
-    // Map to service metadata (serviceId, label, description)
     const serviceMetadata = activeServices.map(service => ({
       serviceId: service.serviceId,
       label: service.label,
@@ -1226,8 +1020,6 @@ export async function getAdminHeaderById(req, res) {
       tags: service.tags || []
     }));
 
-    // Return the doc with available services
-    // Frontend will fetch products separately from product-catalog API
     res.json({
       ...doc,
       availableServices: serviceMetadata
@@ -1275,10 +1067,6 @@ export async function updateAdminHeader(req, res) {
       };
     }
 
-    // If you later use zohoBigin, merge here:
-    // if (body.zohoBigin) {
-    //   doc.zohoBigin = { ...doc.zohoBigin, ...body.zohoBigin };
-    // }
 
     doc.updatedBy = req.admin?.id || doc.updatedBy;
 
@@ -1292,7 +1080,7 @@ export async function updateAdminHeader(req, res) {
         products: doc.products,
         services: doc.services,
         agreement: doc.agreement,
-        customColumns: doc.products?.customColumns || { products: [], dispensers: [] }, // Add custom columns from products section
+        customColumns: doc.products?.customColumns || { products: [], dispensers: [] },
       });
 
       buffer = pdfBuf;
@@ -1323,30 +1111,6 @@ export async function updateAdminHeader(req, res) {
 }
 
 
-/* ------------ VIEWER APIS (CustomerHeaderDoc + Zoho) ------------ */
-
-// async function fetchZohoPdfFromBigin(zohoInfo) {
-//   if (!zohoInfo) return null;
-
-//   const url = zohoInfo.url || zohoInfo.downloadUrl;
-//   if (!url) return null;
-
-//   const token = process.env.ZOHO_BIGIN_ACCESS_TOKEN;
-//   if (!token) {
-//     console.warn("ZOHO_BIGIN_ACCESS_TOKEN not set; cannot fetch PDF");
-//     return null;
-//   }
-
-//   const resp = await axios.get(url, {
-//     responseType: "arraybuffer",
-//     headers: { Authorization: `Zoho-oauthtoken ${token}` },
-//   });
-
-//   return Buffer.from(resp.data);
-// }
-
-// GET /api/pdf/viewer/getall/highlevel
-
 async function fetchZohoPdfFromBigin(zohoInfo) {
   if (!zohoInfo) return null;
 
@@ -1360,7 +1124,6 @@ async function fetchZohoPdfFromBigin(zohoInfo) {
 
   try {
     const token = await getZohoAccessToken();
-    // ✅ Use the correct base URL that was discovered
     const baseUrl = process.env.ZOHO_BIGIN_WORKING_URL || "https://bigin.zoho.in/api/v2";
 
     console.log("📥 Downloading PDF from Zoho Bigin deals/attachments...");
@@ -1368,7 +1131,6 @@ async function fetchZohoPdfFromBigin(zohoInfo) {
     console.log("📎 File ID:", fileId);
     console.log("🏢 Deal ID:", dealId);
 
-    // ✅ CORRECT: Use exact structure with correct base URL
     const downloadUrl = `${baseUrl}/deals/${dealId}/attachments/${fileId}`;
 
     console.log(`📥 Downloading from: ${downloadUrl}`);
@@ -1390,11 +1152,9 @@ async function fetchZohoPdfFromBigin(zohoInfo) {
   }
 }
 
-// Helper function to extract file ID from URL
 function extractFileIdFromUrl(url) {
   if (!url) return null;
 
-  // Extract file ID from various URL patterns
   const patterns = [
     /\/files\/([a-f0-9]+)/i,
     /\/attachments\/([a-f0-9]+)/i,
@@ -1458,7 +1218,6 @@ export async function getCustomerHeadersHighLevel(req, res) {
   }
 }
 
-// GET /api/pdf/viewer/getbyid/:id
 export async function getCustomerHeaderViewerById(req, res) {
   try {
     const { id } = req.params;
@@ -1472,7 +1231,6 @@ export async function getCustomerHeaderViewerById(req, res) {
     let pdfBase64 = null;
     let pdfContentType = "application/pdf";
 
-    // ✅ FIXED: Get PDF from MongoDB instead of Zoho
     if (doc.pdf_meta?.pdfBuffer && doc.pdf_meta.pdfBuffer.length > 0) {
       console.log(`📄 [PDF-VIEWER] Serving PDF from MongoDB for document ${id} (${doc.pdf_meta.sizeBytes} bytes)`);
       pdfBase64 = doc.pdf_meta.pdfBuffer.toString("base64");
@@ -1496,11 +1254,9 @@ export async function getCustomerHeaderViewerById(req, res) {
   }
 }
 
-/* ------------ pass-through file/bundle endpoints ------------ */
-
 export async function proxyCompileFile(req, res) {
   try {
-    const file = req.file; // multer single('file')
+    const file = req.file;
     const { buffer, filename } = await proxyCompileFileToRemote(file);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -1540,8 +1296,6 @@ export async function proxyCompileBundle(req, res) {
 }
 
 
-// GET /api/pdf/viewer/download/:id
-// Downloads PDF from Zoho Bigin and streams it to the client
 export async function downloadCustomerHeaderPdf(req, res) {
   try {
     const { id } = req.params;
@@ -1559,7 +1313,6 @@ export async function downloadCustomerHeaderPdf(req, res) {
         .json({ error: "not_found", detail: "CustomerHeaderDoc not found" });
     }
 
-    // ✅ FIXED: Get PDF from MongoDB instead of Zoho
     if (!doc.pdf_meta?.pdfBuffer || doc.pdf_meta.pdfBuffer.length === 0) {
       console.error(`❌ [PDF-DOWNLOAD] No PDF buffer in MongoDB for document ${id}:`, {
         status: doc.status,
@@ -1589,7 +1342,6 @@ export async function downloadCustomerHeaderPdf(req, res) {
 
     console.log(`📄 [PDF-DOWNLOAD] Serving PDF from MongoDB for document ${id} (${doc.pdf_meta.sizeBytes} bytes)`);
 
-    // Extract customer name from headerRows or customerName field
     const customerName = extractCustomerNameFromDoc(doc);
     const filename = `${customerName}.pdf`;
 
@@ -1608,43 +1360,33 @@ export async function downloadCustomerHeaderPdf(req, res) {
   }
 }
 
-// Helper function to extract customer name from document
 function extractCustomerNameFromDoc(doc) {
-  // Try customerName field first (from frontend payload)
   if (doc.payload?.customerName && doc.payload.customerName.trim()) {
     return sanitizeFilename(doc.payload.customerName.trim());
   }
 
-  // Fallback: search in headerRows for CUSTOMER NAME field
   const headerRows = doc.payload?.headerRows || [];
   for (const row of headerRows) {
-    // Check left side
     if (row.labelLeft && row.labelLeft.toUpperCase().includes("CUSTOMER NAME")) {
       const name = row.valueLeft?.trim();
       if (name) return sanitizeFilename(name);
     }
-    // Check right side
     if (row.labelRight && row.labelRight.toUpperCase().includes("CUSTOMER NAME")) {
       const name = row.valueRight?.trim();
       if (name) return sanitizeFilename(name);
     }
   }
 
-  // Default fallback
   return "Unnamed_Customer";
 }
 
-// Helper to sanitize filename (remove special characters)
 function sanitizeFilename(name) {
   return name
-    .replace(/[^a-zA-Z0-9-_\s]+/g, "_") // Replace special chars with underscore
-    .replace(/\s+/g, "_") // Replace spaces with underscore
-    .substring(0, 80); // Limit length
+    .replace(/[^a-zA-Z0-9-_\s]+/g, "_")
+    .replace(/\s+/g, "_")
+    .substring(0, 80);
 }
 
-/* ------------ NEW SAVED-FILES API (Lazy Loading) ------------ */
-
-// GET /api/pdf/saved-files (lightweight list - high level data only)
 export async function getSavedFilesList(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -1653,7 +1395,6 @@ export async function getSavedFilesList(req, res) {
       100
     );
 
-    // Check if we're in development mode without database
     if (mongoose.connection.readyState === 0) {
       console.log('⚠️ Database not connected, returning empty list for saved files');
       return res.json({
@@ -1666,7 +1407,6 @@ export async function getSavedFilesList(req, res) {
 
     const filter = {};
 
-    // Optional filters
     if (req.query.status) {
       filter.status = req.query.status;
     }
@@ -1676,24 +1416,19 @@ export async function getSavedFilesList(req, res) {
         $options: 'i'
       };
     }
-    // ✅ NEW: Support isDeleted filter for trash functionality
     if (req.query.isDeleted !== undefined) {
       const isDeletedParam = req.query.isDeleted === 'true';
       if (isDeletedParam) {
-        // Trash mode: show only deleted items
         filter.isDeleted = true;
       } else {
-        // Normal mode: show only non-deleted items
         filter.isDeleted = { $ne: true };
       }
     } else {
-      // Default: show only non-deleted items if no filter specified
       filter.isDeleted = { $ne: true };
     }
 
     const total = await CustomerHeaderDoc.countDocuments(filter);
 
-    // ✅ LIGHTWEIGHT QUERY: Only fetch minimal fields needed for list view
     const files = await CustomerHeaderDoc.find(filter)
       .select({
         _id: 1,
@@ -1705,7 +1440,6 @@ export async function getSavedFilesList(req, res) {
         'payload.headerTitle': 1,
         'pdf_meta.sizeBytes': 1,
         'pdf_meta.storedAt': 1,
-        // ✅ OPTIMIZED: Exclude pdfBuffer from initial load - only metadata needed
         'zoho.bigin.dealId': 1,
         'zoho.bigin.fileId': 1,
         'zoho.crm.dealId': 1,
@@ -1716,7 +1450,7 @@ export async function getSavedFilesList(req, res) {
       .limit(limit)
       .lean();
 
-    // Transform to consistent format
+
     const transformedFiles = files.map(file => ({
       id: file._id,
       title: file.payload?.headerTitle || 'Untitled Document',
@@ -1728,7 +1462,6 @@ export async function getSavedFilesList(req, res) {
       fileSize: file.pdf_meta?.sizeBytes || 0,
       pdfStoredAt: file.pdf_meta?.storedAt || null,
       hasPdf: !!(
-        // ✅ OPTIMIZED: Check for Zoho fileId (valid, non-mock) OR PDF metadata (pdfBuffer excluded from initial load)
         (file.zoho?.bigin?.fileId && !file.zoho.bigin.fileId.includes('MOCK_')) ||
         (file.zoho?.crm?.fileId && !file.zoho.crm.fileId.includes('MOCK_')) ||
         (file.pdf_meta?.sizeBytes && file.pdf_meta.sizeBytes > 0)
@@ -1741,8 +1474,6 @@ export async function getSavedFilesList(req, res) {
         crmFileId: file.zoho?.crm?.fileId || null,
       }
     }));
-
-    console.log(`📄 [SAVED-FILES] Fetched ${transformedFiles.length} files (lightweight) for page ${page}`);
 
     res.json({
       success: true,
@@ -1760,7 +1491,6 @@ export async function getSavedFilesList(req, res) {
   } catch (err) {
     console.error("getSavedFilesList error:", err);
 
-    // If it's a database timeout, return empty list for testing
     if (err.message.includes('buffering timed out')) {
       console.log('⚠️ Database timeout, returning empty list for saved files');
       return res.json({
@@ -1780,8 +1510,6 @@ export async function getSavedFilesList(req, res) {
   }
 }
 
-// GET /api/pdf/saved-files/grouped (CORRECTED: One document per agreement with attachedFiles)
-// ✅ OPTIMIZED: Fast queries with selective field projection and efficient filtering
 export async function getSavedFilesGrouped(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -1790,10 +1518,8 @@ export async function getSavedFilesGrouped(req, res) {
       100
     );
 
-    // ⚡ PERFORMANCE: Log query start time
     const startTime = Date.now();
 
-    // Check if we're in development mode without database
     if (mongoose.connection.readyState === 0) {
       console.log('⚠️ Database not connected, returning empty list for grouped files');
       return res.json({
@@ -1806,7 +1532,6 @@ export async function getSavedFilesGrouped(req, res) {
       });
     }
 
-    // Build match filter
     const matchFilter = {};
 
     if (req.query.status) {
@@ -1829,29 +1554,21 @@ export async function getSavedFilesGrouped(req, res) {
 
     console.log(`📁 [ULTRA-OPTIMIZED] Mode: ${isTrashMode ? 'trash' : 'normal'}, includeDrafts: ${includeDrafts}, includeLogs: ${includeLogs}`);
 
-    // ⚡ ULTRA-OPTIMIZED: Use $facet to get count and data in single query (saves 20-30ms)
     const aggregationPipeline = [
-      // Stage 1: Match agreements
       { $match: matchFilter },
 
-      // Stage 2: $facet to run count and data queries in parallel
       {
         $facet: {
-          // Get total count (replaces separate countDocuments query)
           totalCount: [
             { $count: 'count' }
           ],
 
-          // Get paginated data
           data: [
-            // Sort
             { $sort: { createdAt: -1 } },
 
-            // Paginate
             { $skip: (page - 1) * limit },
             { $limit: limit },
 
-            // ⚡ OPTIMIZED: Minimal field projection BEFORE lookups (reduces data transfer)
             {
               $project: {
                 _id: 1,
@@ -1861,7 +1578,7 @@ export async function getSavedFilesGrouped(req, res) {
                 deletedBy: 1,
                 createdAt: 1,
                 updatedAt: 1,
-                title: '$payload.headerTitle', // ✅ Flatten nested fields
+                title: '$payload.headerTitle',
                 startDate: '$payload.agreement.startDate',
                 contractMonths: '$payload.summary.contractMonths',
                 biginDealId: '$zoho.bigin.dealId',
@@ -1869,8 +1586,6 @@ export async function getSavedFilesGrouped(req, res) {
                 attachedFiles: 1
               }
             },
-
-            // Stage 4: Lookup version PDFs using foreign key
             {
               $lookup: {
                 from: 'versionpdfs',
@@ -1905,7 +1620,7 @@ export async function getSavedFilesGrouped(req, res) {
                       deletedAt: 1,
                       deletedBy: 1,
                       createdAt: 1,
-                      size: '$pdf_meta.sizeBytes' // ✅ Flatten nested field
+                      size: '$pdf_meta.sizeBytes' 
                     }
                   },
                   { $sort: { versionNumber: -1 } }
@@ -1914,7 +1629,6 @@ export async function getSavedFilesGrouped(req, res) {
               }
             },
 
-            // Stage 5: Lookup logs (conditional) using foreign key
             ...(includeLogs ? [{
               $lookup: {
                 from: 'logs',
@@ -1960,7 +1674,7 @@ export async function getSavedFilesGrouped(req, res) {
               }
             }] : []),
 
-            // Stage 6: Lookup manual upload documents using foreign key
+
             {
               $lookup: {
                 from: 'manualuploaddocuments',
@@ -2001,7 +1715,7 @@ export async function getSavedFilesGrouped(req, res) {
                       isDeleted: 1,
                       deletedAt: 1,
                       deletedBy: 1,
-                      biginDealId: '$zoho.bigin.dealId', // ✅ Flatten nested fields
+                      biginDealId: '$zoho.bigin.dealId',
                       biginFileId: '$zoho.bigin.fileId',
                       crmDealId: '$zoho.crm.dealId',
                       crmFileId: '$zoho.crm.fileId',
@@ -2018,22 +1732,18 @@ export async function getSavedFilesGrouped(req, res) {
       }
     ];
 
-    // ⚡ EXECUTE: Single aggregation query with $facet (count + data in one query)
     const queryStartTime = Date.now();
     const result = await CustomerHeaderDoc.aggregate(aggregationPipeline);
     const queryTime = Date.now() - queryStartTime;
 
-    // ⚡ Extract results from $facet
     const totalAgreements = result[0]?.totalCount[0]?.count || 0;
     const agreements = result[0]?.data || [];
 
     console.log(`⚡ [ULTRA-OPTIMIZED] Single aggregation completed in ${queryTime}ms (fetched ${agreements.length} agreements, total: ${totalAgreements})`);
 
-    // ⚡ OPTIMIZED: Minimal transformation (flattened fields in aggregation, less work here)
     const transformStartTime = Date.now();
 
     const transformedAgreements = agreements.map(agreement => {
-      // Process attached files from aggregation
       const attachedFiles = (agreement.attachedFiles || [])
         .map(attachmentRef => {
           const manualDoc = (agreement.manualUploads || []).find(
@@ -2056,13 +1766,13 @@ export async function getSavedFilesGrouped(req, res) {
             fileSize: manualDoc.fileSize || 0,
             pdfStoredAt: manualDoc.createdAt,
             hasPdf: !!(manualDoc.fileSize && manualDoc.fileSize > 0) ||
-                    !!(manualDoc.biginFileId || manualDoc.crmFileId), // ✅ Already flattened
+                    !!(manualDoc.biginFileId || manualDoc.crmFileId),
             description: attachmentRef.description || manualDoc.description || '',
             isDeleted: manualDoc.isDeleted || false,
             deletedAt: manualDoc.deletedAt || null,
             deletedBy: manualDoc.deletedBy || null,
             zohoInfo: {
-              biginDealId: manualDoc.biginDealId || null, // ✅ Already flattened
+              biginDealId: manualDoc.biginDealId || null,
               biginFileId: manualDoc.biginFileId || null,
               crmDealId: manualDoc.crmDealId || null,
               crmFileId: manualDoc.crmFileId || null,
@@ -2071,11 +1781,10 @@ export async function getSavedFilesGrouped(req, res) {
         })
         .filter(file => file !== null);
 
-      // Process version PDFs from aggregation
       const versionFiles = (agreement.versionPdfs || []).map(version => ({
         id: version._id,
         agreementId: agreement._id,
-        fileName: `${agreement.title || 'Untitled'} - Version ${version.versionNumber}.pdf`, // ✅ title already flattened
+        fileName: `${agreement.title || 'Untitled'} - Version ${version.versionNumber}.pdf`,
         fileType: 'version_pdf',
         title: `Version ${version.versionNumber}`,
         status: version.status || 'saved',
@@ -2083,9 +1792,9 @@ export async function getSavedFilesGrouped(req, res) {
         updatedAt: version.createdAt,
         createdBy: null,
         updatedBy: null,
-        fileSize: version.size || 0, // ✅ Already flattened
+        fileSize: version.size || 0,
         pdfStoredAt: version.createdAt,
-        hasPdf: !!(version.size && version.size > 0), // ✅ Already flattened
+        hasPdf: !!(version.size && version.size > 0),
         description: `Version ${version.versionNumber} created on ${new Date(version.createdAt).toLocaleDateString()}`,
         versionNumber: version.versionNumber,
         isDeleted: version.isDeleted || false,
@@ -2099,7 +1808,6 @@ export async function getSavedFilesGrouped(req, res) {
         }
       }));
 
-      // Process logs from aggregation
       const logFiles = (agreement.logs || []).map(log => ({
         id: log._id,
         agreementId: agreement._id,
@@ -2132,7 +1840,7 @@ export async function getSavedFilesGrouped(req, res) {
 
       return {
         id: agreement._id,
-        agreementTitle: agreement.title || 'Untitled Agreement', // ✅ Already flattened
+        agreementTitle: agreement.title || 'Untitled Agreement',
         fileCount: allFiles.length,
         latestUpdate: agreement.updatedAt,
         statuses: [agreement.status],
@@ -2140,9 +1848,9 @@ export async function getSavedFilesGrouped(req, res) {
         deletedAt: agreement.deletedAt,
         deletedBy: agreement.deletedBy,
         hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId) ||
-                    !!(agreement.biginDealId || agreement.crmDealId), // ✅ Already flattened
-        startDate: agreement.startDate || null, // ✅ Already flattened
-        contractMonths: agreement.contractMonths || null, // ✅ Already flattened
+                    !!(agreement.biginDealId || agreement.crmDealId),
+        startDate: agreement.startDate || null,
+        contractMonths: agreement.contractMonths || null,
         files: allFiles
       };
     });
@@ -2150,32 +1858,24 @@ export async function getSavedFilesGrouped(req, res) {
     const transformTime = Date.now() - transformStartTime;
     console.log(`⚡ [PERFORMANCE] Transformed ${transformedAgreements.length} agreements with ${transformedAgreements.reduce((sum, a) => sum + a.fileCount, 0)} files in ${transformTime}ms`);
 
-    // ⚡ PERFORMANCE: Start filtering timing
     const filterStartTime = Date.now();
 
-    // ✅ NEW: Apply filtering based on mode
     let finalAgreements = transformedAgreements;
 
     if (isTrashMode) {
-      // ✅ FIXED: Trash mode - show agreements that:
-      // 1. Have files (deleted files from non-deleted agreements, or all files from deleted agreements)
-      // 2. OR are deleted themselves (even if they have no files - empty deleted folders)
       finalAgreements = transformedAgreements.filter(agreement =>
         agreement.fileCount > 0 || agreement.isDeleted === true
       );
       console.log(`📁 [TRASH FILTER] Filtered from ${transformedAgreements.length} to ${finalAgreements.length} agreements (deleted agreements + agreements with deleted files)`);
     } else if (!includeDrafts) {
-      // Normal mode without includeDrafts: filter out agreements with no files (drafts)
       finalAgreements = transformedAgreements.filter(agreement => agreement.fileCount > 0);
       console.log(`📁 [DRAFT FILTER] Filtered from ${transformedAgreements.length} to ${finalAgreements.length} agreements (excluding drafts without files)`);
     } else {
-      // Normal mode with includeDrafts: include all agreements (even drafts without files)
       console.log(`📁 [INCLUDE DRAFTS] Returning all ${transformedAgreements.length} agreements (including drafts without files)`);
 
-      // ✅ NEW: Mark agreements without files as draft-only
       finalAgreements = transformedAgreements.map(agreement => ({
         ...agreement,
-        isDraftOnly: agreement.fileCount === 0 // Flag for frontend UI
+        isDraftOnly: agreement.fileCount === 0
       }));
     }
 
@@ -2184,14 +1884,10 @@ export async function getSavedFilesGrouped(req, res) {
 
     const totalFiles = finalAgreements.reduce((sum, agreement) => sum + agreement.fileCount, 0);
 
-    // ⚡ PERFORMANCE: Calculate total response time and log summary
     const totalTime = Date.now() - startTime;
     console.log(`⚡ [ULTRA-OPTIMIZED SUMMARY] Total: ${totalTime}ms | Query: ${queryTime}ms | Transform: ${transformTime}ms | Filter: ${filterTime}ms`);
     console.log(`⚡ [RESULTS] Returning ${finalAgreements.length} agreements with ${totalFiles} files`);
 
-    console.log(`📁 [SAVED-FILES-GROUPED] Fetched ${finalAgreements.length} agreements with ${totalFiles} total files for page ${page}`);
-
-    // ⚡ OPTIMIZED: Set cache-busting headers to prevent stale data
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -2199,10 +1895,10 @@ export async function getSavedFilesGrouped(req, res) {
     res.json({
       success: true,
       total: totalFiles,
-      totalGroups: isTrashMode ? finalAgreements.length : totalAgreements, // In trash mode, count filtered agreements
+      totalGroups: isTrashMode ? finalAgreements.length : totalAgreements,
       page,
       limit,
-      groups: finalAgreements,  // ✅ FIXED: Use filtered agreements
+      groups: finalAgreements,
       _metadata: {
         queryType: 'ultra_optimized_facet_aggregation',
         structure: 'single_document_per_agreement',
@@ -2214,7 +1910,6 @@ export async function getSavedFilesGrouped(req, res) {
         ],
         fieldsIncluded: ['basic_info', 'file_meta', 'attached_files', 'zoho_refs'],
         fieldsExcluded: ['full_payload', 'pdf_buffer'],
-        // ⚡ PERFORMANCE: Include timing breakdown
         performance: {
           totalTime: `${totalTime}ms`,
           singleQueryTime: `${queryTime}ms`,
@@ -2234,7 +1929,6 @@ export async function getSavedFilesGrouped(req, res) {
   }
 }
 
-// GET /api/pdf/saved-files/:id/details (full payload data on-demand)
 export async function getSavedFileDetails(req, res) {
   try {
     const { id } = req.params;
@@ -2247,7 +1941,6 @@ export async function getSavedFileDetails(req, res) {
       });
     }
 
-    // Check if we're in development mode without database
     if (mongoose.connection.readyState === 0) {
       console.log('⚠️ Database not connected, returning mock data for saved file details');
       return res.json({
@@ -2269,11 +1962,9 @@ export async function getSavedFileDetails(req, res) {
       });
     }
 
-    // ✅ FULL QUERY: Fetch complete document with all payload data
     const file = await CustomerHeaderDoc.findById(id)
       .select({
-        // Include everything EXCEPT pdf buffer (for performance)
-        "pdf_meta.pdfBuffer": 0, // ✅ Exclude the actual PDF buffer field
+        "pdf_meta.pdfBuffer": 0,
       })
       .lean();
 
@@ -2285,9 +1976,7 @@ export async function getSavedFileDetails(req, res) {
       });
     }
 
-    // console.log(`📄 [SAVED-FILES] Fetched full details for file ${id}: "${file.payload?.headerTitle}"`);
 
-    // Transform to consistent format
     const transformedFile = {
       id: file._id,
       title: file.payload?.headerTitle || 'Untitled Document',
@@ -2297,10 +1986,8 @@ export async function getSavedFileDetails(req, res) {
       createdBy: file.createdBy,
       updatedBy: file.updatedBy,
 
-      // ✅ FULL PAYLOAD DATA (loaded on-demand)
       payload: file.payload || {},
 
-      // PDF metadata (no buffer included)
       pdfMeta: {
         sizeBytes: file.pdf_meta?.sizeBytes || 0,
         contentType: file.pdf_meta?.contentType || null,
@@ -2308,13 +1995,11 @@ export async function getSavedFileDetails(req, res) {
         externalUrl: file.pdf_meta?.externalUrl || null,
       },
 
-      // Zoho integration data
       zoho: file.zoho || {
         bigin: { dealId: null, fileId: null, url: null },
         crm: { dealId: null, fileId: null, url: null }
       },
 
-      // Helper flags
       hasPdf: !!(file.zoho?.bigin?.fileId || file.zoho?.crm?.fileId),
       isEditable: file.status === 'draft' || file.status === 'saved',
     };
@@ -2333,7 +2018,6 @@ export async function getSavedFileDetails(req, res) {
   } catch (err) {
     console.error("getSavedFileDetails error:", err);
 
-    // If it's a database timeout, return mock data for testing
     if (err.message.includes('buffering timed out')) {
       console.log('⚠️ Database timeout, returning mock data for saved file details');
       return res.json({
@@ -2364,12 +2048,10 @@ export async function getSavedFileDetails(req, res) {
 }
 
 
-// ✅ OPTIMIZED: Add file(s) to existing agreement's attachedFiles array
-// Performance improvements: batch insert, selective field loading, atomic updates
 export async function addFileToAgreement(req, res) {
   try {
     const { agreementId } = req.params;
-    const { files } = req.body; // Array of file data
+    const { files } = req.body; 
 
     console.log(`📎 [ADD-FILES] Starting to add ${files?.length || 0} file(s) to agreement ${agreementId}`);
 
@@ -2389,7 +2071,6 @@ export async function addFileToAgreement(req, res) {
       });
     }
 
-    // ✅ OPTIMIZED: Only fetch needed fields (avoid loading heavy payload and pdfBuffer)
     const agreement = await CustomerHeaderDoc.findById(agreementId)
       .select('_id payload.headerTitle attachedFiles updatedBy')
       .lean()
@@ -2406,11 +2087,10 @@ export async function addFileToAgreement(req, res) {
     const userId = req.user?.id || req.admin?.id || 'system';
     const agreementTitle = agreement.payload?.headerTitle || 'Untitled Agreement';
 
-    // ✅ OPTIMIZED: Prepare all documents for batch insert
+
     const manualDocsToInsert = [];
 
     for (const file of files) {
-      // ✅ Convert number array back to Buffer if provided
       let pdfBuffer = null;
       if (file.pdfBuffer && Array.isArray(file.pdfBuffer)) {
         pdfBuffer = Buffer.from(file.pdfBuffer);
@@ -2443,16 +2123,13 @@ export async function addFileToAgreement(req, res) {
       });
     }
 
-    // ✅ OPTIMIZED: Batch insert all documents at once (1 query instead of N queries)
-    console.log(`📦 [ADD-FILES] Batch inserting ${manualDocsToInsert.length} ManualUploadDocuments...`);
     const insertedDocs = await ManualUploadDocument.insertMany(manualDocsToInsert, {
-      ordered: true, // Stop on first error
-      lean: false    // Return full Mongoose documents with _id
+      ordered: true,
+      lean: false
     });
 
     console.log(`✅ [ADD-FILES] Inserted ${insertedDocs.length} ManualUploadDocuments`);
 
-    // ✅ OPTIMIZED: Build attachment references from inserted documents
     const attachmentRefs = insertedDocs.map((doc, index) => ({
       manualDocumentId: new mongoose.Types.ObjectId(doc._id),
       fileName: files[index].fileName || 'Untitled.pdf',
@@ -2469,8 +2146,6 @@ export async function addFileToAgreement(req, res) {
       fileSize: files[index].fileSize
     }));
 
-    // ✅ OPTIMIZED: Use findByIdAndUpdate with $push for atomic update
-    // This avoids loading the full document and is much faster than find + save
     const updateResult = await CustomerHeaderDoc.findByIdAndUpdate(
       agreementId,
       {
@@ -2485,7 +2160,6 @@ export async function addFileToAgreement(req, res) {
     ).lean();
 
     if (!updateResult) {
-      // Rollback: delete the inserted documents if agreement update failed
       await ManualUploadDocument.deleteMany({
         _id: { $in: insertedDocs.map(doc => doc._id) }
       });
@@ -2495,7 +2169,6 @@ export async function addFileToAgreement(req, res) {
 
     console.log(`✅ [ADD-FILES] Added ${attachmentRefs.length} file refs to agreement: ${agreementTitle}`);
 
-    // ✅ OPTIMIZED: Set cache-busting headers to prevent stale data
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -2521,7 +2194,6 @@ export async function addFileToAgreement(req, res) {
   }
 }
 
-// ✅ NEW: Download attached file from ManualUploadDocument collection
 export async function downloadAttachedFile(req, res) {
   try {
     const { fileId } = req.params;
@@ -2534,7 +2206,6 @@ export async function downloadAttachedFile(req, res) {
       });
     }
 
-    // Find the file in ManualUploadDocument collection
     const manualDoc = await ManualUploadDocument.findById(fileId).select('fileName originalFileName mimeType pdfBuffer');
 
     if (!manualDoc) {
@@ -2553,7 +2224,6 @@ export async function downloadAttachedFile(req, res) {
       });
     }
 
-    // Set headers for file download
     res.set({
       'Content-Type': manualDoc.mimeType || 'application/pdf',
       'Content-Disposition': `attachment; filename="${manualDoc.originalFileName || 'document.pdf'}"`,
@@ -2572,9 +2242,6 @@ export async function downloadAttachedFile(req, res) {
   }
 }
 
-/* ------------ DELETE AND RESTORE API ------------ */
-
-// ✅ NEW: Restore deleted agreement from trash (soft restore)
 export async function restoreAgreement(req, res) {
   try {
     const { agreementId } = req.params;
@@ -2590,11 +2257,9 @@ export async function restoreAgreement(req, res) {
     const userId = req.user?.id || req.admin?.id || 'system';
     const restoreTimestamp = new Date();
 
-    // ⚡ ULTRA-OPTIMIZED: Restore agreement and all files in parallel with bulk operations
     console.log(`♻️ [BULK RESTORE] Starting bulk restore for agreement ${agreementId}...`);
     const startTime = Date.now();
 
-    // ⚡ Step 1: Get agreement info (we need attachedFiles for manual upload restore)
     const agreement = await CustomerHeaderDoc.findById(agreementId)
       .select('_id payload.headerTitle attachedFiles isDeleted')
       .lean();
@@ -2607,13 +2272,11 @@ export async function restoreAgreement(req, res) {
       });
     }
 
-    // ⚡ Step 2: Restore agreement and all files in parallel (4 operations at once)
     const manualFileIds = (agreement.attachedFiles || [])
       .map(ref => ref.manualDocumentId)
       .filter(id => id);
 
     const [agreementResult, versionResult, manualResult, logResult] = await Promise.all([
-      // Restore agreement itself (if deleted)
       agreement.isDeleted === true
         ? CustomerHeaderDoc.findOneAndUpdate(
             { _id: agreementId, isDeleted: true },
@@ -2630,7 +2293,6 @@ export async function restoreAgreement(req, res) {
           )
         : Promise.resolve(null),
 
-      // Restore all version PDFs for this agreement
       VersionPdf.updateMany(
         { agreementId: agreementId, isDeleted: true },
         {
@@ -2643,7 +2305,6 @@ export async function restoreAgreement(req, res) {
         }
       ),
 
-      // Restore all manually uploaded files attached to this agreement
       manualFileIds.length > 0
         ? ManualUploadDocument.updateMany(
             { _id: { $in: manualFileIds }, isDeleted: true },
@@ -2658,7 +2319,6 @@ export async function restoreAgreement(req, res) {
           )
         : Promise.resolve({ modifiedCount: 0 }),
 
-      // Restore all version logs for this agreement
       Log.updateMany(
         { agreementId: agreementId, isDeleted: true },
         {
@@ -2672,12 +2332,10 @@ export async function restoreAgreement(req, res) {
       )
     ]);
 
-    // ⚡ Calculate results
     const agreementRestored = agreementResult ? 1 : 0;
     const totalRestored = agreementRestored + versionResult.modifiedCount + manualResult.modifiedCount + logResult.modifiedCount;
     const totalTime = Date.now() - startTime;
 
-    // ✅ Check if anything was restored
     if (totalRestored === 0) {
       return res.status(404).json({
         success: false,
@@ -2693,7 +2351,6 @@ export async function restoreAgreement(req, res) {
     console.log(`   • Version logs: ${logResult.modifiedCount}`);
     console.log(`   • Total: ${totalRestored} items`);
 
-    // ⚡ OPTIMIZED: Set cache-busting headers
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -2728,7 +2385,6 @@ export async function restoreAgreement(req, res) {
   }
 }
 
-// ✅ NEW: Restore deleted file from trash (soft restore)
 export async function restoreFile(req, res) {
   try {
     const { fileId } = req.params;
@@ -2898,7 +2554,6 @@ export async function restoreFile(req, res) {
     });
   }
 }
-// ✅ NEW: Soft delete agreement (move to trash)
 export async function deleteAgreement(req, res) {
   try {
     const { agreementId } = req.params;
@@ -2914,11 +2569,9 @@ export async function deleteAgreement(req, res) {
     const userId = req.user?.id || req.admin?.id || 'system';
     const deleteTimestamp = new Date();
 
-    // ⚡ ULTRA-OPTIMIZED: Delete agreement and all files in parallel with bulk operations
     console.log(`🗑️ [BULK DELETE] Starting bulk delete for agreement ${agreementId}...`);
     const startTime = Date.now();
 
-    // ⚡ Step 1: Get agreement info and mark as deleted (atomic operation)
     const agreement = await CustomerHeaderDoc.findOneAndUpdate(
       { _id: agreementId, isDeleted: { $ne: true } },
       {
@@ -2944,13 +2597,11 @@ export async function deleteAgreement(req, res) {
       });
     }
 
-    // ⚡ Step 2: Bulk delete all related files in parallel (3 collections)
     const manualFileIds = (agreement.attachedFiles || [])
       .map(ref => ref.manualDocumentId)
       .filter(id => id);
 
     const [versionResult, manualResult, logResult] = await Promise.all([
-      // Delete all version PDFs for this agreement
       VersionPdf.updateMany(
         { agreementId: agreementId, isDeleted: { $ne: true } },
         {
@@ -2963,7 +2614,6 @@ export async function deleteAgreement(req, res) {
         }
       ),
 
-      // Delete all manually uploaded files attached to this agreement
       manualFileIds.length > 0
         ? ManualUploadDocument.updateMany(
             { _id: { $in: manualFileIds }, isDeleted: { $ne: true } },
@@ -2978,7 +2628,6 @@ export async function deleteAgreement(req, res) {
           )
         : Promise.resolve({ modifiedCount: 0 }),
 
-      // Delete all version logs for this agreement
       Log.updateMany(
         { agreementId: agreementId, isDeleted: { $ne: true } },
         {
@@ -3002,7 +2651,6 @@ export async function deleteAgreement(req, res) {
     console.log(`   • Version logs: ${logResult.modifiedCount}`);
     console.log(`   • Total: ${totalDeleted} items`);
 
-    // ⚡ OPTIMIZED: Set cache-busting headers
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -3029,13 +2677,10 @@ export async function deleteAgreement(req, res) {
   }
 }
 
-// ✅ FIXED: Soft delete file (move to trash) - handles all file types
-// ✅ NEW: Debug endpoint to check all files and their delete status
 export async function debugGetAllFiles(req, res) {
   try {
     console.log('🔍 [DEBUG] Fetching all files with delete status...');
 
-    // Get all version PDFs
     const versionPdfs = await VersionPdf.find({})
       .select({
         _id: 1,
@@ -3051,7 +2696,6 @@ export async function debugGetAllFiles(req, res) {
       .limit(100)
       .lean();
 
-    // Get all manual uploads
     const manualUploads = await ManualUploadDocument.find({})
       .select({
         _id: 1,
@@ -3066,7 +2710,6 @@ export async function debugGetAllFiles(req, res) {
       .limit(100)
       .lean();
 
-    // Get all customer headers
     const agreements = await CustomerHeaderDoc.find({})
       .select({
         _id: 1,
@@ -3081,7 +2724,6 @@ export async function debugGetAllFiles(req, res) {
       .limit(100)
       .lean();
 
-    // Count deleted items
     const deletedVersionPdfs = versionPdfs.filter(v => v.isDeleted === true);
     const deletedManualUploads = manualUploads.filter(m => m.isDeleted === true);
     const deletedAgreements = agreements.filter(a => a.isDeleted === true);
@@ -3128,7 +2770,6 @@ export async function debugGetAllFiles(req, res) {
   }
 }
 
-// ✅ NEW: Comprehensive trash workflow verification endpoint
 export async function verifyTrashWorkflow(req, res) {
   try {
     console.log('🧪 [VERIFY-TRASH] Starting comprehensive trash workflow verification...');
@@ -3155,7 +2796,6 @@ export async function verifyTrashWorkflow(req, res) {
       recommendations: []
     };
 
-    // 1. Check database connection
     try {
       if (mongoose.connection.readyState === 1) {
         results.databaseConnection = true;
@@ -3169,9 +2809,7 @@ export async function verifyTrashWorkflow(req, res) {
       results.recommendations.push(`Database connection error: ${err.message}`);
     }
 
-    // 2. Check collections exist and query them
     if (results.databaseConnection) {
-      // Check VersionPdf collection
       try {
         const versionCount = await VersionPdf.countDocuments({});
         const deletedVersionCount = await VersionPdf.countDocuments({ isDeleted: true });
@@ -3192,7 +2830,7 @@ export async function verifyTrashWorkflow(req, res) {
         console.error(`❌ [VERIFY-TRASH] VersionPdf query failed:`, err);
       }
 
-      // Check ManualUploadDocument collection
+
       try {
         const uploadCount = await ManualUploadDocument.countDocuments({});
         const deletedUploadCount = await ManualUploadDocument.countDocuments({ isDeleted: true });
@@ -3213,7 +2851,7 @@ export async function verifyTrashWorkflow(req, res) {
         console.error(`❌ [VERIFY-TRASH] ManualUploadDocument query failed:`, err);
       }
 
-      // Check CustomerHeaderDoc collection
+
       try {
         const agreementCount = await CustomerHeaderDoc.countDocuments({});
         const deletedAgreementCount = await CustomerHeaderDoc.countDocuments({ isDeleted: true });
@@ -3235,16 +2873,16 @@ export async function verifyTrashWorkflow(req, res) {
       }
     }
 
-    // 3. Test trash query (simulating the actual trash view query)
+
     if (results.databaseConnection) {
       try {
-        // Simulate the exact query that trash view uses
+
         const agreementIds = (await CustomerHeaderDoc.find({})
           .select('_id')
           .limit(10)
           .lean()).map(a => a._id);
 
-        // Query for deleted version PDFs
+
         const deletedVersions = await VersionPdf.find({
           agreementId: { $in: agreementIds },
           isDeleted: true,
@@ -3254,7 +2892,7 @@ export async function verifyTrashWorkflow(req, res) {
         .limit(10)
         .lean();
 
-        // Query for deleted manual uploads
+
         const deletedUploads = await ManualUploadDocument.find({
           isDeleted: true
         })
@@ -3282,7 +2920,7 @@ export async function verifyTrashWorkflow(req, res) {
       }
     }
 
-    // 4. Overall diagnosis
+
     const totalDeleted = results.collections.versionPdfs.deleted +
                         results.collections.manualUploads.deleted +
                         results.collections.agreements.deleted;
@@ -3333,12 +2971,11 @@ export async function deleteFile(req, res) {
     const userId = req.user?.id || req.admin?.id || 'system';
     const fileTypeHint = String(req.query.fileType || "").trim().toLowerCase();
 
-    // ⚡ ULTRA-OPTIMIZED: Use fileType hint to query directly with atomic update
-    // This replaces: find → modify → save (3 operations) with a single atomic update
+
     let result = null;
     let fileType = null;
 
-    // ⚡ OPTIMIZED: Try the hinted type first with atomic update
+
     if (fileTypeHint === 'attached_pdf') {
       result = await ManualUploadDocument.findOneAndUpdate(
         { _id: fileId, isDeleted: { $ne: true } },
@@ -3408,7 +3045,6 @@ export async function deleteFile(req, res) {
       }
     }
 
-    // ⚡ FALLBACK: If no fileType hint or hint was wrong, try all types in parallel
     if (!result) {
       console.log(`🔍 [SOFT DELETE] No fileType hint or hint failed, trying all types in parallel for ${fileId}`);
 
@@ -3462,7 +3098,6 @@ export async function deleteFile(req, res) {
       });
     }
 
-    // ⚡ Extract file name based on type
     let fileName;
     if (fileType === 'attached_file') {
       fileName = result.fileName || result.originalFileName;
@@ -3476,7 +3111,6 @@ export async function deleteFile(req, res) {
       fileName = 'Unknown File';
     }
 
-    // ⚡ OPTIMIZED: Set cache-busting headers
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -3498,15 +3132,12 @@ export async function deleteFile(req, res) {
   }
 }
 
-// ✅ NEW: Permanently delete agreement and all associated files (cascade delete)
-// GET /api/pdf/approval-documents/grouped - Get all documents pending approval grouped by agreement
 export async function getApprovalDocumentsGrouped(req, res) {
   try {
-    // ⚡ PERFORMANCE: Start timing
     const startTime = Date.now();
     console.log('📋 [APPROVAL-DOCS] Starting optimized approval documents fetch...');
 
-    // Check database connection
+
     if (mongoose.connection.readyState !== 1) {
       console.log('⚠️ [APPROVAL-DOCS] Database not connected');
       return res.json({
@@ -3517,24 +3148,19 @@ export async function getApprovalDocumentsGrouped(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Use aggregation to find all unique agreement IDs with pending approval files
     const aggregationStartTime = Date.now();
 
-    // Get all unique agreement IDs that have at least one pending approval item
     const [pendingAgreementIds, pendingVersionAgreementIds, pendingManualAgreementIds] = await Promise.all([
-      // Agreements with pending_approval status
       CustomerHeaderDoc.distinct('_id', {
         status: 'pending_approval',
         isDeleted: { $ne: true }
       }),
 
-      // Agreement IDs from pending version PDFs
       VersionPdf.distinct('agreementId', {
         status: 'pending_approval',
         isDeleted: { $ne: true }
       }),
 
-      // Agreement IDs from pending manual uploads
       ManualUploadDocument.distinct('metadata.attachedToAgreement', {
         status: 'pending_approval',
         isDeleted: { $ne: true },
@@ -3542,7 +3168,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
       })
     ]);
 
-    // Combine all unique agreement IDs
     const allAgreementIds = [...new Set([
       ...pendingAgreementIds.map(id => id.toString()),
       ...pendingVersionAgreementIds.map(id => id.toString()),
@@ -3551,7 +3176,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
 
     console.log(`📋 [APPROVAL-DOCS] Found ${allAgreementIds.length} unique agreements with pending items`);
 
-    // ✅ FAST PATH: If no pending items, return empty result immediately
     if (allAgreementIds.length === 0) {
       const totalTime = Date.now() - startTime;
       console.log(`⚡ [OPTIMIZED SUMMARY] Total: ${totalTime}ms - No pending approval items found`);
@@ -3576,9 +3200,7 @@ export async function getApprovalDocumentsGrouped(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Single aggregation pipeline to get all data at once
     const aggregationPipeline = [
-      // Stage 1: Match agreements
       {
         $match: {
           _id: { $in: allAgreementIds.map(id => new mongoose.Types.ObjectId(id)) },
@@ -3586,7 +3208,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
         }
       },
 
-      // Stage 2: Lookup pending version PDFs
       {
         $lookup: {
           from: 'versionpdfs',
@@ -3612,7 +3233,7 @@ export async function getApprovalDocumentsGrouped(req, res) {
                 createdAt: 1,
                 updatedAt: 1,
                 'pdf_meta.sizeBytes': 1
-                // ❌ REMOVED: versionLabel, createdBy
+
               }
             },
             { $sort: { updatedAt: -1 } }
@@ -3621,12 +3242,11 @@ export async function getApprovalDocumentsGrouped(req, res) {
         }
       },
 
-      // Stage 3: Lookup pending manual uploads
       {
         $lookup: {
           from: 'manualuploaddocuments',
           let: {
-            attachedFileIds: { $ifNull: ['$attachedFiles.manualDocumentId', []] }, // ✅ Default to empty array
+            attachedFileIds: { $ifNull: ['$attachedFiles.manualDocumentId', []] },
             agreementIdStr: { $toString: '$_id' }
           },
           pipeline: [
@@ -3656,7 +3276,7 @@ export async function getApprovalDocumentsGrouped(req, res) {
                 uploadedBy: 1,
                 createdAt: 1,
                 updatedAt: 1
-                // ❌ REMOVED: pdfBuffer (heavy field)
+
               }
             },
             { $sort: { updatedAt: -1 } }
@@ -3665,7 +3285,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
         }
       },
 
-      // Stage 4: Project only needed fields
       {
         $project: {
           _id: 1,
@@ -3677,15 +3296,12 @@ export async function getApprovalDocumentsGrouped(req, res) {
           attachedFiles: 1,
           pendingVersions: 1,
           pendingManualUploads: 1
-          // ❌ REMOVED: createdBy
         }
       },
 
-      // Stage 5: Sort by latest update
       { $sort: { updatedAt: -1 } }
     ];
 
-    // ⚡ EXECUTE: Single aggregation query
     const queryStartTime = Date.now();
     const agreements = await CustomerHeaderDoc.aggregate(aggregationPipeline);
     const queryTime = Date.now() - queryStartTime;
@@ -3693,16 +3309,13 @@ export async function getApprovalDocumentsGrouped(req, res) {
 
     console.log(`⚡ [OPTIMIZED] Single aggregation completed in ${queryTime}ms (total with distinct queries: ${aggregationTime}ms)`);
 
-    // Transform data (maintains same structure for compatibility)
     const transformStartTime = Date.now();
     const agreementGroups = new Map();
 
-    // Process each agreement from aggregation
     agreements.forEach(agreement => {
       const agreementId = agreement._id.toString();
       const agreementTitle = agreement.payload?.headerTitle || 'Untitled Agreement';
 
-      // Initialize group
       if (!agreementGroups.has(agreementId)) {
         agreementGroups.set(agreementId, {
           id: agreementId,
@@ -3717,7 +3330,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
 
       const group = agreementGroups.get(agreementId);
 
-      // Add main PDF if it exists and has pending_approval status
       if (agreement.status === 'pending_approval' && agreement.pdf_meta?.sizeBytes) {
         group.files.push({
           id: agreement._id,
@@ -3736,7 +3348,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
         });
       }
 
-      // Add pending version PDFs
       (agreement.pendingVersions || []).forEach(version => {
         group.files.push({
           id: version._id,
@@ -3754,15 +3365,12 @@ export async function getApprovalDocumentsGrouped(req, res) {
           versionNumber: version.versionNumber
         });
 
-        // Update latest update time
         if (new Date(version.updatedAt) > new Date(group.latestUpdate)) {
           group.latestUpdate = version.updatedAt;
         }
       });
 
-      // Add pending manual uploads
       (agreement.pendingManualUploads || []).forEach(manualDoc => {
-        // Check if already added via attachedFiles (avoid duplicates)
         const alreadyExists = group.files.some(f => f.id === manualDoc._id.toString());
         if (!alreadyExists) {
           group.files.push({
@@ -3780,7 +3388,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
             canChangeStatus: true
           });
 
-          // Update latest update time
           if (new Date(manualDoc.updatedAt) > new Date(group.latestUpdate)) {
             group.latestUpdate = manualDoc.updatedAt;
           }
@@ -3788,7 +3395,6 @@ export async function getApprovalDocumentsGrouped(req, res) {
       });
     });
 
-    // Convert map to array and update file counts
     const groups = Array.from(agreementGroups.values()).map(group => ({
       ...group,
       fileCount: group.files.length,
@@ -3835,7 +3441,6 @@ export async function permanentlyDeleteAgreement(req, res) {
   try {
     const { agreementId } = req.params;
 
-    // ✅ SECURITY: Log admin who performed this irreversible action
     const adminUser = req.admin ? `${req.admin.username} (ID: ${req.admin.id})` : 'Unknown';
     console.log(`🔒 [SECURITY] Permanent delete requested by admin: ${adminUser}`);
 
@@ -3847,7 +3452,6 @@ export async function permanentlyDeleteAgreement(req, res) {
       });
     }
 
-    // Find the deleted agreement (must be in trash first)
     const agreement = await CustomerHeaderDoc.findOne({
       _id: agreementId,
       isDeleted: true
@@ -3869,7 +3473,6 @@ export async function permanentlyDeleteAgreement(req, res) {
     console.log(`💥 [PERMANENT DELETE] Starting cascade deletion for agreement: ${agreementTitle} (ID: ${agreementId})`);
     console.log(`💥 [PERMANENT DELETE] Authorized by: ${adminUser}`);
 
-    // 1. Delete all attached files from ManualUploadDocument collection
     if (agreement.attachedFiles && agreement.attachedFiles.length > 0) {
       const attachedFileIds = agreement.attachedFiles
         .filter(attachment => attachment.manualDocumentId)
@@ -3884,7 +3487,6 @@ export async function permanentlyDeleteAgreement(req, res) {
       }
     }
 
-    // 2. Delete version PDFs if any (assuming VersionPdf model exists)
     if (agreement.versions && agreement.versions.length > 0) {
       const versionIds = agreement.versions
         .filter(version => version.versionId)
@@ -3903,14 +3505,11 @@ export async function permanentlyDeleteAgreement(req, res) {
       }
     }
 
-    // 3. Count and clean up Zoho mappings
     let zohoMappings = 0;
     if (agreement.zoho?.bigin?.dealId || agreement.zoho?.bigin?.fileId) zohoMappings++;
     if (agreement.zoho?.crm?.dealId || agreement.zoho?.crm?.fileId) zohoMappings++;
 
-    // Count Zoho mappings from attached files and versions
     agreement.attachedFiles?.forEach(file => {
-      // Note: We already deleted the files, but we count the mappings that were removed
       zohoMappings += (file.zoho?.bigin?.dealId ? 1 : 0) + (file.zoho?.crm?.dealId ? 1 : 0);
     });
     agreement.versions?.forEach(version => {
@@ -3919,7 +3518,6 @@ export async function permanentlyDeleteAgreement(req, res) {
 
     deletedZohoMappings = zohoMappings;
 
-    // 4. Finally, delete the main agreement document
     await CustomerHeaderDoc.findByIdAndDelete(agreementId);
 
     console.log(`💥 [PERMANENT DELETE] Agreement permanently deleted: ${agreementTitle}`);
@@ -3946,12 +3544,10 @@ export async function permanentlyDeleteAgreement(req, res) {
   }
 }
 
-// ✅ NEW: Permanently delete individual file and cleanup references
 export async function permanentlyDeleteFile(req, res) {
   try {
     const { fileId } = req.params;
 
-    // ✅ SECURITY: Log admin who performed this irreversible action
     const adminUser = req.admin ? `${req.admin.username} (ID: ${req.admin.id})` : 'Unknown';
     console.log(`🔒 [SECURITY] Permanent delete file requested by admin: ${adminUser}`);
 
@@ -4136,9 +3732,6 @@ export async function permanentlyDeleteFile(req, res) {
 }
 
 
-/* ------------ PRICE OVERRIDE LOGGING API ------------ */
-
-// POST /api/pdf/price-overrides/log - Log a price override
 export async function logPriceOverride(req, res) {
   try {
     const {
@@ -4160,7 +3753,6 @@ export async function logPriceOverride(req, res) {
       source
     } = req.body;
 
-    // Validate required fields
     if (!agreementId || !salespersonId || !salespersonName || !productKey || !productName ||
         !productType || !fieldType || originalValue === undefined || overrideValue === undefined) {
       return res.status(400).json({
@@ -4170,11 +3762,9 @@ export async function logPriceOverride(req, res) {
       });
     }
 
-    // Get client information
     const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
     const userAgent = req.headers['user-agent'];
 
-    // Create price override log
     const overrideLog = new PriceOverrideLog({
       agreementId,
       versionId: versionId || null,
@@ -4223,7 +3813,6 @@ export async function logPriceOverride(req, res) {
   }
 }
 
-// GET /api/pdf/price-overrides/logs/:agreementId - Get logs for an agreement
 export async function getPriceOverrideLogs(req, res) {
   try {
     const { agreementId } = req.params;
@@ -4272,7 +3861,6 @@ export async function getPriceOverrideLogs(req, res) {
   }
 }
 
-// GET /api/pdf/price-overrides/stats/:agreementId - Get override statistics
 export async function getPriceOverrideStats(req, res) {
   try {
     const { agreementId } = req.params;
@@ -4303,7 +3891,6 @@ export async function getPriceOverrideStats(req, res) {
   }
 }
 
-// PATCH /api/pdf/price-overrides/:logId/review - Review/approve a price override
 export async function reviewPriceOverride(req, res) {
   try {
     const { logId } = req.params;
@@ -4362,7 +3949,6 @@ export async function reviewPriceOverride(req, res) {
   }
 }
 
-// GET /api/pdf/price-overrides/pending - Get all pending overrides (admin view)
 export async function getPendingPriceOverrides(req, res) {
   try {
     const {
@@ -4413,9 +3999,6 @@ export async function getPendingPriceOverrides(req, res) {
   }
 }
 
-/* ------------ VERSION-BASED CHANGE LOGGING API ------------ */
-
-// POST /api/pdf/version-changes/log - Log all changes for a version (batch)
 export async function logVersionChanges(req, res) {
   try {
     const {
@@ -4430,7 +4013,6 @@ export async function logVersionChanges(req, res) {
       sessionId
     } = req.body;
 
-    // Validate required fields
     if (!agreementId || !versionId || !salespersonId || !salespersonName ||
         !changes || !Array.isArray(changes) || changes.length === 0 ||
         !saveAction || !documentTitle) {
@@ -4441,15 +4023,12 @@ export async function logVersionChanges(req, res) {
       });
     }
 
-    // Get client information
     const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
     const userAgent = req.headers['user-agent'];
 
-    // Check if log already exists for this version (replace if exists)
     let versionLog = await VersionChangeLog.findOne({ versionId });
 
     if (versionLog) {
-      // Update existing log
       versionLog.salespersonId = salespersonId;
       versionLog.salespersonName = salespersonName;
       versionLog.changes = changes;
@@ -4460,7 +4039,6 @@ export async function logVersionChanges(req, res) {
       versionLog.userAgent = userAgent;
       versionLog.updatedAt = new Date();
     } else {
-      // Create new log
       versionLog = new VersionChangeLog({
         agreementId,
         versionId,
@@ -4505,7 +4083,6 @@ export async function logVersionChanges(req, res) {
   }
 }
 
-// GET /api/pdf/version-changes/logs/:agreementId - Get all version change logs for an agreement
 export async function getVersionChangeLogs(req, res) {
   try {
     const { agreementId } = req.params;
@@ -4560,7 +4137,6 @@ export async function getVersionChangeLogs(req, res) {
   }
 }
 
-// GET /api/pdf/version-changes/log/:versionId - Get specific version change log
 export async function getVersionChangeLog(req, res) {
   try {
     const { versionId } = req.params;
@@ -4596,7 +4172,6 @@ export async function getVersionChangeLog(req, res) {
   }
 }
 
-// PATCH /api/pdf/version-changes/:logId/review - Review/approve a version's changes
 export async function reviewVersionChanges(req, res) {
   try {
     const { logId } = req.params;
@@ -4657,7 +4232,6 @@ export async function reviewVersionChanges(req, res) {
   }
 }
 
-// GET /api/pdf/version-changes/pending - Get all pending version changes (admin view)
 export async function getPendingVersionChanges(req, res) {
   try {
     const {
@@ -4708,33 +4282,26 @@ export async function getPendingVersionChanges(req, res) {
   }
 }
 
-/* ------------ OPTIMIZED COUNT API FOR HOME PAGE BAR GRAPH ------------ */
-
-// GET /api/pdf/document-status-counts - Get counts of documents by status (optimized for bar graph)
-// ✅ ENHANCED: Now returns grouped time-series data for accurate bar graph visualization
 export async function getDocumentStatusCounts(req, res) {
   try {
     const {
       startDate,
       endDate,
-      groupBy = 'day' // day, week, month, year
+      groupBy = 'day' 
     } = req.query;
 
     console.log(`📊 [STATUS-COUNTS] Fetching document status counts (groupBy: ${groupBy}, startDate: ${startDate || 'all'}, endDate: ${endDate || 'all'})`);
 
-    // ✅ FIXED: Build date filter with proper timezone handling
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.createdAt = {};
       if (startDate) {
-        // ✅ FIXED: Parse YYYY-MM-DD format correctly in local time (avoid UTC parsing issues)
         const [year, month, day] = startDate.split('-').map(Number);
         const startDateObj = new Date(year, month - 1, day, 0, 0, 0, 0);
         dateFilter.createdAt.$gte = startDateObj;
         console.log(`📊 [STATUS-COUNTS] Start date parsed: ${startDate} → ${startDateObj.toISOString()} (local: ${startDateObj.toString()})`);
       }
       if (endDate) {
-        // ✅ FIXED: Parse YYYY-MM-DD format correctly in local time (avoid UTC parsing issues)
         const [year, month, day] = endDate.split('-').map(Number);
         const endDateObj = new Date(year, month - 1, day, 23, 59, 59, 999);
         dateFilter.createdAt.$lte = endDateObj;
@@ -4742,13 +4309,11 @@ export async function getDocumentStatusCounts(req, res) {
       }
     }
 
-    // ✅ NEW: Aggregation pipeline with proper grouping by time period
     let groupByExpression;
     let sortByExpression;
 
     switch (groupBy) {
       case 'day':
-        // Group by year-month-day (e.g., 2026-01-02)
         groupByExpression = {
           year: { $year: '$createdAt' },
           month: { $month: '$createdAt' },
@@ -4762,12 +4327,9 @@ export async function getDocumentStatusCounts(req, res) {
         break;
 
       case 'week':
-        // ✅ FIXED: Group by year-week using ISO week (1-53, never 0)
-        // Note: $isoWeek starts weeks on Monday and ranges from 1-53
-        // Week 1 is the week containing the first Thursday of the year
         groupByExpression = {
-          year: { $isoWeekYear: '$createdAt' },  // ✅ Use isoWeekYear instead of year to handle year boundaries
-          week: { $isoWeek: '$createdAt' }       // ✅ Use isoWeek instead of week (never returns 0)
+          year: { $isoWeekYear: '$createdAt' },
+          week: { $isoWeek: '$createdAt' }
         };
         sortByExpression = {
           '_id.year': 1,
@@ -4776,7 +4338,6 @@ export async function getDocumentStatusCounts(req, res) {
         break;
 
       case 'month':
-        // Group by year-month (e.g., 2026-01)
         groupByExpression = {
           year: { $year: '$createdAt' },
           month: { $month: '$createdAt' }
@@ -4788,20 +4349,15 @@ export async function getDocumentStatusCounts(req, res) {
         break;
 
       default:
-        // Fallback: no grouping, just count all
         groupByExpression = null;
         sortByExpression = null;
     }
 
-    // ✅ OPTIMIZED: Use MongoDB aggregation for efficient counting with time-series grouping
     const pipeline = [
-      // Filter by date range if provided
       ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
 
-      // Filter out deleted documents
       { $match: { isDeleted: { $ne: true } } },
 
-      // Group by time period and status
       {
         $group: {
           _id: groupByExpression ? {
@@ -4812,15 +4368,12 @@ export async function getDocumentStatusCounts(req, res) {
         }
       },
 
-      // Sort by time period
       ...(sortByExpression ? [{ $sort: sortByExpression }] : [])
     ];
 
     const results = await CustomerHeaderDoc.aggregate(pipeline);
 
-    // ✅ NEW: Transform results into time-series format
     if (groupByExpression) {
-      // Group results by time period
       const timeSeriesMap = new Map();
 
       results.forEach(item => {
@@ -4861,7 +4414,6 @@ export async function getDocumentStatusCounts(req, res) {
         periodData.total += count;
       });
 
-      // Convert map to sorted array
       const timeSeries = Array.from(timeSeriesMap.values()).sort((a, b) =>
         a.period.localeCompare(b.period)
       );
@@ -4871,7 +4423,7 @@ export async function getDocumentStatusCounts(req, res) {
       res.json({
         success: true,
         groupBy,
-        timeSeries, // ✅ NEW: Array of {period, done, pending, saved, drafts, total}
+        timeSeries,
         _metadata: {
           queryType: 'status_counts_time_series',
           groupBy,
@@ -4884,7 +4436,6 @@ export async function getDocumentStatusCounts(req, res) {
       });
 
     } else {
-      // No grouping, return total counts (legacy format)
       const counts = {
         done: 0,
         pending: 0,
@@ -4936,4 +4487,3 @@ export async function getDocumentStatusCounts(req, res) {
     });
   }
 }
-

@@ -1,9 +1,7 @@
-// src/models/PriceOverrideLog.js
 import mongoose from "mongoose";
 
 const PriceOverrideLogSchema = new mongoose.Schema(
   {
-    // Document/Version association
     agreementId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CustomerHeaderDoc',
@@ -13,7 +11,7 @@ const PriceOverrideLogSchema = new mongoose.Schema(
     versionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'VersionPdf',
-      default: null // null for initial version, populated for version PDFs
+      default: null
     },
 
     versionNumber: {
@@ -21,7 +19,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       default: 1
     },
 
-    // User information
     salespersonId: {
       type: String,
       required: [true, 'Salesperson ID is required']
@@ -32,7 +29,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       required: [true, 'Salesperson name is required']
     },
 
-    // Product/Item information
     productKey: {
       type: String,
       required: [true, 'Product key is required']
@@ -45,17 +41,14 @@ const PriceOverrideLogSchema = new mongoose.Schema(
 
     productType: {
       type: String,
-      enum: ['product', 'dispenser', 'service'], // ✅ Added 'service' type for services pricing overrides
+      enum: ['product', 'dispenser', 'service'],
       required: [true, 'Product type is required']
     },
 
-    // Price override details
     fieldType: {
       type: String,
       enum: [
-        // Product/Dispenser field types
         'unitPrice', 'amount', 'warrantyPrice', 'replacementPrice', 'total',
-        // ✅ Service field types
         'hourlyRate', 'minimumVisit', 'customPerVisitTotal', 'workers', 'hours', 'customAmount',
         'insideSqFt', 'outsideSqFt', 'insideRate', 'outsideRate', 'sqFtFixedFee'
       ],
@@ -82,7 +75,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       required: [true, 'Change percentage is required']
     },
 
-    // Context information
     quantity: {
       type: Number,
       default: 0
@@ -93,7 +85,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       default: ''
     },
 
-    // Approval/Review status
     reviewStatus: {
       type: String,
       enum: ['pending', 'approved', 'rejected', 'auto_approved'],
@@ -115,7 +106,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       default: ''
     },
 
-    // Threshold flags
     isSignificantChange: {
       type: Boolean,
       default: false
@@ -126,7 +116,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       default: false
     },
 
-    // Session/Form information
     sessionId: {
       type: String,
       required: [true, 'Session ID is required']
@@ -137,7 +126,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       required: [true, 'Document title is required']
     },
 
-    // Metadata
     source: {
       type: String,
       enum: ['form_filling', 'edit_mode', 'version_update'],
@@ -154,7 +142,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
       default: null
     },
 
-    // Soft delete
     isDeleted: {
       type: Boolean,
       default: false
@@ -176,7 +163,6 @@ const PriceOverrideLogSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for efficient querying
 PriceOverrideLogSchema.index({ agreementId: 1, createdAt: -1 });
 PriceOverrideLogSchema.index({ versionId: 1, createdAt: -1 });
 PriceOverrideLogSchema.index({ salespersonId: 1, createdAt: -1 });
@@ -184,21 +170,19 @@ PriceOverrideLogSchema.index({ reviewStatus: 1 });
 PriceOverrideLogSchema.index({ isSignificantChange: 1 });
 PriceOverrideLogSchema.index({ requiresApproval: 1 });
 
-// Compound index for efficient log retrieval
 PriceOverrideLogSchema.index({
   agreementId: 1,
   versionNumber: 1,
   createdAt: -1
 });
 
-// Static method to get logs for an agreement
 PriceOverrideLogSchema.statics.getLogsForAgreement = async function(agreementId, options = {}) {
   const {
     versionNumber = null,
     salespersonId = null,
     reviewStatus = null,
     limit = 50,
-    sortOrder = -1 // -1 for newest first
+    sortOrder = -1
   } = options;
 
   let query = {
@@ -216,7 +200,6 @@ PriceOverrideLogSchema.statics.getLogsForAgreement = async function(agreementId,
     .lean();
 };
 
-// Static method to get summary stats
 PriceOverrideLogSchema.statics.getOverrideStats = async function(agreementId) {
   const stats = await this.aggregate([
     {
@@ -252,10 +235,9 @@ PriceOverrideLogSchema.statics.getOverrideStats = async function(agreementId) {
   };
 };
 
-// Instance method to calculate if change is significant
 PriceOverrideLogSchema.methods.calculateSignificance = function() {
-  const SIGNIFICANT_PERCENTAGE_THRESHOLD = 15; // 15% change
-  const SIGNIFICANT_AMOUNT_THRESHOLD = 50;     // $50 change
+  const SIGNIFICANT_PERCENTAGE_THRESHOLD = 15;
+  const SIGNIFICANT_AMOUNT_THRESHOLD = 50;
 
   const absChangePercentage = Math.abs(this.changePercentage);
   const absChangeAmount = Math.abs(this.changeAmount);
@@ -265,25 +247,20 @@ PriceOverrideLogSchema.methods.calculateSignificance = function() {
     absChangeAmount >= SIGNIFICANT_AMOUNT_THRESHOLD
   );
 
-  // Require approval for significant changes
   this.requiresApproval = this.isSignificantChange;
 
   return this.isSignificantChange;
 };
 
-// Pre-save middleware to calculate significance
 PriceOverrideLogSchema.pre('save', function(next) {
   if (this.isNew) {
-    // Calculate change amount and percentage
     this.changeAmount = this.overrideValue - this.originalValue;
     this.changePercentage = this.originalValue !== 0
       ? ((this.changeAmount / this.originalValue) * 100)
       : 0;
 
-    // Calculate significance
     this.calculateSignificance();
 
-    // Auto-approve small changes
     if (!this.requiresApproval) {
       this.reviewStatus = 'auto_approved';
     }

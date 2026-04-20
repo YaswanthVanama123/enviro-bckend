@@ -1,9 +1,6 @@
-// src/models/VersionChangeLog.js
 import mongoose from "mongoose";
 
-// Individual change schema for a single field modification
 const FieldChangeSchema = new mongoose.Schema({
-  // Product/Service identification
   productKey: {
     type: String,
     required: [true, 'Product key is required']
@@ -20,16 +17,12 @@ const FieldChangeSchema = new mongoose.Schema({
     required: [true, 'Product type is required']
   },
 
-  // Field change details
   fieldType: {
     type: String,
     enum: [
-      // Product/Dispenser field types
       'unitPrice', 'amount', 'warrantyPrice', 'replacementPrice', 'total',
-      // Service field types
       'hourlyRate', 'minimumVisit', 'customPerVisitTotal', 'workers', 'hours', 'customAmount',
       'insideSqFt', 'outsideSqFt', 'insideRate', 'outsideRate', 'sqFtFixedFee',
-      // Custom override fields
       'customStandardBathroomTotal', 'customHugeBathroomTotal', 'customExtraAreaTotal',
       'customStandaloneTotal', 'customChemicalTotal', 'customPerVisitPrice',
       'customMonthlyRecurring', 'customFirstMonthPrice', 'customContractTotal'
@@ -42,7 +35,6 @@ const FieldChangeSchema = new mongoose.Schema({
     required: [true, 'Field display name is required']
   },
 
-  // Value changes
   originalValue: {
     type: Number,
     required: [true, 'Original value is required']
@@ -63,7 +55,6 @@ const FieldChangeSchema = new mongoose.Schema({
     required: [true, 'Change percentage is required']
   },
 
-  // Context information
   quantity: {
     type: Number,
     default: 0
@@ -75,22 +66,18 @@ const FieldChangeSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
-// Main version change log schema
 const VersionChangeLogSchema = new mongoose.Schema(
   {
-    // Document/Version association
     agreementId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CustomerHeaderDoc',
       required: [true, 'Agreement ID is required']
-      // Note: Index defined explicitly below with compound indexes
     },
 
     versionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'VersionPdf',
       required: [true, 'Version ID is required']
-      // Note: Index defined explicitly below with unique constraint
     },
 
     versionNumber: {
@@ -98,11 +85,9 @@ const VersionChangeLogSchema = new mongoose.Schema(
       required: [true, 'Version number is required']
     },
 
-    // User information
     salespersonId: {
       type: String,
       required: [true, 'Salesperson ID is required']
-      // Note: Index defined explicitly below with compound index
     },
 
     salespersonName: {
@@ -110,13 +95,11 @@ const VersionChangeLogSchema = new mongoose.Schema(
       required: [true, 'Salesperson name is required']
     },
 
-    // All changes made in this version
     changes: {
       type: [FieldChangeSchema],
       default: []
     },
 
-    // Summary statistics
     totalChanges: {
       type: Number,
       default: 0
@@ -132,7 +115,6 @@ const VersionChangeLogSchema = new mongoose.Schema(
       default: false
     },
 
-    // Action context
     saveAction: {
       type: String,
       enum: ['save_draft', 'generate_pdf', 'manual_save'],
@@ -144,13 +126,11 @@ const VersionChangeLogSchema = new mongoose.Schema(
       required: [true, 'Document title is required']
     },
 
-    // Session information
     sessionId: {
       type: String,
       required: [true, 'Session ID is required']
     },
 
-    // Approval workflow
     reviewStatus: {
       type: String,
       enum: ['pending', 'approved', 'rejected', 'auto_approved'],
@@ -172,7 +152,6 @@ const VersionChangeLogSchema = new mongoose.Schema(
       default: ''
     },
 
-    // Metadata
     ipAddress: {
       type: String,
       default: null
@@ -183,7 +162,6 @@ const VersionChangeLogSchema = new mongoose.Schema(
       default: null
     },
 
-    // Soft delete
     isDeleted: {
       type: Boolean,
       default: false
@@ -205,22 +183,18 @@ const VersionChangeLogSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save middleware to calculate summary statistics
 VersionChangeLogSchema.pre('save', function(next) {
   if (this.changes && this.changes.length > 0) {
     this.totalChanges = this.changes.length;
 
-    // Calculate total price impact
     this.totalPriceImpact = this.changes.reduce((total, change) => {
       return total + Math.abs(change.changeAmount);
     }, 0);
 
-    // Check for significant changes (>15% or >$50)
     this.hasSignificantChanges = this.changes.some(change => {
       return Math.abs(change.changePercentage) > 15 || Math.abs(change.changeAmount) > 50;
     });
 
-    // Auto-approve small changes
     if (!this.hasSignificantChanges && this.totalPriceImpact < 100) {
       this.reviewStatus = 'auto_approved';
     }
@@ -229,26 +203,21 @@ VersionChangeLogSchema.pre('save', function(next) {
   next();
 });
 
-// Indexes for efficient querying
 VersionChangeLogSchema.index({ agreementId: 1, versionNumber: -1 });
 VersionChangeLogSchema.index({ agreementId: 1, createdAt: -1 });
-VersionChangeLogSchema.index({ versionId: 1 }, { unique: true }); // One log per version
+VersionChangeLogSchema.index({ versionId: 1 }, { unique: true });
 VersionChangeLogSchema.index({ salespersonId: 1, createdAt: -1 });
 VersionChangeLogSchema.index({ reviewStatus: 1 });
 VersionChangeLogSchema.index({ hasSignificantChanges: 1 });
 VersionChangeLogSchema.index({ saveAction: 1 });
-
-// ⚡ OPTIMIZED: Index for getSavedFilesGrouped lookup performance
 VersionChangeLogSchema.index({ agreementId: 1, isDeleted: 1 });
 
-// Compound index for grouped folder display
 VersionChangeLogSchema.index({
   agreementId: 1,
   versionNumber: -1,
   createdAt: -1
 });
 
-// Static methods for querying
 VersionChangeLogSchema.statics.getLogsForAgreement = function(agreementId, options = {}) {
   const filter = {
     agreementId: new mongoose.Types.ObjectId(agreementId),

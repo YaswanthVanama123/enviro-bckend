@@ -1,4 +1,3 @@
-// src/config/pdfConfig.js
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -13,12 +12,10 @@ export const PDF_REMOTE_TIMEOUT_MS = Number(
 );
 export const PDF_MAX_BODY_MB = Number(process.env.PDF_MAX_BODY_MB || 5);
 
-// Existing main proposal template (with images/Envimaster.png in same folder)
 export const PDF_TEMPLATE_PATH =
   process.env.PDF_TEMPLATE_PATH ||
   path.join(ROOT, "src", "templates", "proposal.tex");
 
-// NEW: customer header template (Mustache-rendered locally)
 export const PDF_HEADER_TEMPLATE_PATH =
   process.env.PDF_HEADER_TEMPLATE_PATH ||
   path.join(ROOT, "src", "templates", "customer-header.tex");

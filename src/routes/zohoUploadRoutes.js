@@ -1,12 +1,11 @@
-// src/routes/zohoUploadRoutes.js
 import { Router } from "express";
 import mongoose from "mongoose"; // ✅ NEW: Added for ObjectId validation
 import ZohoMapping from "../models/ZohoMapping.js";
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
-import Log from "../models/Log.js"; // ✅ NEW: For attached files
-import VersionPdf from "../models/VersionPdf.js"; // ✅ FIX: Import VersionPdf for PDF data
-import { compileCustomerHeader } from "../services/pdfService.js"; // ✅ FIX: Import PDF compiler for on-demand generation
+import Log from "../models/Log.js";
+import VersionPdf from "../models/VersionPdf.js";
+import { compileCustomerHeader } from "../services/pdfService.js";
 import {
   getBiginCompanies,
   searchBiginCompanies,
@@ -23,19 +22,9 @@ import {
 
 const router = Router();
 
-/**
- * ⚠️ DEPRECATED: This function is not currently used
- * Log files are kept as plain text files (.txt) and uploaded directly to Zoho
- * They remain downloadable but not viewable in Zoho (expected behavior for text files)
- *
- * This function was created to convert plain text log content to PDF using remote LaTeX service
- * but was reverted after clarification that logs should remain as text files
- */
 async function convertTextLogToPdf(textContent, fileName = "log.txt") {
   console.log(`📄 [TEXT-TO-PDF] Converting log text to PDF: ${fileName}`);
 
-  // Create simple LaTeX document with monospace font
-  // Note: Using \begin{verbatim} environment handles all special characters automatically
   const latexContent = `\\documentclass[11pt]{article}
 \\usepackage[utf8]{inputenc}
 \\usepackage[margin=1in]{geometry}
@@ -69,7 +58,6 @@ ${textContent}
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    // ✅ FIX: Use correct endpoint 'pdf/compile' with 'template' parameter
     const response = await fetch(`${PDF_REMOTE_BASE}/pdf/compile`, {
       method: "POST",
       headers: {
@@ -104,11 +92,6 @@ ${textContent}
   }
 }
 
-/**
- * ✅ Get PDF data for an agreement from VersionPdf collection
- * Current architecture: ALL PDFs (including v1) are stored in VersionPdf documents
- * CustomerHeaderDoc.pdf_meta.pdfBuffer is always null/empty
- */
 async function getPdfForAgreement(agreementId, options = {}) {
   const requestedVersionId = options?.versionId
     ? String(options.versionId).trim()
@@ -118,8 +101,6 @@ async function getPdfForAgreement(agreementId, options = {}) {
     `ÐY"? [PDF-LOOKUP] Searching for PDF data in VersionPdf collection for agreement: ${agreementId}${requestedVersionId ? ` (versionId: ${requestedVersionId})` : ""}`,
   );
 
-  // ✅ FIX: Remove .lean() to properly handle large PDF buffers
-  // Using .lean() with .select() on binary fields can cause buffer truncation
   let versionDoc = null;
 
   if (requestedVersionId) {
@@ -147,7 +128,6 @@ async function getPdfForAgreement(agreementId, options = {}) {
   }
 
   if (!versionDoc) {
-    // ✅ FIX: Remove .lean() for proper buffer handling
     versionDoc = await VersionPdf.findOne({
       agreementId: agreementId,
       status: { $ne: "archived" },
@@ -239,7 +219,6 @@ async function getPdfForAgreement(agreementId, options = {}) {
   const mongoBuffer = versionDoc.pdf_meta.pdfBuffer;
   const actualSize = mongoBuffer.length || mongoBuffer.buffer?.length || 0;
 
-  // ✅ ENHANCED: Log buffer retrieval for debugging Zoho upload issue
   console.log(`📊 [PDF-BUFFER-INFO] Retrieved buffer from database:`, {
     versionId: versionDoc._id,
     versionNumber: versionDoc.versionNumber,
@@ -338,18 +317,13 @@ function buildNormalizedFileName(
   const finalBase = baseName || sanitizedFallback;
   return `${finalBase}${extension}`;
 }
-/**
- * GET /zoho-upload/:agreementId/status
- * Check if this is first-time upload or update
- * ✅ OPTIMIZED: Parallel queries, lean(), select(), removed expensive debugging
- */
+
 router.get("/:agreementId/status", async (req, res) => {
   try {
     const { agreementId } = req.params;
 
     console.log(`🔍 Checking upload status for agreement: ${agreementId}`);
 
-    // ✅ OPTIMIZED: Validate ObjectId format first
     if (!mongoose.Types.ObjectId.isValid(agreementId)) {
       return res.status(400).json({
         success: false,
@@ -357,7 +331,6 @@ router.get("/:agreementId/status", async (req, res) => {
       });
     }
 
-    // ✅ OPTIMIZED: Run both queries in parallel + use lean() + select only needed fields
     const [agreement, mapping] = await Promise.all([
       CustomerHeaderDoc.findById(agreementId)
         .select("_id payload.headerTitle status")
@@ -382,7 +355,6 @@ router.get("/:agreementId/status", async (req, res) => {
     console.log(`✅ Found CustomerHeaderDoc: ${agreement._id}`);
 
     if (mapping) {
-      // ✅ OPTIMIZED: Calculate next version inline (no method call needed)
       const nextVersion = (mapping.currentVersion || 0) + 1;
 
       console.log(
@@ -429,10 +401,6 @@ router.get("/:agreementId/status", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/companies
- * Get list of companies from Zoho Bigin for selection
- */
 router.get("/companies", async (req, res) => {
   try {
     const { page = 1, search } = req.query;
@@ -444,10 +412,8 @@ router.get("/companies", async (req, res) => {
     let result;
 
     if (search && search.trim()) {
-      // Search companies by name
       result = await searchBiginCompanies(search.trim());
     } else {
-      // Get paginated company list
       result = await getBiginCompanies(parseInt(page), 50);
     }
 
@@ -467,7 +433,6 @@ router.get("/companies", async (req, res) => {
   } catch (error) {
     console.error("❌ Failed to fetch companies:", error.message);
 
-    // ✅ Provide helpful error messages for OAuth issues
     if (error.message === "ZOHO_AUTH_REQUIRED") {
       return res.status(401).json({
         success: false,
@@ -494,10 +459,6 @@ router.get("/companies", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/companies
- * Create a new company in Zoho Bigin
- */
 router.post("/companies", async (req, res) => {
   try {
     const { name, phone, email, website, address } = req.body;
@@ -540,10 +501,6 @@ router.post("/companies", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/:agreementId/first-time
- * Handle first-time upload to Zoho Bigin
- */
 router.post("/:agreementId/first-time", async (req, res) => {
   try {
     const { agreementId } = req.params;
@@ -559,7 +516,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
 
     console.log(`🚀 Starting first-time upload for agreement: ${agreementId}`);
 
-    // ✅ NEW: Validate ObjectId format first
     if (!mongoose.Types.ObjectId.isValid(agreementId)) {
       console.error(`❌ Invalid ObjectId format: ${agreementId}`);
       return res.status(400).json({
@@ -568,7 +524,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       });
     }
 
-    // Validate required fields
     if (!companyId || !noteText || !dealName) {
       return res.status(400).json({
         success: false,
@@ -576,8 +531,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       });
     }
 
-    // ✅ NEW: Validate pipeline and stage values before proceeding
-    // This ensures we use correct Zoho Bigin field values and prevents API errors
     console.log(`🔍 Validating pipeline and stage values...`);
     const validationResult = await validatePipelineStage(pipelineName, stage);
 
@@ -612,7 +565,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
     if (!agreement) {
       console.error(`❌ CustomerHeaderDoc not found with ID: ${agreementId}`);
 
-      // ✅ NEW: Provide helpful debugging info
       const recentAgreements = await CustomerHeaderDoc.find({})
         .sort({ createdAt: -1 })
         .limit(3)
@@ -659,7 +611,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
     let fileName;
 
     if (versionDoc && versionDoc.payloadSnapshot) {
-      // Use version's payloadSnapshot if available
       payloadForCompilation = versionDoc.payloadSnapshot;
       versionNumber = versionDoc.versionNumber;
       fileName = versionDoc.fileName;
@@ -667,7 +618,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
         `📄 [ZOHO-FIRST-TIME] Using VersionPdf v${versionNumber} payloadSnapshot`,
       );
     } else {
-      // Fallback to main agreement payload
       payloadForCompilation = agreement.payload;
       versionNumber = agreement.currentVersionNumber || 1;
       fileName = agreement.fileName;
@@ -690,7 +640,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       `🔄 [ZOHO-FIRST-TIME] Recompiling PDF on-demand for version ${versionNumber}...`,
     );
 
-    // Recompile PDF using the same method as download/view routes
     const compiledPdf = await compileCustomerHeader(payloadForCompilation, {
       watermark: false, // Zoho uploads should not have watermark
     });
@@ -707,7 +656,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       `✅ [ZOHO-FIRST-TIME] PDF compiled successfully: ${compiledPdf.buffer.length} bytes`,
     );
 
-    // Create pdfData object for compatibility with rest of the code
     const pdfData = {
       pdfBuffer: compiledPdf.buffer,
       source: "On-Demand Compilation",
@@ -722,7 +670,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       `✅ Agreement has PDF from ${pdfData.source} v${pdfData.version}: ${pdfData.bufferSize} bytes`,
     );
 
-    // Check if mapping already exists (prevent duplicate first-time uploads)
     const existingMapping = await ZohoMapping.findByAgreementId(agreementId);
 
     // ✅ V2 FIX: Clean up any failed mappings to allow fresh retry
@@ -742,12 +689,10 @@ router.post("/:agreementId/first-time", async (req, res) => {
       });
     }
 
-    // Calculate deal amount from agreement
     const calculateDealAmount = (agreement) => {
       let total = 0;
       const payload = agreement.payload;
 
-      // Add products total
       if (payload?.products) {
         ["smallProducts", "dispensers", "bigProducts"].forEach((category) => {
           if (payload.products[category]) {
@@ -758,7 +703,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
         });
       }
 
-      // Add services total (simplified - you may want to calculate monthly/contract totals)
       if (payload?.services) {
         Object.values(payload.services).forEach((service) => {
           if (service && service.weeklyTotal) {
@@ -767,7 +711,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         });
       }
 
-      return Math.round(total * 100) / 100; // Round to 2 decimals
+      return Math.round(total * 100) / 100;
     };
 
     const dealAmount = calculateDealAmount(agreement);
@@ -777,7 +721,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       `🔧 Using validated pipeline: "${validatedPipeline}", stage: "${validatedStage}"`,
     );
 
-    // Step 0.5: Get/Create contact for deal linking (V8 requirement)
     let contactId = null;
     try {
       console.log(
@@ -804,10 +747,8 @@ router.post("/:agreementId/first-time", async (req, res) => {
       }
     } catch (contactError) {
       console.error(`❌ [CONTACT-LOOKUP] Exception: ${contactError.message}`);
-      // Continue without contact
     }
 
-    // Step 1: Create the deal in Zoho Bigin
     const dealResult = await createBiginDeal({
       dealName: dealName.trim(),
       companyId,
@@ -839,7 +780,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
     const deal = dealResult.deal;
     console.log(`✅ Deal created: ${deal.id}`);
 
-    // Step 2: Create the note
     const noteResult = await createBiginNote(deal.id, {
       title: `Agreement v1 - ${new Date().toLocaleDateString()}`,
       content: noteText.trim(),
@@ -870,7 +810,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
     const note = noteResult.note;
     console.log(`✅ Note created: ${note.id}`);
 
-    // Step 3: Upload the PDF (optional - can be skipped for bulk uploads)
     let file = null;
     let finalVersionFileName = null;
 
@@ -890,7 +829,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
         `📎 Retrieved PDF from ${pdfData.source} v${pdfData.version}: ${pdfBuffer.length} bytes (proper Node.js Buffer for upload)`,
       );
 
-      // ✅ DEBUG: Verify buffer format for Zoho upload
       console.log(`🔍 [BUFFER-DEBUG] Buffer info:`, {
         isBuffer: Buffer.isBuffer(pdfBuffer),
         length: pdfBuffer.length,
@@ -935,7 +873,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       console.log(`⏭️ Skipping PDF upload as requested (skipFileUpload: true)`);
     }
 
-    // Step 4: Create mapping in MongoDB
     const mapping = new ZohoMapping({
       agreementId,
       zohoCompany: {
@@ -954,7 +891,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
       lastError: null,
     });
 
-    // ✅ NEW: Only add upload entry if file was actually uploaded
     if (!skipFileUpload && file) {
       mapping.addUpload({
         zohoNoteId: note.id,
@@ -1013,10 +949,6 @@ router.post("/:agreementId/first-time", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/:agreementId/update
- * Handle update upload (add new version to existing deal)
- */
 router.post("/:agreementId/update", async (req, res) => {
   try {
     const { agreementId } = req.params;
@@ -1045,7 +977,6 @@ router.post("/:agreementId/update", async (req, res) => {
       });
     }
 
-    // Check if agreement exists
     const agreement = await CustomerHeaderDoc.findById(agreementId);
     if (!agreement) {
       return res.status(404).json({
@@ -1064,7 +995,6 @@ router.post("/:agreementId/update", async (req, res) => {
         `🔄 [ZOHO-UPLOAD] Getting version document for on-demand PDF compilation...`,
       );
 
-      // Get version document with payloadSnapshot for recompilation
       if (versionId) {
         versionDoc = await VersionPdf.findOne({
           _id: versionId,
@@ -1118,7 +1048,6 @@ router.post("/:agreementId/update", async (req, res) => {
         `✅ [ZOHO-UPLOAD] PDF compiled successfully: ${compiledPdf.buffer.length} bytes`,
       );
 
-      // Create pdfData object matching the old format for compatibility
       pdfData = {
         pdfBuffer: compiledPdf.buffer,
         source: "On-Demand Compilation",
@@ -1135,12 +1064,9 @@ router.post("/:agreementId/update", async (req, res) => {
 
     let dealId, dealName, nextVersion, mapping;
 
-    // ✅ NEW: Use provided dealId or lookup existing mapping
     if (providedDealId) {
-      // BULK UPLOAD MODE: Use provided dealId from first file's deal
       dealId = providedDealId;
 
-      // Try to find existing mapping for version tracking
       mapping = await ZohoMapping.findByAgreementId(agreementId);
       if (mapping) {
         nextVersion = mapping.getNextVersion();
@@ -1149,7 +1075,6 @@ router.post("/:agreementId/update", async (req, res) => {
           `📤 [BULK] Adding to existing deal ${dealId}, version ${nextVersion}`,
         );
       } else {
-        // Create new mapping for this file using the shared deal
         nextVersion = 1;
         dealName = `Bulk Upload Deal ${dealId}`;
         console.log(
@@ -1157,7 +1082,6 @@ router.post("/:agreementId/update", async (req, res) => {
         );
       }
     } else {
-      // SINGLE UPLOAD MODE: Original logic - lookup existing mapping
       mapping = await ZohoMapping.findByAgreementId(agreementId);
       if (!mapping) {
         return res.status(400).json({
@@ -1203,7 +1127,6 @@ router.post("/:agreementId/update", async (req, res) => {
 
     const sanitizedNoteText = noteText.trim();
 
-    // Step 1: Create note (skip if this is a subsequent file in bulk upload)
     let note = null;
     if (!skipNoteCreation) {
       let noteContent = sanitizedNoteText;
@@ -1232,13 +1155,10 @@ router.post("/:agreementId/update", async (req, res) => {
       console.log(`⏭️ Skipping note creation for bulk upload file`);
     }
 
-    // Step 2: Upload the updated PDF
     let file = null;
     if (!skipFileUpload) {
-      // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
-      const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
+      const pdfBuffer = pdfData.pdfBuffer;
 
-      // ✅ ENHANCED: Validate PDF buffer before upload
       if (!Buffer.isBuffer(pdfBuffer)) {
         console.error(`❌ [VERSION-UPLOAD] PDF buffer is not a Buffer:`, {
           type: typeof pdfBuffer,
@@ -1294,12 +1214,10 @@ router.post("/:agreementId/update", async (req, res) => {
       console.log(`ℹ️ Skipping PDF upload because skipFileUpload=true`);
     }
 
-    // Step 3: Update or create mapping in MongoDB
     if (!skipFileUpload) {
       if (mapping) {
-        // Update existing mapping
         mapping.addUpload({
-          zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
+          zohoNoteId: note?.id || null,
           zohoFileId: file.id,
           noteText: noteText.trim(),
           fileName: finalVersionFileName,
@@ -1312,7 +1230,6 @@ router.post("/:agreementId/update", async (req, res) => {
           `📤 [BULK] Creating new ZohoMapping for agreement ${agreementId} in shared deal ${dealId}`,
         );
 
-        // Get deal details from Zoho to create proper mapping
         const dealDetails = await getBiginDealById(dealId);
 
         mapping = new ZohoMapping({
@@ -1399,10 +1316,6 @@ router.post("/:agreementId/update", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/:agreementId/history
- * Get upload history for an agreement
- */
 router.get("/:agreementId/history", async (req, res) => {
   try {
     const { agreementId } = req.params;
@@ -1451,10 +1364,6 @@ router.get("/:agreementId/history", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/modules
- * Get available Zoho Bigin modules (for debugging/admin)
- */
 router.get("/modules", async (req, res) => {
   try {
     console.log(`📋 Fetching Zoho Bigin modules...`);
@@ -1481,16 +1390,11 @@ router.get("/modules", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/companies/:companyId/pipeline-options
- * Get pipeline and stage options for a specific company
- */
 router.get("/companies/:companyId/pipeline-options", async (req, res) => {
   try {
     const { companyId } = req.params;
     console.log(`📋 Fetching pipeline options for company: ${companyId}`);
 
-    // Validate companyId
     if (!companyId || !companyId.trim()) {
       return res.status(400).json({
         success: false,
@@ -1513,7 +1417,6 @@ router.get("/companies/:companyId/pipeline-options", async (req, res) => {
         success: false,
         companyId: companyId,
         error: result.error,
-        // Provide fallback values even if API fails
         pipelines: result.pipelines || [
           {
             label: "Sales Pipeline Standard",
@@ -1539,7 +1442,6 @@ router.get("/companies/:companyId/pipeline-options", async (req, res) => {
       success: false,
       companyId: req.params.companyId,
       error: error.message,
-      // Provide fallback values
       pipelines: [
         { label: "Sales Pipeline Standard", value: "Sales Pipeline Standard" },
       ],
@@ -1555,10 +1457,6 @@ router.get("/companies/:companyId/pipeline-options", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/pipeline-options
- * Get available pipeline and stage options from Zoho Bigin (general)
- */
 router.get("/pipeline-options", async (req, res) => {
   try {
     console.log(`📋 Fetching Zoho Bigin pipeline and stage options...`);
@@ -1575,7 +1473,6 @@ router.get("/pipeline-options", async (req, res) => {
       res.status(500).json({
         success: false,
         error: result.error,
-        // Provide fallback values even if API fails
         pipelines: result.pipelines || [
           {
             label: "Sales Pipeline Standard",
@@ -1597,7 +1494,6 @@ router.get("/pipeline-options", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
-      // Provide fallback values
       pipelines: [
         { label: "Sales Pipeline Standard", value: "Sales Pipeline Standard" },
       ],
@@ -1613,10 +1509,6 @@ router.get("/pipeline-options", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/validate-deal-fields
- * Validate pipeline and stage values before deal creation
- */
 router.post("/validate-deal-fields", async (req, res) => {
   try {
     const { pipelineName, stage } = req.body;
@@ -1660,15 +1552,10 @@ router.post("/validate-deal-fields", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/cleanup-failed
- * Clean up any failed/partial mappings to ensure fresh state
- */
 router.post("/cleanup-failed", async (req, res) => {
   try {
     console.log(`🧹 [V2-CLEANUP] Starting cleanup of failed mappings...`);
 
-    // Find all failed or partial mappings
     const failedMappings = await ZohoMapping.find({
       $or: [
         { lastUploadStatus: "failed" },
@@ -1716,10 +1603,6 @@ router.post("/cleanup-failed", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/companies/:companyId/deals
- * Fetch deals associated with a specific company
- */
 router.get("/companies/:companyId/deals", async (req, res) => {
   try {
     const { companyId } = req.params;
@@ -1729,7 +1612,6 @@ router.get("/companies/:companyId/deals", async (req, res) => {
       `💼 Fetching deals for company: ${companyId} (page ${page}, ${per_page} per page)`,
     );
 
-    // Validate companyId
     if (!companyId || !companyId.trim()) {
       return res.status(400).json({
         success: false,
@@ -1737,7 +1619,6 @@ router.get("/companies/:companyId/deals", async (req, res) => {
       });
     }
 
-    // Validate pagination parameters
     const pageNum = Math.max(1, parseInt(page) || 1);
     const perPage = Math.min(200, Math.max(1, parseInt(per_page) || 20));
 
@@ -1765,7 +1646,6 @@ router.get("/companies/:companyId/deals", async (req, res) => {
         result.error,
       );
 
-      // ✅ Provide helpful error messages for OAuth issues
       if (result.error === "ZOHO_AUTH_REQUIRED") {
         return res.status(401).json({
           success: false,
@@ -1794,7 +1674,6 @@ router.get("/companies/:companyId/deals", async (req, res) => {
   } catch (error) {
     console.error("❌ Failed to fetch company deals:", error.message);
 
-    // ✅ Handle specific OAuth errors
     if (error.message === "ZOHO_AUTH_REQUIRED") {
       return res.status(401).json({
         success: false,
@@ -1822,10 +1701,6 @@ router.get("/companies/:companyId/deals", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/attached-file/:fileId/add-to-deal
- * Add attached file or version log to existing Zoho deal
- */
 router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -1898,7 +1773,6 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
         logDoc.fileName || logDoc.documentTitle || originalFileName;
       const textContent = logDoc.generateTextContent();
 
-      // Keep log files as plain text (they'll be downloadable but not viewable in Zoho)
       pdfBuffer = Buffer.from(textContent, "utf8");
       console.log(
         `📄 [ATTACHED-FILE] Log text buffer created: ${pdfBuffer.length} bytes`,
@@ -1973,7 +1847,6 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
         )
       : sanitizedFileNameBase;
     const suffix = isLogAttachment ? "_log" : "_attached";
-    // Log files remain as .txt, manual uploads are .pdf
     const finalExtension = isLogAttachment ? ".txt" : ".pdf";
     const zohoFileName = `${baseName || "file"}${suffix}${finalExtension}`;
 
@@ -2060,11 +1933,6 @@ router.post("/attached-file/:fileId/add-to-deal", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/:agreementId/batch-update
- * ✅ OPTIMIZED: Batch upload multiple version PDFs to existing deal in single API call
- * Reduces N API calls to 1 API call for bulk uploads
- */
 router.post("/:agreementId/batch-update", async (req, res) => {
   try {
     const { agreementId } = req.params;
@@ -2092,7 +1960,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
       });
     }
 
-    // Check if agreement exists
     const agreement = await CustomerHeaderDoc.findById(agreementId);
     if (!agreement) {
       return res.status(404).json({
@@ -2103,9 +1970,7 @@ router.post("/:agreementId/batch-update", async (req, res) => {
 
     let dealId, dealName, nextVersion, mapping;
 
-    // Get or create mapping
     if (providedDealId) {
-      // BULK UPLOAD MODE: Use provided dealId from first file's deal
       dealId = providedDealId;
       mapping = await ZohoMapping.findByAgreementId(agreementId);
 
@@ -2116,7 +1981,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
           `📦 [BATCH-UPDATE] Adding to existing deal ${dealId}, starting version ${nextVersion}`,
         );
       } else {
-        // Create new mapping for this batch
         nextVersion = 1;
         dealName = `Batch Upload Deal ${dealId}`;
         console.log(
@@ -2124,7 +1988,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
         );
       }
     } else {
-      // Use existing mapping
       mapping = await ZohoMapping.findByAgreementId(agreementId);
       if (!mapping) {
         return res.status(400).json({
@@ -2142,7 +2005,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
       );
     }
 
-    // Process all version PDFs
     const processedFiles = [];
     const failedFiles = [];
 
@@ -2154,7 +2016,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
           `📄 [BATCH-UPDATE] Processing ${i + 1}/${versionIds.length}: ${versionId}`,
         );
 
-        // Get version document with payloadSnapshot for recompilation
         const versionDoc = await VersionPdf.findOne({
           _id: versionId,
           agreementId: agreementId,
@@ -2201,7 +2062,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
         const fileName =
           versionDoc.fileName || `version_${versionDoc.versionNumber}.pdf`;
 
-        // Validate PDF buffer
         if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
           console.error(
             `❌ [BATCH-UPDATE] Invalid PDF buffer for version ${versionDoc.versionNumber}`,
@@ -2271,7 +2131,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
     const note = noteResult.note;
     console.log(`✅ [BATCH-UPDATE] Created batch note: ${note.id}`);
 
-    // Upload all PDFs to Zoho deal
     const uploadResults = [];
     let currentVersion = nextVersion;
 
@@ -2323,9 +2182,7 @@ router.post("/:agreementId/batch-update", async (req, res) => {
       }
     }
 
-    // Update MongoDB mapping with all successful uploads
     if (uploadResults.length > 0 && mapping) {
-      // Add all uploads to existing mapping
       for (const result of uploadResults) {
         mapping.addUpload({
           zohoNoteId: note.id,
@@ -2391,11 +2248,6 @@ router.post("/:agreementId/batch-update", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/batch-attached-files/add-to-deal
- * ✅ OPTIMIZED: Batch upload multiple attached files to existing deal in single API call
- * Reduces N API calls to 1 API call for bulk uploads
- */
 router.post("/batch-attached-files/add-to-deal", async (req, res) => {
   try {
     const { fileIds, dealId, noteText, dealName } = req.body;
@@ -2403,7 +2255,6 @@ router.post("/batch-attached-files/add-to-deal", async (req, res) => {
     console.log(`📦 [BATCH-ATTACHED] Starting batch upload of attached files`);
     console.log(`📦 [BATCH-ATTACHED] Files to upload: ${fileIds?.length || 0}`);
 
-    // Validate required fields
     const trimmedNoteText = (noteText || "").trim();
     if (!trimmedNoteText) {
       return res.status(400).json({
@@ -2426,7 +2277,6 @@ router.post("/batch-attached-files/add-to-deal", async (req, res) => {
       });
     }
 
-    // Process all attached files
     const processedFiles = [];
     const failedFiles = [];
 
@@ -2599,7 +2449,6 @@ router.post("/batch-attached-files/add-to-deal", async (req, res) => {
     const note = noteResult.note;
     console.log(`✅ [BATCH-ATTACHED] Created batch note: ${note.id}`);
 
-    // Upload all files to Zoho deal
     const uploadResults = [];
 
     for (const file of processedFiles) {

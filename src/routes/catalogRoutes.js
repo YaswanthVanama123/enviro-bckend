@@ -4,7 +4,7 @@ import { requireAdmin } from '../middleware/authMiddleware.js';
 
 const r = Router();
 
-r.get('/', getCatalog);                  // GET /api/catalog?key=default
-r.put('/', requireAdmin, updateCatalog); // PUT /api/catalog  (admin only)
+r.get('/', getCatalog);
+r.put('/', requireAdmin, updateCatalog);
 
 export default r;

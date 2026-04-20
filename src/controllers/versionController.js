@@ -1,23 +1,16 @@
-// src/controllers/versionController.js
 import mongoose from "mongoose";
 import VersionPdf from "../models/VersionPdf.js";
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import { compileCustomerHeader } from "../services/pdfService.js";
 
-/**
- * GET /api/versions
- * Get all version PDFs with pagination and filtering
- */
 export async function getAllVersionPdfs(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
     const skip = (page - 1) * limit;
 
-    // Build filter object
     const filter = {};
 
-    // Optional filters
     if (req.query.status) {
       filter.status = req.query.status;
     }
@@ -30,17 +23,14 @@ export async function getAllVersionPdfs(req, res) {
       filter.versionNumber = parseInt(req.query.versionNumber, 10);
     }
 
-    // Exclude deleted versions by default
     if (req.query.includeDeleted !== 'true') {
       filter.isDeleted = { $ne: true };
     }
 
     console.log(`📋 [VERSIONS] Fetching versions with filter:`, filter);
 
-    // Get total count
     const total = await VersionPdf.countDocuments(filter);
 
-    // Get versions with pagination
     const versions = await VersionPdf.find(filter)
       .populate({
         path: 'agreementId',
@@ -71,7 +61,6 @@ export async function getAllVersionPdfs(req, res) {
 
     console.log(`📋 [VERSIONS] Found ${versions.length} versions (total: ${total})`);
 
-    // Transform response
     const transformedVersions = versions.map(version => ({
       id: version._id,
       agreementId: version.agreementId._id,
@@ -117,11 +106,6 @@ export async function getAllVersionPdfs(req, res) {
   }
 }
 
-/**
- * GET /api/versions/:id
- * Get a specific version PDF by ID
- * ✅ OPTIMIZED: Added lean(), optimized populate, cache-busting headers
- */
 export async function getVersionPdfById(req, res) {
   try {
     const { id } = req.params;
@@ -133,7 +117,6 @@ export async function getVersionPdfById(req, res) {
       });
     }
 
-    // ✅ OPTIMIZED: Use lean() + optimized populate with select
     const version = await VersionPdf.findById(id)
       .populate({
         path: 'agreementId',
@@ -153,7 +136,6 @@ export async function getVersionPdfById(req, res) {
 
     console.log(`📄 [VERSION] Retrieved version ${version.versionNumber} for agreement ${version.agreementId._id}`);
 
-    // ✅ FIXED: Set cache-busting headers to prevent stale data
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -194,11 +176,6 @@ export async function getVersionPdfById(req, res) {
   }
 }
 
-/**
- * PATCH /api/versions/:id/status
- * Update version PDF status
- * ✅ OPTIMIZED: Use findByIdAndUpdate, cache-busting headers
- */
 export async function updateVersionStatus(req, res) {
   try {
     const { id } = req.params;
@@ -206,7 +183,6 @@ export async function updateVersionStatus(req, res) {
 
     console.log(`🔄 [VERSION-STATUS] Updating version ${id} status to: ${status}`);
 
-    // Validate status
     const validStatuses = ["draft", "saved", "pending_approval", "approved_salesman", "approved_admin"];
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({
@@ -216,7 +192,6 @@ export async function updateVersionStatus(req, res) {
       });
     }
 
-    // Validate ObjectId format
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
@@ -224,7 +199,6 @@ export async function updateVersionStatus(req, res) {
       });
     }
 
-    // ✅ OPTIMIZED: Use findByIdAndUpdate with new:true to get updated doc in one query
     const version = await VersionPdf.findByIdAndUpdate(
       id,
       { status, updatedAt: new Date() },
@@ -241,7 +215,6 @@ export async function updateVersionStatus(req, res) {
 
     console.log(`✅ [VERSION-STATUS] Updated version ${version.versionNumber} status to ${status}`);
 
-    // ✅ FIXED: Set cache-busting headers to prevent stale data on subsequent GET
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -266,15 +239,10 @@ export async function updateVersionStatus(req, res) {
   }
 }
 
-/**
- * GET /api/versions/:id/download
- * Download a specific version PDF (with optional watermark)
- * ✅ NEW: Supports ?watermark=true query parameter for on-demand watermark generation
- */
 export async function downloadVersionPdf(req, res) {
   try {
     const { id } = req.params;
-    const { watermark = 'false' } = req.query; // Query param defaults to 'false'
+    const { watermark = 'false' } = req.query;
     const applyWatermark = watermark === 'true' || watermark === true;
 
     if (!mongoose.isValidObjectId(id)) {
@@ -298,13 +266,10 @@ export async function downloadVersionPdf(req, res) {
       hasStoredPdf: !!version.pdf_meta?.pdfBuffer
     });
 
-    // ✅ FIXED: Always regenerate on-demand to respect checkbox state
-    // This ensures the watermark checkbox works correctly
-    // The stored PDF might have a watermark baked in, so we regenerate based on user's choice
     console.log(`🔄 [ON-DEMAND] Regenerating PDF on-demand with watermark=${applyWatermark}`);
 
     const compiledPdf = await compileCustomerHeader(version.payloadSnapshot, {
-      watermark: applyWatermark  // Use the checkbox state from frontend
+      watermark: applyWatermark
     });
 
     if (!compiledPdf || !compiledPdf.buffer) {
@@ -325,7 +290,7 @@ export async function downloadVersionPdf(req, res) {
   } catch (error) {
     console.error("❌ Failed to download version:", error.message);
 
-    // ✅ ENHANCED: Log detailed LaTeX compilation errors for debugging
+
     if (error.detail) {
       try {
         const errorDetail = typeof error.detail === 'string' ? JSON.parse(error.detail) : error.detail;
@@ -335,15 +300,13 @@ export async function downloadVersionPdf(req, res) {
       }
     }
 
-    // ✅ ENHANCED: Send ALL error details to frontend for complete debugging
     const errorResponse = {
       success: false,
       message: error.message || "Failed to download PDF",
       error: error.message || "Failed to download PDF",
-      codeVersion: 'v3_2025_full_error_details',  // ✅ VERSION MARKER to confirm updated code is running
+      codeVersion: 'v3_2025_full_error_details',
       timestamp: new Date().toISOString(),
 
-      // ✅ Send ALL error properties for frontend debugging
       errorType: error.errorType || 'UNKNOWN',
       errorName: error.errorName || error.name || 'Error',
       originalError: error.originalError,
@@ -352,17 +315,13 @@ export async function downloadVersionPdf(req, res) {
       timeout: error.timeout,
       detail: error.detail,
       latexError: error.latexError,
-      stack: error.stack  // Include full stack trace for debugging
+      stack: error.stack
     };
 
     res.status(500).json(errorResponse);
   }
 }
 
-/**
- * DELETE /api/versions/:id
- * Soft delete a version PDF
- */
 export async function deleteVersionPdf(req, res) {
   try {
     const { id } = req.params;
@@ -382,7 +341,6 @@ export async function deleteVersionPdf(req, res) {
       });
     }
 
-    // Soft delete
     version.isDeleted = true;
     version.deletedAt = new Date();
     await version.save();
@@ -408,12 +366,6 @@ export async function deleteVersionPdf(req, res) {
   }
 }
 
-// ✅ NEW: Version management functions
-
-/**
- * GET /api/versions/:agreementId/check-status
- * Check version status for an agreement (determines if user should create version or replace)
- */
 export async function checkVersionStatus(req, res) {
   try {
     const { agreementId } = req.params;
@@ -425,8 +377,6 @@ export async function checkVersionStatus(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Only fetch minimal fields needed from agreement
-    // Exclude: pdf_meta.pdfBuffer (MBs), attachedFiles, versions, zoho, full payload
     const agreement = await CustomerHeaderDoc.findById(agreementId)
       .select('_id payload.headerTitle status currentVersionNumber pdf_meta.sizeBytes')
       .lean();
@@ -437,13 +387,8 @@ export async function checkVersionStatus(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Exclude heavy fields from version queries
-    // - pdf_meta.pdfBuffer: Large binary PDF (can be MBs per version)
-    // - payloadSnapshot: Full form data snapshot (10s-100s of KB)
-    // - zoho: Integration data not needed for status check
     const versionSelectFields = '_id versionNumber versionLabel createdAt createdBy status pdf_meta.sizeBytes';
 
-    // Get existing versions (non-deleted)
     const versions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: { $ne: true }
@@ -452,7 +397,6 @@ export async function checkVersionStatus(req, res) {
     .sort({ versionNumber: -1 })
     .lean();
 
-    // ✅ NEW: Also get deleted versions to inform user about trash
     const deletedVersions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: true
@@ -461,8 +405,6 @@ export async function checkVersionStatus(req, res) {
     .sort({ versionNumber: -1 })
     .lean();
 
-    // ⚡ OPTIMIZED: Get highest version number efficiently
-    // Only fetch versionNumber field, limit to 1 result
     const allVersionsForCount = await VersionPdf.find({
       agreementId: agreementId
     })
@@ -476,18 +418,17 @@ export async function checkVersionStatus(req, res) {
 
     const totalVersions = versions.length;
     const latestVersion = versions[0];
-    const hasMainPdf = agreement.pdf_meta?.sizeBytes > 0; // Check if main PDF exists by size
+    const hasMainPdf = agreement.pdf_meta?.sizeBytes > 0;
     const isFirstTime = totalVersions === 0 && !hasMainPdf;
 
     let suggestedAction = 'create_version';
     if (isFirstTime) {
       suggestedAction = 'auto_create_v1';
     } else if (totalVersions > 0 && latestVersion &&
-               new Date() - new Date(latestVersion.createdAt) < 1000 * 60 * 10) { // 10 minutes
+               new Date() - new Date(latestVersion.createdAt) < 1000 * 60 * 10) {
       suggestedAction = 'suggest_replace';
     }
 
-    // ⚡ OPTIMIZED RESPONSE: Return only essential fields to reduce payload size
     const versionStatus = {
       success: true,
       isFirstTime,
@@ -498,7 +439,6 @@ export async function checkVersionStatus(req, res) {
       suggestedAction,
       canCreateVersion: true,
       canReplace: totalVersions > 0,
-      // ⚡ MINIMAL: Only return essential version fields
       versions: versions.map(v => ({
         id: v._id,
         versionNumber: v.versionNumber,
@@ -525,10 +465,6 @@ export async function checkVersionStatus(req, res) {
   }
 }
 
-/**
- * POST /api/versions/:agreementId/create-version
- * Create a new version or replace recent version
- */
 export async function createVersion(req, res) {
   try {
     const { agreementId } = req.params;
@@ -547,8 +483,6 @@ export async function createVersion(req, res) {
       isFirstTime
     });
 
-    // ⚡ OPTIMIZED: Exclude pdfBuffer - we're generating a new PDF anyway
-    // Only fetch fields needed: payload (for compilation), status, versions, currentVersionNumber, totalVersions
     const agreement = await CustomerHeaderDoc.findById(agreementId)
       .select('-pdf_meta.pdfBuffer -attachedFiles -zoho')
       .lean();
@@ -559,8 +493,6 @@ export async function createVersion(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Only fetch minimal fields for version checking
-    // We only need: versionNumber, _id, createdAt, status for determining what to do
     const existingVersions = await VersionPdf.find({
       agreementId: agreementId,
       isDeleted: { $ne: true }
@@ -569,7 +501,6 @@ export async function createVersion(req, res) {
     .sort({ versionNumber: -1 })
     .lean();
 
-    // ⚡ OPTIMIZED: Get highest version number efficiently - only fetch versionNumber
     const allVersions = await VersionPdf.find({
       agreementId: agreementId
     })
@@ -583,23 +514,16 @@ export async function createVersion(req, res) {
     const totalVersions = existingVersions.length;
     const latestVersion = existingVersions[0];
 
-    // Determine version number
     let versionNumber = 1;
 
-    // ✅ FIX: If user explicitly requested replace, honor it (no time window check)
     if (replaceRecent && latestVersion) {
-      // Replace the latest version (user explicitly clicked "Replace")
       versionNumber = latestVersion.versionNumber;
       console.log(`🔄 [VERSION-CREATE] User requested replace - will replace v${versionNumber}`);
     } else {
-      // ✅ FIX: Create new version based on highest version number (including deleted)
-      // This ensures v2 is created if v1 is deleted, preventing version number conflicts
       versionNumber = highestVersionNumber + 1;
       console.log(`✅ [VERSION-CREATE] Creating new version v${versionNumber}`);
     }
 
-    // ✅ NEW: Compile PDF with watermark option
-    // Watermark is applied if explicitly requested OR if status is draft/pending_approval
     const shouldApplyWatermark = watermark === true ||
                                   agreement.status === 'draft' ||
                                   agreement.status === 'pending_approval';
@@ -618,14 +542,11 @@ export async function createVersion(req, res) {
       throw new Error("Failed to compile PDF for version");
     }
 
-    // Create version document
     const versionData = {
       agreementId: agreementId,
       versionNumber: versionNumber,
       versionLabel: `v${versionNumber}`,
       fileName: `${agreement.payload?.headerTitle || 'Agreement'}_v${versionNumber}.pdf`,
-      // ✅ FIXED: Inherit status from agreement (for Red/Green Line approval workflow)
-      // Agreement status was already set based on pricing calculations
       status: agreement.status || 'saved',
       createdBy: createdBy || null,
       changeNotes: changeNotes || `Version ${versionNumber} - ${isFirstTime ? 'Initial version' : 'Updated agreement'}`,
@@ -648,8 +569,6 @@ export async function createVersion(req, res) {
     let wasReplacement = false;
 
     if (replaceRecent && latestVersion && versionNumber === latestVersion.versionNumber) {
-      // ⚡ ULTRA-OPTIMIZED: Use findByIdAndUpdate to replace without loading heavy fields
-      // This avoids loading the full document (with pdfBuffer and payloadSnapshot)
       version = await VersionPdf.findByIdAndUpdate(
         latestVersion._id,
         {
@@ -663,26 +582,21 @@ export async function createVersion(req, res) {
         wasReplacement = true;
         console.log(`🔄 [VERSION-CREATE] Replaced version ${versionNumber} (atomic update)`);
       } else {
-        // Fallback: create new if replacement target not found
         version = new VersionPdf(versionData);
         version = await version.save();
         console.log(`✅ [VERSION-CREATE] Created new version ${versionNumber} (replacement target not found)`);
       }
     } else {
-      // Create new version
       version = new VersionPdf(versionData);
       version = await version.save();
       console.log(`✅ [VERSION-CREATE] Created new version ${versionNumber}`);
     }
 
-    // ⚡ OPTIMIZED: Update agreement using findByIdAndUpdate to avoid loading heavy fields
-    // This updates the document in one atomic operation without loading pdfBuffer
     const updateData = {
       currentVersionNumber: versionNumber,
       totalVersions: wasReplacement ? totalVersions : totalVersions + 1
     };
 
-    // Add to versions array if not replacing
     if (!wasReplacement) {
       updateData.$push = {
         versions: {
@@ -696,7 +610,6 @@ export async function createVersion(req, res) {
         }
       };
 
-      // ⚡ OPTIMIZED: Auto-update previous draft status efficiently
       if (latestVersion && latestVersion.status === 'draft') {
         await VersionPdf.findByIdAndUpdate(latestVersion._id, { status: 'saved' });
         console.log(`✅ [VERSION-CREATE] Auto-updated previous draft (v${latestVersion.versionNumber}) to saved after creating v${versionNumber}`);
@@ -705,7 +618,6 @@ export async function createVersion(req, res) {
 
     await CustomerHeaderDoc.findByIdAndUpdate(agreementId, updateData);
 
-    // ⚡ OPTIMIZED RESPONSE: Return only essential fields
     res.json({
       success: true,
       message: wasReplacement ?
@@ -721,7 +633,6 @@ export async function createVersion(req, res) {
   } catch (error) {
     console.error("❌ Failed to create version:", error.message);
 
-    // ✅ ENHANCED: Log detailed LaTeX compilation errors for debugging
     if (error.detail) {
       try {
         const errorDetail = typeof error.detail === 'string' ? JSON.parse(error.detail) : error.detail;
@@ -739,10 +650,6 @@ export async function createVersion(req, res) {
   }
 }
 
-/**
- * POST /api/versions/:agreementId/replace-main
- * Replace main PDF with current form data
- */
 export async function replaceMainPdf(req, res) {
   try {
     const { agreementId } = req.params;
@@ -757,7 +664,6 @@ export async function replaceMainPdf(req, res) {
 
     console.log(`🔄 [REPLACE-MAIN] Replacing main PDF for agreement ${agreementId}`);
 
-    // Get agreement
     const agreement = await CustomerHeaderDoc.findById(agreementId);
     if (!agreement) {
       return res.status(404).json({
@@ -766,13 +672,11 @@ export async function replaceMainPdf(req, res) {
       });
     }
 
-    // Compile PDF from current agreement payload
     const compiledPdf = await compileCustomerHeader(agreement.payload);
     if (!compiledPdf || !compiledPdf.buffer) {
       throw new Error("Failed to compile PDF for main replacement");
     }
 
-    // Update main agreement PDF
     agreement.pdf_meta = {
       sizeBytes: compiledPdf.buffer.length,
       storedAt: new Date(),
@@ -805,10 +709,6 @@ export async function replaceMainPdf(req, res) {
   }
 }
 
-/**
- * GET /api/versions/:agreementId/list
- * Get all versions for an agreement
- */
 export async function getVersionsList(req, res) {
   try {
     const { agreementId } = req.params;
@@ -821,7 +721,6 @@ export async function getVersionsList(req, res) {
       });
     }
 
-    // Get agreement
     const agreement = await CustomerHeaderDoc.findById(agreementId);
     if (!agreement) {
       return res.status(404).json({
@@ -830,7 +729,6 @@ export async function getVersionsList(req, res) {
       });
     }
 
-    // Get versions
     const filter = {
       agreementId: agreementId,
       isDeleted: { $ne: true }
@@ -886,15 +784,10 @@ export async function getVersionsList(req, res) {
   }
 }
 
-/**
- * GET /api/versions/version/:versionId/view
- * View a specific version PDF (for inline display in browser)
- * ✅ NEW: Supports ?watermark=true query parameter for on-demand watermark generation
- */
 export async function viewVersionPdf(req, res) {
   try {
     const { versionId } = req.params;
-    const { watermark = 'false' } = req.query; // Query param defaults to 'false'
+    const { watermark = 'false' } = req.query;
     const applyWatermark = watermark === 'true' || watermark === true;
 
     if (!mongoose.isValidObjectId(versionId)) {
@@ -918,13 +811,10 @@ export async function viewVersionPdf(req, res) {
       hasStoredPdf: !!version.pdf_meta?.pdfBuffer
     });
 
-    // ✅ FIXED: Always regenerate on-demand to respect checkbox state
-    // This ensures the watermark checkbox works correctly
-    // The stored PDF might have a watermark baked in, so we regenerate based on user's choice
     console.log(`🔄 [ON-DEMAND] Regenerating PDF on-demand with watermark=${applyWatermark}`);
 
     const compiledPdf = await compileCustomerHeader(version.payloadSnapshot, {
-      watermark: applyWatermark  // Use the checkbox state from frontend
+      watermark: applyWatermark
     });
 
     if (!compiledPdf || !compiledPdf.buffer) {
@@ -945,15 +835,13 @@ export async function viewVersionPdf(req, res) {
   } catch (error) {
     console.error("❌ Failed to view version:", error.message);
 
-    // ✅ ENHANCED: Send ALL error details to frontend for complete debugging
     const errorResponse = {
       success: false,
       message: error.message || "Failed to view PDF",
       error: error.message || "Failed to view PDF",
-      codeVersion: 'v3_2025_full_error_details',  // ✅ VERSION MARKER to confirm updated code is running
+      codeVersion: 'v3_2025_full_error_details',
       timestamp: new Date().toISOString(),
 
-      // ✅ Send ALL error properties for frontend debugging
       errorType: error.errorType || 'UNKNOWN',
       errorName: error.errorName || error.name || 'Error',
       originalError: error.originalError,
@@ -962,17 +850,13 @@ export async function viewVersionPdf(req, res) {
       timeout: error.timeout,
       detail: error.detail,
       latexError: error.latexError,
-      stack: error.stack  // Include full stack trace for debugging
+      stack: error.stack
     };
 
     res.status(500).json(errorResponse);
   }
 }
 
-/**
- * GET /api/versions/version/:versionId/edit-format
- * Get version data in edit format for FormFilling component
- */
 export async function getVersionForEdit(req, res) {
   try {
     const { versionId } = req.params;

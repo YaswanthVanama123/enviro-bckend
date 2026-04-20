@@ -1,8 +1,4 @@
-// src/data/comprehensiveProductData.js
-// Comprehensive product data extracted from EnvNVA Pricing Table 2020115
-
 export const COMPREHENSIVE_PRODUCT_DATA = {
-  // ===== FLOOR PRODUCTS =====
   floor_daily: {
     name: "Daily Floor Cleaner",
     description: "Water-based for daily floor cleaning. Excellent for regular maintenance cleaning.",
@@ -84,7 +80,6 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     applicationAreas: ["Countertops", "Appliances", "Oven hoods", "Stainless steel", "Formica®", "Plastic", "Fiberglass", "Rubber", "Glass"]
   },
 
-  // ===== SANI PRODUCTS =====
   sani_habc: {
     name: "H.A.B.C. High Acid Bowl Cleaner",
     description: "(High Acid Bowl Cleaner) Removes resistant stains from bathroom fixtures and porcelain.",
@@ -128,7 +123,7 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     benefits: ["Reduces bacteria growth", "Prevents mold", "Prevents mildew", "Reduces odors"]
   },
 
-  // ===== THREE SINK COMPONENTS =====
+
   three_blue_diamond: {
     name: "Blue Diamond Dish Detergent",
     description: "Hand dish detergent for pots and pans. Multipurpose and labor saving. Good quality option.",
@@ -161,7 +156,7 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     certifications: ["Food-grade approved"]
   },
 
-  // ===== OTHER CHEMICALS =====
+
   chem_activate_plus: {
     name: "Activate Plus Drain Treatment",
     description: "A concentrated blend of live liquid bacteria enzymes that activates drain lines and grease traps.",
@@ -225,7 +220,7 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     applicationAreas: ["Glass surfaces", "Hard water areas", "Scale removal"]
   },
 
-  // ===== SOAP PRODUCTS =====
+
   soap_orange_premium: {
     name: "Orange Premium Foam Soap",
     description: "Luxury soap that cleans and softens hands. Note this is sold ready to use not concentrated.",
@@ -280,7 +275,7 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     applicationAreas: ["Industrial facilities", "Kitchens", "Heavy-duty cleaning", "Mechanic shops"]
   },
 
-  // ===== PAPER PRODUCTS =====
+
   paper_multifold_tower: {
     name: "Multi-fold Paper Towels",
     description: "Multi-fold paper towels. Standard quality for high-traffic areas. Case contains 16 packs of 250 sheets.",
@@ -435,7 +430,7 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     packaging: "250 covers per pack"
   },
 
-  // ===== DISPENSERS =====
+
   disp_manual_soap: {
     name: "Enviro-Master Manual Soap Dispenser",
     description: "Enviro-Master Manual Soap Dispenser. Reliable manual operation with $1/week warranty.",
@@ -547,7 +542,7 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
     note: "For clients not buying air freshener and toilet paper"
   },
 
-  // ===== EXTRAS / FACILITIES PRODUCTS =====
+
   extra_berry_good_case: {
     name: "Berry Good (Case/12)",
     description: "Berry Good (Case/12). Deodorant for transforming malodor molecules. Case of 12 - 32oz bottles.",
@@ -704,7 +699,6 @@ export const COMPREHENSIVE_PRODUCT_DATA = {
   }
 };
 
-// Service pricing information
 export const SERVICE_PRICING = {
   saniClean: {
     weeklyRate: 7,

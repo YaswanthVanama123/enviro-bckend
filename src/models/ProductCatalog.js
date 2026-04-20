@@ -1,25 +1,24 @@
-// src/models/ProductCatalog.js
 import mongoose from "mongoose";
 
 const PriceSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true },          // e.g. "floor_daily"
-    name: { type: String, required: true },         // e.g. "Daily"
-    familyKey: { type: String, required: true },    // e.g. "floorProducts"
-    kind: { type: String },                         // e.g. "floorCleaner"
+    key: { type: String, required: true },
+    name: { type: String, required: true },
+    familyKey: { type: String, required: true },
+    kind: { type: String },
 
     basePrice: {
       amount: Number,
       currency: String,
       uom: String,
-      unitSizeLabel: String, // "Case/16/250"
+      unitSizeLabel: String,
     },
 
     warrantyPricePerUnit: {
       amount: Number,
       currency: String,
       uom: String,
-      billingPeriod: String, // "week"
+      billingPeriod: String,
     },
 
     effectivePerRollPriceInternal: Number,
@@ -27,10 +26,8 @@ const PriceSchema = new mongoose.Schema(
     quantityPerCase: Number,
     quantityPerCaseLabel: String,
 
-    // Frequency field (added to match CustomerHeaderDoc requirements)
     frequency: { type: String, default: "" },
 
-    // Description field for product descriptions
     description: { type: String },
 
     displayByAdmin: { type: Boolean, default: false },

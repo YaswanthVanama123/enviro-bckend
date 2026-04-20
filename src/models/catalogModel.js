@@ -10,5 +10,4 @@ const CatalogSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// seed key = "default"
 export default mongoose.model('Catalog', CatalogSchema);

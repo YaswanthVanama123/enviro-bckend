@@ -1,10 +1,5 @@
-// src/controllers/priceFixController.js
 import PriceFix from "../models/PriceFix.js";
 
-/**
- * POST /api/pricefix
- * Create a new PriceFix document (e.g. servicePricingMaster)
- */
 export const createPriceFix = async (req, res) => {
   try {
     const { key, description, services } = req.body;
@@ -15,7 +10,6 @@ export const createPriceFix = async (req, res) => {
       });
     }
 
-    // prevent duplicate keys (e.g. second servicePricingMaster)
     const existing = await PriceFix.findOne({ key });
     if (existing) {
       return res.status(409).json({
@@ -40,10 +34,6 @@ export const createPriceFix = async (req, res) => {
   }
 };
 
-/**
- * GET /api/pricefix
- * Get all PriceFix documents
- */
 export const getAllPriceFixes = async (req, res) => {
   try {
     const docs = await PriceFix.find().lean();
@@ -54,10 +44,6 @@ export const getAllPriceFixes = async (req, res) => {
   }
 };
 
-/**
- * GET /api/pricefix/:id
- * Get a single PriceFix document by Mongo _id
- */
 export const getPriceFixById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -74,15 +60,10 @@ export const getPriceFixById = async (req, res) => {
   }
 };
 
-/**
- * PUT /api/pricefix/:id
- * Update a PriceFix document by Mongo _id
- */
 export const updatePriceFix = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // You can restrict which fields are editable if you want:
     const update = {
       ...req.body,
       updatedBy: req.admin?._id ?? null,

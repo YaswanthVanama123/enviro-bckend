@@ -1,20 +1,12 @@
-// src/controllers/serviceAgreementTemplateController.js
 import ServiceAgreementTemplate from '../models/ServiceAgreementTemplate.js';
 
-/**
- * GET /api/service-agreement-template/active
- * Get the active service agreement template
- * ✅ OPTIMIZED: Added lean(), cache-busting headers
- */
 export async function getActiveTemplate(req, res) {
   try {
-    // ✅ OPTIMIZED: Use lean() for faster query
     let template = await ServiceAgreementTemplate.findOne({ isActive: true })
       .select('-__v')
       .lean()
       .exec();
 
-    // If no template exists, create default one
     if (!template) {
       const newTemplate = await ServiceAgreementTemplate.create({
         name: 'default',
@@ -22,11 +14,9 @@ export async function getActiveTemplate(req, res) {
       });
       console.log('📝 [SERVICE-AGREEMENT-TEMPLATE] Created default template');
 
-      // Convert to plain object for consistency
       template = newTemplate.toObject();
     }
 
-    // ✅ OPTIMIZED: Set cache-busting headers
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -72,11 +62,6 @@ export async function getActiveTemplate(req, res) {
   }
 }
 
-/**
- * PUT /api/service-agreement-template
- * Update the service agreement template
- * ✅ OPTIMIZED: Use findOneAndUpdate, cache-busting headers
- */
 export async function updateTemplate(req, res) {
   try {
     const {
@@ -93,13 +78,11 @@ export async function updateTemplate(req, res) {
 
     console.log('📝 [SERVICE-AGREEMENT-TEMPLATE] Updating service agreement template');
 
-    // ✅ Build update object with only provided fields
     const updateData = {
       updatedAt: new Date(),
       isActive: true
     };
 
-    // Add fields if provided
     if (term1 !== undefined) updateData.term1 = term1;
     if (term2 !== undefined) updateData.term2 = term2;
     if (term3 !== undefined) updateData.term3 = term3;
@@ -123,7 +106,6 @@ export async function updateTemplate(req, res) {
     if (emDateLabel !== undefined) updateData.emDateLabel = emDateLabel;
     if (pageNumberText !== undefined) updateData.pageNumberText = pageNumberText;
 
-    // ✅ OPTIMIZED: Use findOneAndUpdate with upsert for single atomic operation
     const template = await ServiceAgreementTemplate.findOneAndUpdate(
       { isActive: true },
       {
@@ -143,7 +125,6 @@ export async function updateTemplate(req, res) {
 
     console.log('✅ [SERVICE-AGREEMENT-TEMPLATE] Template updated successfully');
 
-    // ✅ OPTIMIZED: Set cache-busting headers to prevent stale data
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');

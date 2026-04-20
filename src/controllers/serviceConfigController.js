@@ -1,4 +1,3 @@
-// src/controllers/serviceConfigController.js
 import {
   validateCreateServiceConfig,
   validateReplaceServiceConfig,
@@ -65,13 +64,11 @@ export async function getActiveServiceConfigsController(req, res, next) {
   }
 }
 
-// ⚡ OPTIMIZED: Get all service pricing data + service agreement template (used by form-filling page)
 export async function getAllServicePricingController(req, res, next) {
   try {
     const startTime = Date.now();
     console.log('⚡ [GET-ALL-PRICING] Starting optimized query...');
 
-    // ⚡ OPTIMIZED: Fetch both service configs and service agreement template in parallel
     const [allConfigs, serviceAgreementTemplate] = await Promise.all([
       getAllServiceConfigs({}),
       ServiceAgreementTemplate.findOne({ isActive: true })
@@ -80,7 +77,6 @@ export async function getAllServicePricingController(req, res, next) {
         .exec()
     ]);
 
-    // ⚡ If no template exists, create default one
     let template = serviceAgreementTemplate;
     if (!template) {
       console.log('📝 [GET-ALL-PRICING] No template found, creating default...');
@@ -91,12 +87,11 @@ export async function getAllServicePricingController(req, res, next) {
       template = newTemplate.toObject();
     }
 
-    // ⚡ OPTIMIZED: Transform to focus on pricing data only (exclude heavy fields)
     const pricingData = allConfigs.map(config => ({
       serviceId: config.serviceId,
       label: config.label,
       isActive: config.isActive,
-      config: config.config,           // Contains pricing information
+      config: config.config,
       defaultFormState: config.defaultFormState,
       version: config.version
     }));
@@ -104,7 +99,6 @@ export async function getAllServicePricingController(req, res, next) {
     const queryTime = Date.now() - startTime;
     console.log(`⚡ [GET-ALL-PRICING] Returned ${pricingData.length} configs + service agreement template in ${queryTime}ms`);
 
-    // ⚡ Return both service configs and service agreement template in one response
     res.json({
       serviceConfigs: pricingData,
       serviceAgreementTemplate: {
@@ -225,7 +219,6 @@ export async function deleteServiceConfigController(req, res, next) {
   try {
     const { id } = req.params;
 
-    // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         message: "Invalid ID format. Expected MongoDB ObjectId.",
@@ -278,11 +271,6 @@ export async function deleteServiceConfigsByServiceIdController(req, res, next) 
   }
 }
 
-/**
- * Upload an image for a service config.
- * Multer is applied on the route — this controller just saves the URL.
- * POST /api/service-configs/:id/upload-image
- */
 export async function uploadServiceImageController(req, res, next) {
   try {
     if (!req.file) {
@@ -291,10 +279,8 @@ export async function uploadServiceImageController(req, res, next) {
     const { id } = req.params;
     const caption = req.body.caption ?? "";
 
-    // Build a public URL from the saved filename
     const publicUrl = `/uploads/service-images/${req.file.filename}`;
 
-    // Pull existing doc and push new image
     const { getServiceConfigById, mergeServiceConfig } = await import(
       "../services/serviceConfigService.js"
     );

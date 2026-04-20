@@ -1,10 +1,5 @@
-// src/services/serviceConfigService.js
 import ServiceConfig from "../models/ServiceConfig.js";
 
-/**
- * Create a new service config.
- * If isActive=true, deactivates any other active configs for the same serviceId.
- */
 export async function createServiceConfig(data) {
   if (data.isActive) {
     await ServiceConfig.updateMany(
@@ -17,10 +12,6 @@ export async function createServiceConfig(data) {
   return doc.save();
 }
 
-/**
- * Get all configs.
- * Optionally filter by serviceId (e.g. /api/service-configs?serviceId=saniclean)
- */
 export async function getAllServiceConfigs({ serviceId } = {}) {
   const filter = {};
   if (serviceId) {
@@ -29,18 +20,10 @@ export async function getAllServiceConfigs({ serviceId } = {}) {
   return ServiceConfig.find(filter).sort({ serviceId: 1, createdAt: -1 }).lean();
 }
 
-/**
- * Get a single config by Mongo _id.
- */
 export async function getServiceConfigById(id) {
   return ServiceConfig.findById(id);
 }
 
-/**
- * Get active configs.
- * If serviceId is provided, returns only that service's active config (or null).
- * If not, returns array of all active configs.
- */
 export async function getActiveServiceConfigs(serviceId) {
   if (serviceId) {
     return ServiceConfig.findOne({ serviceId, isActive: true })
@@ -50,21 +33,14 @@ export async function getActiveServiceConfigs(serviceId) {
   return ServiceConfig.find({ isActive: true }).sort({ serviceId: 1 }).lean();
 }
 
-/**
- * Get the latest config (whether active or not) for a service.
- */
 export async function getLatestConfigForService(serviceId) {
   return ServiceConfig.findOne({ serviceId }).sort({ createdAt: -1 }).lean();
 }
 
-/**
- * Replace entire config document by id (PUT).
- */
 export async function replaceServiceConfig(id, data) {
   const existing = await ServiceConfig.findById(id);
   if (!existing) return null;
 
-  // If this one becomes active, deactivate others for same serviceId
   if (data.isActive) {
     await ServiceConfig.updateMany(
       {
@@ -89,10 +65,6 @@ export async function replaceServiceConfig(id, data) {
   return existing.save();
 }
 
-/**
- * Merge partial update into config document by id (PUT /partial).
- * - Shallow-merge config and defaultFormState
- */
 export async function mergeServiceConfig(id, partial) {
   const existing = await ServiceConfig.findById(id);
   if (!existing) return null;
@@ -136,17 +108,14 @@ export async function mergeServiceConfig(id, partial) {
     }
   }
 
-  // Handle adminByDisplay field
   if (typeof partial.adminByDisplay === "boolean") {
     existing.adminByDisplay = partial.adminByDisplay;
   }
 
-  // Handle images array (full replace)
   if (Array.isArray(partial.images)) {
     existing.images = partial.images;
   }
 
-  // Handle links array (full replace)
   if (Array.isArray(partial.links)) {
     existing.links = partial.links;
   }
@@ -154,18 +123,10 @@ export async function mergeServiceConfig(id, partial) {
   return existing.save();
 }
 
-/**
- * Delete a service config by id.
- * Returns the deleted document if successful, null if not found.
- */
 export async function deleteServiceConfig(id) {
   return ServiceConfig.findByIdAndDelete(id);
 }
 
-/**
- * Delete service configs by serviceId.
- * Returns information about the deletion operation.
- */
 export async function deleteServiceConfigsByServiceId(serviceId) {
   return ServiceConfig.deleteMany({ serviceId });
 }

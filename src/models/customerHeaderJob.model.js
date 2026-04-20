@@ -13,8 +13,6 @@ const HeaderRowSchema = new mongoose.Schema(
 const ProductsSchema = new mongoose.Schema(
   {
     headers: { type: [String], default: [] },
-    // rows can be either array-of-arrays (strings) or array of objects.
-    // We’ll accept anything JSON-ish: use Mixed.
     rows: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
   { _id: false },
@@ -36,7 +34,7 @@ const ServiceColumnSchema = new mongoose.Schema(
   {
     heading: { type: String, default: "" },
     rows: { type: [ServiceRowSchema], default: [] },
-    sections: { type: [mongoose.Schema.Types.Mixed], default: [] }, // keep flexible
+    sections: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
   { _id: false },
 );
@@ -100,8 +98,8 @@ const PdfMetaSchema = new mongoose.Schema(
 
 const RemoteCompilerSchema = new mongoose.Schema(
   {
-    base: { type: String, default: "" }, // e.g., http://45.55.208.199:3000
-    endpoint: { type: String, default: "" }, // e.g., /pdf/compile or /pdf/compile-bundle
+    base: { type: String, default: "" },
+    endpoint: { type: String, default: "" },
     durationMs: { type: Number, default: 0 },
     ok: { type: Boolean, default: true },
     error: { type: String, default: "" },
@@ -115,12 +113,9 @@ const CustomerHeaderJobSchema = new mongoose.Schema(
     payload: { type: CustomerHeaderPayloadSchema, required: true },
     pdf: { type: PdfMetaSchema, required: true },
     compiler: { type: RemoteCompilerSchema, default: undefined },
-    // ✅ NEW: Soft delete field for agreements
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
     deletedBy: { type: String, default: null },
-    // If you later want to store the PDF (small files), uncomment:
-    // pdfBase64: { type: String, default: "" },
   },
   { timestamps: true },
 );

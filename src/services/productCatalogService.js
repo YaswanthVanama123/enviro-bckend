@@ -1,25 +1,15 @@
-// src/services/productCatalogService.js
 import ProductCatalog from "../models/ProductCatalog.js";
 
-/**
- * Get the currently active catalog.
- */
 export async function getActiveCatalog() {
   return ProductCatalog.findOne({ isActive: true })
     .sort({ updatedAt: -1 })
     .lean();
 }
 
-/**
- * Get full catalog document by id.
- */
 export async function getCatalogById(id) {
   return ProductCatalog.findById(id);
 }
 
-/**
- * Create a brand-new catalog.
- */
 export async function createCatalog(data) {
   const { isActive } = data;
 
@@ -34,9 +24,6 @@ export async function createCatalog(data) {
   return doc.save();
 }
 
-/**
- * Replace entire catalog (PUT).
- */
 export async function replaceCatalog(id, data) {
   const existing = await ProductCatalog.findById(id);
   if (!existing) return null;
@@ -59,9 +46,6 @@ export async function replaceCatalog(id, data) {
   return existing.save();
 }
 
-/**
- * Merge partial updates into an existing catalog.
- */
 export async function mergePartialCatalog(id, partial) {
   const existing = await ProductCatalog.findById(id);
   if (!existing) return null;
@@ -125,9 +109,6 @@ export async function mergePartialCatalog(id, partial) {
   return existing.save();
 }
 
-/**
- * Filter products from active catalog.
- */
 export async function searchProductsFromActive(filters) {
   const catalog = await getActiveCatalog();
   if (!catalog) return [];
@@ -155,9 +136,6 @@ export async function searchProductsFromActive(filters) {
   });
 }
 
-/**
- * Get a single family from active catalog.
- */
 export async function getFamilyFromActive(familyKey) {
   const catalog = await getActiveCatalog();
   if (!catalog) return null;

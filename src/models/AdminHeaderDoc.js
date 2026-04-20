@@ -1,9 +1,6 @@
-// src/models/AdminHeaderDoc.js
 import mongoose from "mongoose";
 
 const { Schema } = mongoose;
-
-// --- sub-schemas ---
 
 const HeaderRowSchema = new Schema(
   {
@@ -29,18 +26,17 @@ const PdfMetaSchema = new Schema(
     sizeBytes: { type: Number },
     contentType: { type: String, default: "application/pdf" },
     storedAt: { type: Date, default: Date.now },
-    externalUrl: { type: String }, // later when pushing PDF to Zoho/Bigin
+    externalUrl: { type: String },
   },
   { _id: false }
 );
 
-// Info specific to Zoho Bigin integration
 const ZohoBiginInfoSchema = new Schema(
   {
-    recordId: { type: String },      // e.g. Deal / Contact / custom record id
-    module: { type: String },        // e.g. "Deals"
-    fileId: { type: String },        // attachment/file id in Bigin
-    downloadUrl: { type: String },   // direct download URL (if you store it)
+    recordId: { type: String },
+    module: { type: String },
+    fileId: { type: String },
+    downloadUrl: { type: String },
     lastPushedAt: { type: Date },
     lastError: { type: String },
   },
@@ -76,14 +72,11 @@ const AdminHeaderDocSchema = new Schema(
       default: null,
     },
 
-    // Zoho / Bigin integration info
     zohoBigin: {
       type: ZohoBiginInfoSchema,
       default: () => ({}),
     },
 
-    // Overall status for this PDF/template (for viewer)
-    // e.g. "draft", "ready", "synced", "error"
     status: {
       type: String,
       default: "draft",
@@ -111,7 +104,7 @@ const AdminHeaderDocSchema = new Schema(
     },
   },
   {
-    timestamps: true, // createdAt, updatedAt
+    timestamps: true,
   }
 );
 

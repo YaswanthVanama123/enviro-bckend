@@ -1,4 +1,3 @@
-// src/controllers/adminAuthController.js
 import bcrypt from "bcryptjs";
 import AdminUser from "../models/AdminUser.js";
 import { signAdminToken } from "../middleware/adminAuth.js";
@@ -7,10 +6,6 @@ import ManualUploadDocument from "../models/ManualUploadDocument.js";
 import VersionPdf from "../models/VersionPdf.js";
 import mongoose from "mongoose";
 
-/**
- * POST /api/admin/login
- * Body: { username, password }
- */
 export async function adminLogin(req, res) {
   try {
     const { username, password } = req.body || {};
@@ -53,11 +48,6 @@ export async function adminLogin(req, res) {
   }
 }
 
-/**
- * POST /api/admin/change-password
- * Headers: Authorization: Bearer <token>
- * Body: { oldPassword, newPassword }
- */
 export async function changeAdminPassword(req, res) {
   try {
     const { oldPassword, newPassword } = req.body || {};
@@ -108,10 +98,6 @@ export async function changeAdminPassword(req, res) {
   }
 }
 
-/**
- * GET /api/admin/me
- * Headers: Authorization: Bearer <token>
- */
 export async function getAdminProfile(req, res) {
   try {
     const adminId = req.admin?.id;
@@ -140,11 +126,6 @@ export async function getAdminProfile(req, res) {
   }
 }
 
-/**
- * POST /api/admin/create
- * Headers: Authorization: Bearer <token>
- * Body: { username, password, isActive? }
- */
 export async function createAdminAccount(req, res) {
   try {
     const { username, password, isActive } = req.body || {};
@@ -193,18 +174,11 @@ export async function createAdminAccount(req, res) {
   }
 }
 
-/**
- * GET /api/admin/dashboard
- * Headers: Authorization: Bearer <token>
- * Returns admin dashboard data including recent documents and real statistics
- */
 export async function getAdminDashboard(req, res) {
   try {
-    // ⚡ PERFORMANCE: Start timing
     const startTime = Date.now();
     console.log('📊 [ADMIN-DASHBOARD] Starting optimized dashboard data fetch...');
 
-    // Check database connection state
     if (mongoose.connection.readyState !== 1) {
       console.log('⚠️ [ADMIN-DASHBOARD] Database not connected, connection state:', mongoose.connection.readyState);
       return res.json({
@@ -226,21 +200,16 @@ export async function getAdminDashboard(req, res) {
       });
     }
 
-    // ⚡ OPTIMIZED: Single aggregation query for all counts only (recentDocuments fetched separately by frontend)
     const aggregationStartTime = Date.now();
 
     const [customerHeaderStats, manualUploadsCount] = await Promise.all([
-      // ⚡ Use $facet to get all CustomerHeaderDoc counts in a single query
       CustomerHeaderDoc.aggregate([
-        // Filter out deleted documents once
         { $match: { isDeleted: { $ne: true } } },
 
         {
           $facet: {
-            // Total documents count
             totalCount: [{ $count: 'count' }],
 
-            // Saved documents (has PDF)
             savedCount: [
               {
                 $match: {
@@ -254,7 +223,6 @@ export async function getAdminDashboard(req, res) {
               { $count: 'count' }
             ],
 
-            // Status-based counts
             draftCount: [
               { $match: { status: 'draft' } },
               { $count: 'count' }
@@ -285,13 +253,11 @@ export async function getAdminDashboard(req, res) {
         }
       ]),
 
-      // Manual uploads count (separate query - different collection)
       ManualUploadDocument.countDocuments({ isDeleted: { $ne: true } })
     ]);
 
     const aggregationTime = Date.now() - aggregationStartTime;
 
-    // Extract counts from aggregation result
     const stats = customerHeaderStats[0];
     const totalDocumentsCount = stats.totalCount[0]?.count || 0;
     const savedDocumentsCount = stats.savedCount[0]?.count || 0;
@@ -307,7 +273,6 @@ export async function getAdminDashboard(req, res) {
     console.log('📊 [COUNTS] Saved documents:', savedDocumentsCount);
     console.log('📊 [COUNTS] By status - Draft:', draftCount, 'Saved:', savedCount, 'Pending:', pendingCount, 'Approved:', approvedCount);
 
-    // Build comprehensive dashboard data
     const dashboardData = {
       stats: {
         manualUploads: manualUploadsCount,
@@ -357,7 +322,6 @@ export async function getAdminDashboard(req, res) {
     console.error('❌ [ADMIN-DASHBOARD] Error fetching dashboard data:', err);
     console.error('❌ [ADMIN-DASHBOARD] Error stack:', err.stack);
 
-    // Return structured error response with fallback data
     res.status(500).json({
       error: "Failed to fetch dashboard data",
       detail: String(err),
@@ -381,12 +345,6 @@ export async function getAdminDashboard(req, res) {
   }
 }
 
-/**
- * GET /api/admin/recent-documents
- * Headers: Authorization: Bearer <token>
- * Query params: limit (default 20), page (default 1)
- * Returns paginated recent documents for admin panel with better error handling
- */
 export async function getAdminRecentDocuments(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -398,7 +356,6 @@ export async function getAdminRecentDocuments(req, res) {
     console.log('📄 [ADMIN-RECENT] Fetching recent documents - page:', page, 'limit:', limit);
     console.log('📄 [DB-STATE] Connection state:', mongoose.connection.readyState);
 
-    // Check database connection state
     if (mongoose.connection.readyState !== 1) {
       console.log('⚠️ [ADMIN-RECENT] Database not connected, connection state:', mongoose.connection.readyState);
       return res.json({
@@ -413,7 +370,6 @@ export async function getAdminRecentDocuments(req, res) {
       });
     }
 
-    // Build filter with better soft delete handling
     const filter = {
       $or: [
         { isDeleted: { $exists: false } },
@@ -422,7 +378,6 @@ export async function getAdminRecentDocuments(req, res) {
       ]
     };
 
-    // Optional status filter for admin panel
     if (req.query.status) {
       filter.status = req.query.status;
       console.log('📄 [ADMIN-RECENT] Filtering by status:', req.query.status);
@@ -455,7 +410,6 @@ export async function getAdminRecentDocuments(req, res) {
 
     console.log('📄 [RESULT] Found documents for this page:', documents.length);
 
-    // Transform documents for admin panel with better error handling
     const transformedDocuments = documents.map(doc => {
       try {
         return {
@@ -470,7 +424,6 @@ export async function getAdminRecentDocuments(req, res) {
             (doc.zoho?.crm?.fileId && !doc.zoho.crm.fileId.includes('MOCK_'))
           ),
           fileSize: doc.pdf_meta?.sizeBytes || 0,
-          // Format dates for display
           createdDateFormatted: new Date(doc.createdAt).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -582,7 +535,6 @@ function getTimeRange(period, from, to) {
   }
 
   if (startDate && !endDate) {
-    // allow end of range to be now if not specified
     endDate = new Date();
   }
 
@@ -670,17 +622,10 @@ export async function getAdminDashboardStatusCounts(req, res) {
   }
 }
 
-/**
- * POST /api/admin/auth/reset-password
- * Body: { developerName, newPassword }
- * No authentication required - protected by developer name check
- * Only allows developer "Hanitha" to reset the admin password
- */
 export async function resetAdminPassword(req, res) {
   try {
     const { developerName, newPassword } = req.body || {};
 
-    // Validate required fields
     if (!developerName || !newPassword) {
       return res
         .status(400)
@@ -690,7 +635,6 @@ export async function resetAdminPassword(req, res) {
         });
     }
 
-    // Validate developer name (case-insensitive check)
     if (developerName.trim().toLowerCase() !== "hanitha") {
       return res
         .status(403)
@@ -700,7 +644,6 @@ export async function resetAdminPassword(req, res) {
         });
     }
 
-    // Validate password length
     if (newPassword.length < 6) {
       return res
         .status(400)
@@ -710,7 +653,6 @@ export async function resetAdminPassword(req, res) {
         });
     }
 
-    // Find the default admin user (envimaster)
     const admin = await AdminUser.findOne({ username: "envimaster" }).exec();
 
     if (!admin) {
@@ -722,10 +664,8 @@ export async function resetAdminPassword(req, res) {
         });
     }
 
-    // Hash the new password
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
-    // Update the admin password
     admin.passwordHash = passwordHash;
     admin.passwordChangedAt = new Date();
     await admin.save();

@@ -1,14 +1,8 @@
-// src/controllers/logController.js
-// ✅ SIMPLIFIED: Log controller for version change logs (MongoDB-based)
 import Log from '../models/Log.js';
 import CustomerHeaderDoc from '../models/CustomerHeaderDoc.js';
 import VersionPdf from '../models/VersionPdf.js';
 import mongoose from 'mongoose';
 
-/**
- * POST /api/pdf/logs/create
- * Creates a log document in Logs collection
- */
 export const createVersionLog = async (req, res) => {
   try {
     const {
@@ -19,9 +13,9 @@ export const createVersionLog = async (req, res) => {
       salespersonName,
       saveAction,
       documentTitle,
-      changes, // ✅ Backward compatibility
-      currentChanges, // ✅ NEW: Current version changes only
-      allPreviousChanges, // ✅ NEW: All changes from previous versions
+      changes,
+      currentChanges,
+      allPreviousChanges,
       overwriteExisting,
       overwriteReason
     } = req.body;
@@ -35,13 +29,11 @@ export const createVersionLog = async (req, res) => {
       totalHistoricalChanges: (currentChanges?.length || changes?.length || 0) + (allPreviousChanges?.length || 0),
       saveAction,
       overwriteExisting,
-      // ✅ NEW: Log actual data for debugging
       hasCurrentChanges: !!(currentChanges && currentChanges.length > 0),
       hasChanges: !!(changes && changes.length > 0),
       hasPreviousChanges: !!(allPreviousChanges && allPreviousChanges.length > 0)
     });
 
-    // ✅ FIXED: If versionNumber is missing but versionId is provided, look it up
     let resolvedVersionNumber = versionNumber;
 
     if (!resolvedVersionNumber && versionId) {
@@ -58,11 +50,10 @@ export const createVersionLog = async (req, res) => {
         }
       } catch (err) {
         console.error(`❌ [LOG-CONTROLLER] Error looking up version number:`, err);
-        resolvedVersionNumber = 1; // Default fallback
+        resolvedVersionNumber = 1;
       }
     }
 
-    // Validate required fields
     if (!agreementId || !versionId || !resolvedVersionNumber || !salespersonId || !salespersonName || !saveAction || !documentTitle) {
       return res.status(400).json({
         success: false,
@@ -71,7 +62,6 @@ export const createVersionLog = async (req, res) => {
       });
     }
 
-    // ✅ NEW: Fetch agreement title from CustomerHeaderDoc (before overwrite check)
     let agreementTitle = '';
     try {
       const agreement = await CustomerHeaderDoc.findById(agreementId).select('payload.headerTitle').lean();
@@ -80,14 +70,13 @@ export const createVersionLog = async (req, res) => {
         console.log(`✅ [LOG-CONTROLLER] Found agreement title: ${agreementTitle}`);
       } else {
         console.log(`⚠️ [LOG-CONTROLLER] No agreement title found, using document title`);
-        agreementTitle = documentTitle; // Fallback to document title
+        agreementTitle = documentTitle;
       }
     } catch (err) {
       console.error(`❌ [LOG-CONTROLLER] Error fetching agreement title:`, err);
-      agreementTitle = documentTitle; // Fallback to document title
+      agreementTitle = documentTitle;
     }
 
-    // Check if log already exists for this version
     if (overwriteExisting) {
       console.log(`🔄 [LOG-CONTROLLER] Overwrite mode enabled - reason: ${overwriteReason}`);
 
@@ -96,11 +85,10 @@ export const createVersionLog = async (req, res) => {
       if (existingLog) {
         console.log(`📝 [LOG-CONTROLLER] Found existing log, updating: ${existingLog._id}`);
 
-        // ✅ UPDATED: Update with new cumulative history fields
-        existingLog.changes = changes || currentChanges || []; // Backward compatibility
+        existingLog.changes = changes || currentChanges || [];
         existingLog.currentChanges = currentChanges || changes || [];
         existingLog.allPreviousChanges = allPreviousChanges || [];
-        existingLog.agreementTitle = agreementTitle; // ✅ NEW: Update agreement title
+        existingLog.agreementTitle = agreementTitle;
         existingLog.salespersonId = salespersonId;
         existingLog.salespersonName = salespersonName;
         existingLog.saveAction = saveAction;
@@ -128,22 +116,20 @@ export const createVersionLog = async (req, res) => {
       }
     }
 
-    // Create new log document
     const logDoc = new Log({
       agreementId: new mongoose.Types.ObjectId(agreementId),
-      agreementTitle, // ✅ NEW: Include agreement/customer name
+      agreementTitle,
       versionId: new mongoose.Types.ObjectId(versionId),
-      versionNumber: resolvedVersionNumber, // ✅ FIXED: Use resolved version number
+      versionNumber: resolvedVersionNumber,
       salespersonId,
       salespersonName,
       saveAction,
       documentTitle,
-      changes: changes || currentChanges || [], // ✅ Backward compatibility
-      currentChanges: currentChanges || changes || [], // ✅ NEW: Current version changes
-      allPreviousChanges: allPreviousChanges || [] // ✅ NEW: All previous changes
+      changes: changes || currentChanges || [],
+      currentChanges: currentChanges || changes || [],
+      allPreviousChanges: allPreviousChanges || []
     });
 
-    // Save to MongoDB
     await logDoc.save();
 
     console.log('✅ [LOG-CONTROLLER] Log created successfully:', {
@@ -156,7 +142,6 @@ export const createVersionLog = async (req, res) => {
       totalPriceImpact: logDoc.totalPriceImpact
     });
 
-    // Return response
     res.status(201).json({
       success: true,
       message: 'Version log created successfully',
@@ -184,17 +169,12 @@ export const createVersionLog = async (req, res) => {
   }
 };
 
-/**
- * GET /api/pdf/logs/agreement/:agreementId
- * Gets all logs for an agreement
- */
 export const getVersionLogs = async (req, res) => {
   try {
     const { agreementId } = req.params;
 
     console.log('📋 [LOG-CONTROLLER] Getting logs for agreement:', agreementId);
 
-    // Validate agreement ID
     if (!mongoose.Types.ObjectId.isValid(agreementId)) {
       return res.status(400).json({
         success: false,
@@ -202,7 +182,6 @@ export const getVersionLogs = async (req, res) => {
       });
     }
 
-    // Get agreement details
     const agreement = await CustomerHeaderDoc.findById(agreementId).select('payload.headerTitle').lean();
 
     if (!agreement) {
@@ -212,7 +191,6 @@ export const getVersionLogs = async (req, res) => {
       });
     }
 
-    // Get all logs for this agreement
     const logs = await Log.find({
       agreementId: new mongoose.Types.ObjectId(agreementId),
       isDeleted: { $ne: true }
@@ -222,7 +200,6 @@ export const getVersionLogs = async (req, res) => {
 
     console.log(`✅ [LOG-CONTROLLER] Found ${logs.length} logs for agreement ${agreementId}`);
 
-    // Map logs to response format
     const logDocuments = logs.map(log => ({
       _id: log._id.toString(),
       fileName: log.fileName,
@@ -237,7 +214,6 @@ export const getVersionLogs = async (req, res) => {
       totalChanges: log.totalChanges,
       totalPriceImpact: log.totalPriceImpact,
       hasSignificantChanges: log.hasSignificantChanges,
-      // ✅ NEW: Include change arrays for cumulative history
       changes: log.changes || [],
       currentChanges: log.currentChanges || [],
       allPreviousChanges: log.allPreviousChanges || [],
@@ -264,10 +240,6 @@ export const getVersionLogs = async (req, res) => {
   }
 };
 
-/**
- * GET /api/pdf/logs/all
- * Gets all logs with pagination (for admin/testing)
- */
 export const getAllVersionLogs = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -291,7 +263,6 @@ export const getAllVersionLogs = async (req, res) => {
 
     console.log(`✅ [LOG-CONTROLLER] Found ${logs.length} logs (page ${page}/${Math.ceil(totalLogs / limit)})`);
 
-    // Map logs to response format
     const logDocuments = logs.map(log => ({
       _id: log._id.toString(),
       fileName: log.fileName,
@@ -331,17 +302,12 @@ export const getAllVersionLogs = async (req, res) => {
   }
 };
 
-/**
- * GET /api/pdf/logs/:logId/download
- * Downloads a log file as TXT
- */
 export const downloadVersionLog = async (req, res) => {
   try {
     const { logId } = req.params;
 
     console.log('📥 [LOG-CONTROLLER] Downloading log:', logId);
 
-    // Validate log ID
     if (!mongoose.Types.ObjectId.isValid(logId)) {
       return res.status(400).json({
         success: false,
@@ -349,7 +315,6 @@ export const downloadVersionLog = async (req, res) => {
       });
     }
 
-    // Get log document
     const includeDeleted = req.query.includeDeleted === "true";
 
     const filter = {
@@ -368,17 +333,14 @@ export const downloadVersionLog = async (req, res) => {
       });
     }
 
-    // Generate TXT content
     const textContent = logDoc.generateTextContent();
 
     console.log(`✅ [LOG-CONTROLLER] Generated TXT content (${Buffer.byteLength(textContent, 'utf8')} bytes)`);
 
-    // Set response headers for file download
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${logDoc.fileName}"`);
     res.setHeader('Content-Length', Buffer.byteLength(textContent, 'utf8'));
 
-    // Send TXT content
     res.status(200).send(textContent);
 
   } catch (error) {

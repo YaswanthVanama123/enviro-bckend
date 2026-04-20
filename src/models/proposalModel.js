@@ -1,4 +1,3 @@
-// src/models/proposalModel.js
 import mongoose from "mongoose";
 
 const ExtraColSchema = new mongoose.Schema({ label: { type: String, required: true } }, { _id: false });

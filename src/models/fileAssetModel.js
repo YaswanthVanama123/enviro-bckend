@@ -1,4 +1,3 @@
-// src/models/fileAssetModel.js
 import mongoose from "mongoose";
 
 const FileAssetSchema = new mongoose.Schema(

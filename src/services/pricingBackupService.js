@@ -5,16 +5,6 @@ import ServiceConfig from '../models/ServiceConfig.js';
 
 class PricingBackupService {
 
-  /**
-   * Create a pricing backup if one doesn't already exist for today
-   * @param {Object} options - Backup options
-   * @param {string} options.trigger - What triggered this backup
-   * @param {ObjectId} options.changedBy - Admin user who made the change
-   * @param {Array} options.changedAreas - Which pricing areas were changed
-   * @param {string} options.changeDescription - Description of the change
-   * @param {number} options.changeCount - Number of changes made
-   * @returns {Object} Backup result
-   */
   static async createBackupIfNeeded(options = {}) {
     try {
       const {
@@ -25,7 +15,6 @@ class PricingBackupService {
         changeCount = 1
       } = options;
 
-      // Check if backup already exists for today
       const hasBackupToday = await BackupPricing.hasBackupForToday();
       if (hasBackupToday) {
         return {
@@ -36,16 +25,12 @@ class PricingBackupService {
         };
       }
 
-      // Collect all current pricing data
       const pricingSnapshot = await this.collectAllPricingData();
 
-      // Compress the snapshot
       const compressionResult = BackupPricing.compressPricingData(pricingSnapshot);
 
-      // Calculate metadata
       const metadata = this.calculateSnapshotMetadata(pricingSnapshot, compressionResult);
 
-      // Create the backup record
       const changeDay = BackupPricing.getCurrentDateString();
       const changeDayId = BackupPricing.generateChangeDayId(changeDay);
 
@@ -66,7 +51,6 @@ class PricingBackupService {
 
       await backupRecord.save();
 
-      // Enforce retention policy (keep only last 10 change-days)
       const retentionResult = await BackupPricing.enforceRetentionPolicy();
 
       return {
@@ -94,12 +78,6 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Create a manual backup (one per day, separate from auto backups)
-   * @param {Object} options - Backup options
-   * @param {boolean} options.forceReplace - Force replace existing manual backup
-   * @returns {Object} Backup result
-   */
   static async createManualBackup(options = {}) {
     try {
       const {
@@ -113,7 +91,6 @@ class PricingBackupService {
       const changeDay = BackupPricing.getCurrentDateString();
       const manualChangeDayId = `backup_${changeDay}_manual`;
 
-      // Check if manual backup already exists for today
       const existingManualBackup = await BackupPricing.findOne({
         changeDayId: manualChangeDayId
       });
@@ -131,18 +108,14 @@ class PricingBackupService {
         };
       }
 
-      // Delete existing manual backup if replacing
       if (existingManualBackup && forceReplace) {
         await BackupPricing.deleteOne({ changeDayId: manualChangeDayId });
       }
 
-      // Collect all current pricing data
       const pricingSnapshot = await this.collectAllPricingData();
 
-      // Compress the snapshot
       const compressionResult = BackupPricing.compressPricingData(pricingSnapshot);
 
-      // Calculate metadata
       const metadata = this.calculateSnapshotMetadata(pricingSnapshot, compressionResult);
 
       const backupRecord = new BackupPricing({
@@ -189,25 +162,16 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Collect all current pricing data from all sources
-   * @returns {Object} Complete pricing snapshot
-   */
   static async collectAllPricingData() {
     try {
-      // Get all PriceFix data (service pricing master)
       const priceFixes = await PriceFix.find({}).lean();
 
-      // Get the active ProductCatalog
       const activeProductCatalog = await ProductCatalog.findOne({ isActive: true }).lean();
 
-      // Get all ProductCatalogs for completeness (in case active flag fails)
       const allProductCatalogs = await ProductCatalog.find({}).lean();
 
-      // Get all ServiceConfigs (both active and inactive for complete backup)
       const serviceConfigs = await ServiceConfig.find({}).lean();
 
-      // Create comprehensive snapshot
       const snapshot = {
         timestamp: new Date().toISOString(),
         dataTypes: {
@@ -241,16 +205,9 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Calculate metadata about the snapshot
-   * @param {Object} snapshot - Pricing data snapshot
-   * @param {Object} compressionResult - Compression results
-   * @returns {Object} Metadata object
-   */
   static calculateSnapshotMetadata(snapshot, compressionResult) {
     const { priceFix, productCatalog, serviceConfigs } = snapshot.dataTypes;
 
-    // Calculate actual product count from all families
     let totalProductCount = 0;
     if (productCatalog.active && productCatalog.active.families) {
       totalProductCount = productCatalog.active.families.reduce((count, family) => {
@@ -258,7 +215,6 @@ class PricingBackupService {
       }, 0);
     }
 
-    // Add products from all other catalogs if any
     if (productCatalog.all && Array.isArray(productCatalog.all)) {
       productCatalog.all.forEach(catalog => {
         if (catalog.families && catalog !== productCatalog.active) {
@@ -271,14 +227,13 @@ class PricingBackupService {
 
     return {
       includedDataTypes: {
-        // Always include all data types in backup, even if empty (represents current state)
         priceFix: true,
         productCatalog: true,
         serviceConfigs: true
       },
       documentCounts: {
         priceFixCount: priceFix.count,
-        productCatalogCount: totalProductCount, // Now counts actual products, not catalogs
+        productCatalogCount: totalProductCount,
         serviceConfigCount: serviceConfigs.count
       },
       originalSize: compressionResult.originalSize,
@@ -287,25 +242,15 @@ class PricingBackupService {
     };
   }
 
-  /**
-   * Restore pricing data from a backup
-   * @param {string} changeDayId - ID of the backup to restore
-   * @param {ObjectId} restoredBy - Admin user performing the restore
-   * @param {string} restorationNotes - Notes about the restoration
-   * @returns {Object} Restoration result
-   */
   static async restoreFromBackup(changeDayId, restoredBy, restorationNotes = '') {
     try {
-      // Find the backup
       const backup = await BackupPricing.findOne({ changeDayId });
       if (!backup) {
         throw new Error(`Backup not found: ${changeDayId}`);
       }
 
-      // Decompress the snapshot
       const snapshot = backup.getSnapshot();
 
-      // Validate snapshot structure
       if (!snapshot.dataTypes) {
         throw new Error('Invalid backup snapshot structure');
       }
@@ -316,12 +261,11 @@ class PricingBackupService {
         serviceConfigs: { restored: 0, errors: [] }
       };
 
-      // Restore PriceFix data
       if (snapshot.dataTypes.priceFix.documents.length > 0) {
         try {
-          await PriceFix.deleteMany({}); // Clear existing
+          await PriceFix.deleteMany({});
           const priceFixDocs = snapshot.dataTypes.priceFix.documents.map(doc => {
-            delete doc._id; // Remove _id to create new documents
+            delete doc._id;
             return doc;
           });
           await PriceFix.insertMany(priceFixDocs);
@@ -331,12 +275,11 @@ class PricingBackupService {
         }
       }
 
-      // Restore ProductCatalog data
       if (snapshot.dataTypes.productCatalog.all.length > 0) {
         try {
-          await ProductCatalog.deleteMany({}); // Clear existing
+          await ProductCatalog.deleteMany({});
           const catalogDocs = snapshot.dataTypes.productCatalog.all.map(doc => {
-            delete doc._id; // Remove _id to create new documents
+            delete doc._id;
             return doc;
           });
           await ProductCatalog.insertMany(catalogDocs);
@@ -346,12 +289,11 @@ class PricingBackupService {
         }
       }
 
-      // Restore ServiceConfig data
       if (snapshot.dataTypes.serviceConfigs.documents.length > 0) {
         try {
-          await ServiceConfig.deleteMany({}); // Clear existing
+          await ServiceConfig.deleteMany({});
           const serviceConfigDocs = snapshot.dataTypes.serviceConfigs.documents.map(doc => {
-            delete doc._id; // Remove _id to create new documents
+            delete doc._id;
             return doc;
           });
           await ServiceConfig.insertMany(serviceConfigDocs);
@@ -361,7 +303,6 @@ class PricingBackupService {
         }
       }
 
-      // Update backup record to mark as restored
       backup.restorationInfo = {
         hasBeenRestored: true,
         lastRestoredAt: new Date(),
@@ -370,7 +311,6 @@ class PricingBackupService {
       };
       await backup.save();
 
-      // Calculate success metrics
       const totalRestored = restorationResults.priceFix.restored +
                            restorationResults.productCatalog.restored +
                            restorationResults.serviceConfigs.restored;
@@ -401,34 +341,23 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Get list of available backups with summary information
-   * @param {number} limit - Maximum number of backups to return
-   * @returns {Object} List of backups
-   *
-   * ✅ OPTIMIZED: Removed expensive snapshot decompression - use stored metadata instead
-   */
   static async getAvailableBackups(limit = 10) {
     try {
       const startTime = Date.now();
       console.log(`[BACKUP-LIST] Starting optimized backup list fetch (limit: ${limit})...`);
 
-      // ⚡ OPTIMIZED: Use projection to fetch only needed fields (no compressedSnapshot!)
       const backups = await BackupPricing.getLastNChangeDays(limit);
       const queryTime = Date.now() - startTime;
 
       console.log(`⚡ [BACKUP-LIST] Fetched ${backups.length} backups in ${queryTime}ms`);
 
-      // ✅ OPTIMIZED: Use stored metadata directly - no decompression needed
       const backupSummary = backups.map((item, index) => {
         const changeDayId = item.backup.changeDayId;
 
-        // Use stored metadata counts directly (no decompression!)
         const documentCounts = {
           ...item.backup.snapshotMetadata.documentCounts
         };
 
-        // Log for debugging
         console.log(`[BACKUP-LIST] Backup ${index + 1}/${backups.length}: ${changeDayId} - ${documentCounts.productCatalogCount} products`);
 
         return {
@@ -442,7 +371,7 @@ class PricingBackupService {
             changeCount: item.backup.changeContext.changeCount
           },
           snapshotMetadata: {
-            documentCounts: documentCounts, // ✅ Use stored counts directly
+            documentCounts: documentCounts,
             originalSize: item.backup.snapshotMetadata.originalSize,
             compressedSize: item.backup.snapshotMetadata.compressedSize,
             compressionRatio: item.backup.snapshotMetadata.compressionRatio,
@@ -484,11 +413,6 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Get detailed information about a specific backup
-   * @param {string} changeDayId - ID of the backup
-   * @returns {Object} Detailed backup information
-   */
   static async getBackupDetails(changeDayId) {
     try {
       const backup = await BackupPricing.findOne({ changeDayId })
@@ -505,21 +429,17 @@ class PricingBackupService {
       console.log(`[DEBUG] Processing backup details for ${changeDayId}`);
       console.log(`[DEBUG] Stored metadata productCatalogCount:`, backup.snapshotMetadata?.documentCounts?.productCatalogCount);
 
-      // Recalculate product count from actual snapshot data for accurate display
       let actualProductCount = backup.snapshotMetadata?.documentCounts?.productCatalogCount || 0;
 
       try {
         console.log(`[DEBUG] Attempting to decompress snapshot...`);
 
-        // Convert MongoDB Binary to Buffer if needed (for consistency with aggregation results)
         let compressedData = backup.compressedSnapshot;
         if (compressedData && typeof compressedData === 'object' && compressedData.buffer) {
-          // MongoDB Binary object - extract the buffer
           compressedData = compressedData.buffer;
         }
         console.log(`[DEBUG] Compressed data type: ${typeof compressedData}, constructor: ${compressedData.constructor.name}`);
 
-        // Use static decompression method for consistency
         const snapshot = BackupPricing.decompressPricingData(compressedData);
         console.log(`[DEBUG] Snapshot decompressed successfully`);
         console.log(`[DEBUG] Snapshot structure:`, {
@@ -553,7 +473,6 @@ class PricingBackupService {
         console.warn('Could not recalculate product count from snapshot, using stored metadata');
       }
 
-      // Create corrected metadata for response
       const correctedMetadata = {
         ...backup.snapshotMetadata,
         documentCounts: {
@@ -592,12 +511,6 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Delete old backups manually (beyond retention policy)
-   * @param {Array} changeDayIds - Array of backup IDs to delete
-   * @param {ObjectId} deletedBy - Admin user performing the deletion
-   * @returns {Object} Deletion result
-   */
   static async deleteBackups(changeDayIds, deletedBy) {
     try {
       const deleteResult = await BackupPricing.deleteMany({
@@ -622,31 +535,21 @@ class PricingBackupService {
     }
   }
 
-  /**
-   * Get backup statistics and health information
-   * @returns {Object} Backup system statistics
-   *
-   * ✅ OPTIMIZED: Single aggregation query with $facet instead of 5 separate queries
-   */
   static async getBackupStatistics() {
     try {
       const startTime = Date.now();
       console.log('[BACKUP-STATS] Starting optimized statistics collection...');
 
-      // ⚡ OPTIMIZED: Single aggregation with $facet for all statistics
       const statsData = await BackupPricing.aggregate([
         {
           $facet: {
-            // Total backups count
             totalCount: [{ $count: 'count' }],
 
-            // Unique changeDays count
             uniqueChangeDays: [
               { $group: { _id: '$changeDay' } },
               { $count: 'count' }
             ],
 
-            // Size statistics
             sizeStats: [
               {
                 $group: {
@@ -660,7 +563,6 @@ class PricingBackupService {
               }
             ],
 
-            // Trigger statistics
             triggerStats: [
               {
                 $group: {
@@ -670,7 +572,6 @@ class PricingBackupService {
               }
             ],
 
-            // Recent backups
             recentBackups: [
               { $sort: { changeDay: -1 } },
               { $limit: 5 },
@@ -689,7 +590,6 @@ class PricingBackupService {
 
       const queryTime = Date.now() - startTime;
 
-      // Extract results from aggregation
       const result = statsData[0];
       const totalBackups = result.totalCount[0]?.count || 0;
       const uniqueChangeDaysCount = result.uniqueChangeDays[0]?.count || 0;
