@@ -50,7 +50,9 @@ import {
   getApprovalDocumentsGrouped,
   debugGetAllFiles,
   verifyTrashWorkflow,
-  getDocumentStatusCounts
+  getDocumentStatusCounts,
+  exportPricingCatalog,
+  exportPricingCatalogFromDb
 } from "../controllers/pdfController.js";
 
 import {
@@ -126,6 +128,9 @@ router.post("/logs/create", createVersionLog);
 router.get("/logs/agreement/:agreementId", getVersionLogs);
 router.get("/logs/all", getAllVersionLogs);
 router.get("/logs/:logId/download", downloadVersionLog);
+
+router.post("/pricing-catalog/export", exportPricingCatalog);
+router.get("/pricing-catalog/export", requireAdminAuth, exportPricingCatalogFromDb);
 
 router.post("/compile-file", upload.single("file"), proxyCompileFile);
 router.post(

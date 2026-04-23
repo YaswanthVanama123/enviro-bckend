@@ -7,6 +7,7 @@ import {
   compileCustomerHeader,
   proxyCompileFileToRemote,
   proxyCompileBundleToRemote,
+  compilePricingCatalogPdf,
 } from "../services/pdfService.js";
 
 import { uploadToZohoBigin, getZohoAccessToken, testZohoAccess, runZohoDiagnostics, testLayoutPipelineDetection, getOrCreateContactForDeal, getBiginContactsByAccount, testV9SimplePipelineDetection, testV10LayoutPipelineCompatibility } from "../services/zohoService.js";
@@ -14,6 +15,7 @@ import { uploadToZohoBigin, getZohoAccessToken, testZohoAccess, runZohoDiagnosti
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import AdminHeaderDoc from "../models/AdminHeaderDoc.js";
 import ServiceConfig from "../models/ServiceConfig.js";
+import ProductCatalog from "../models/ProductCatalog.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
 import VersionPdf from "../models/VersionPdf.js";
 import PriceOverrideLog from "../models/PriceOverrideLog.js";
@@ -4483,6 +4485,49 @@ export async function getDocumentStatusCounts(req, res) {
     res.status(500).json({
       success: false,
       error: "Failed to retrieve document status counts",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+export async function exportPricingCatalog(req, res) {
+  try {
+    const { services = [], catalog = null } = req.body;
+    console.log(`📄 [PRICING-CATALOG] Generating pricing catalog PDF (${services.length} services)`);
+    const { buffer, filename, encoding } = await compilePricingCatalogPdf({ services, catalog });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (encoding) res.setHeader('Content-Encoding', encoding);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (err) {
+    console.error("exportPricingCatalog error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate pricing catalog PDF",
+      detail: err?.message || String(err)
+    });
+  }
+}
+
+export async function exportPricingCatalogFromDb(req, res) {
+  try {
+    console.log(`📄 [PRICING-CATALOG-DB] Generating pricing catalog PDF from DB`);
+    const [services, catalogDoc] = await Promise.all([
+      ServiceConfig.find({}).lean(),
+      ProductCatalog.findOne({ isActive: true }).lean(),
+    ]);
+    const { buffer, filename, encoding } = await compilePricingCatalogPdf({ services, catalog: catalogDoc });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (encoding) res.setHeader('Content-Encoding', encoding);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (err) {
+    console.error("exportPricingCatalogFromDb error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate pricing catalog PDF",
       detail: err?.message || String(err)
     });
   }
