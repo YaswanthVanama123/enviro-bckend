@@ -511,6 +511,7 @@ function getFrequencyLabel(freq) {
     4: "Weekly",
     2: "Bi-weekly",
     1: "Monthly",
+    1.0833: "Every 4 Weeks",
     0.5: "Every 2 Months",
     0.33: "Quarterly",
     0.17: "Bi-annually",
@@ -973,6 +974,9 @@ const FREQUENCY_CANONICALS = new Map([
   ["2xmonth", "twicePerMonth"],
   ["2month", "twicePerMonth"],
   ["monthly", "monthly"],
+  ["every4weeks", "everyFourWeeks"],
+  ["everyfourweeks", "everyFourWeeks"],
+  ["every4weekly", "everyFourWeeks"],
   ["bimonthly", "bimonthly"],
   ["every2months", "bimonthly"],
   ["quarterly", "quarterly"],
@@ -986,6 +990,7 @@ const FREQUENCY_DISPLAY_OVERRIDES = {
   weekly: "Weekly",
   biweekly: "Bi-Weekly",
   monthly: "Monthly",
+  everyFourWeeks: "Every 4 Weeks",
   bimonthly: "Every 2 Months",
   quarterly: "Quarterly",
   biannual: "Biannual",
@@ -993,7 +998,7 @@ const FREQUENCY_DISPLAY_OVERRIDES = {
 };
 
 const MONTHLY_FREQUENCY_KEYS = new Set(["weekly", "biweekly", "twicePerMonth", "monthly"]);
-const VISIT_FREQUENCY_KEYS = new Set(["oneTime", "bimonthly", "quarterly", "biannual", "annual"]);
+const VISIT_FREQUENCY_KEYS = new Set(["oneTime", "bimonthly", "quarterly", "biannual", "annual", "everyFourWeeks"]);
 
 function normalizeFrequencyKey(raw) {
   if (raw === undefined || raw === null) return undefined;
