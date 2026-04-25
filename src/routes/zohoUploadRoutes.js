@@ -13,6 +13,8 @@ import {
   getBiginDealsByCompany,
   createBiginDeal,
   createBiginNote,
+  createBiginTask,
+  getBiginUsers,
   uploadBiginFile,
   getBiginModules,
   getBiginPipelineStages,
@@ -2962,6 +2964,83 @@ router.get("/companies/:companyId/deals", async (req, res) => {
       error: error.message,
       companyId: req.params.companyId,
     });
+  }
+});
+
+// ─── GET BIGIN USERS ──────────────────────────────────────────────────────────
+router.get("/users", async (req, res) => {
+  try {
+    const result = await getBiginUsers();
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, users: [], error: err.message });
+  }
+});
+
+// ─── CREATE TASK FOR A DEAL'S COMPANY ────────────────────────────────────────
+router.post("/:agreementId/tasks", async (req, res) => {
+  const { agreementId } = req.params;
+  const { subject, dueDate, status, priority, description, ownerId, seModule } = req.body;
+
+  if (!subject?.trim()) {
+    return res.status(400).json({ success: false, error: "Task subject is required." });
+  }
+
+  try {
+    const mapping = await ZohoMapping.findOne({ agreementId });
+    if (!mapping?.zohoCompany?.id) {
+      return res.status(404).json({ success: false, error: "No Bigin mapping found for this agreement. Upload to Bigin first." });
+    }
+
+    const result = await createBiginTask(mapping.zohoCompany.id, {
+      subject: subject.trim(),
+      dueDate: dueDate || null,
+      status: status || 'Not Started',
+      priority: priority || 'Medium',
+      description: description?.trim() || '',
+      ownerId: ownerId || null,
+      seModule: seModule || 'Accounts',
+    });
+
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error });
+    }
+
+    return res.json({ success: true, task: result.task });
+  } catch (err) {
+    console.error("❌ Task creation error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── CREATE TASK DIRECTLY FOR A COMPANY (for unlinked agreements) ─────────────
+router.post("/companies/:companyId/tasks", async (req, res) => {
+  const { companyId } = req.params;
+  const { subject, dueDate, status, priority, description, ownerId, seModule } = req.body;
+
+  if (!subject?.trim()) {
+    return res.status(400).json({ success: false, error: "Task subject is required." });
+  }
+
+  try {
+    const result = await createBiginTask(companyId, {
+      subject: subject.trim(),
+      dueDate: dueDate || null,
+      status: status || 'Not Started',
+      priority: priority || 'Medium',
+      description: description?.trim() || '',
+      ownerId: ownerId || null,
+      seModule: seModule || 'Accounts',
+    });
+
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error });
+    }
+
+    return res.json({ success: true, task: result.task });
+  } catch (err) {
+    console.error("❌ Company task creation error:", err);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

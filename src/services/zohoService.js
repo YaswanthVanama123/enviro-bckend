@@ -21,7 +21,8 @@ export function generateZohoAuthUrl() {
 const scopes = [
   "ZohoBigin.modules.ALL",
   "ZohoBigin.modules.attachments.ALL",
-  "ZohoBigin.settings.ALL"
+  "ZohoBigin.settings.ALL",
+  "ZohoBigin.users.ALL"
 ].join(",");
 
 
@@ -1603,6 +1604,26 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
   }
 }
 
+export async function getBiginUsers() {
+  console.log(`👥 Fetching Bigin users...`);
+  const result = await makeBiginRequest('GET', '/Users?type=AllUsers&per_page=50');
+  console.log(`👥 [USERS] success:`, result.success, 'status:', result.status);
+  console.log(`👥 [USERS] data keys:`, result.data ? Object.keys(result.data) : 'null');
+  console.log(`👥 [USERS] error:`, result.error);
+  if (result.success) {
+    // Zoho Bigin returns `users` array
+    const rawUsers = result.data?.users || result.data?.Users || [];
+    console.log(`👥 [USERS] found ${rawUsers.length} users`);
+    const users = rawUsers.map((u) => ({
+      id: u.id,
+      name: u.full_name || u.name || u.display_name || '',
+      email: u.email || '',
+    }));
+    return { success: true, users };
+  }
+  return { success: false, users: [], error: result.error };
+}
+
 export async function getBiginCompanies(page = 1, perPage = 50) {
   console.log(`📋 Fetching Bigin companies (page ${page}, ${perPage} per page)...`);
 
@@ -1866,6 +1887,57 @@ export async function createBiginNote(dealId, noteData) {
     success: false,
     error: errorMessage
   };
+}
+
+export async function createBiginTask(companyId, taskData) {
+  console.log(`✅ Creating task for company ${companyId}: ${taskData.subject}`);
+
+  const payload = {
+    data: [{
+      Subject: taskData.subject,
+      Due_Date: taskData.dueDate || null,
+      Status: taskData.status || 'Not Started',
+      Priority: taskData.priority || 'Medium',
+      Description: taskData.description || '',
+      $se_module: taskData.seModule || 'Accounts',
+      What_Id: companyId,
+      ...(taskData.ownerId ? { Owner: { id: taskData.ownerId } } : {}),
+    }]
+  };
+
+  // Remove null/empty fields
+  if (!payload.data[0].Due_Date) delete payload.data[0].Due_Date;
+  if (!payload.data[0].Description) delete payload.data[0].Description;
+
+  console.log(`🔍 [TASK CREATION] Payload:`, JSON.stringify(payload, null, 2));
+
+  const result = await makeBiginRequest('POST', '/Tasks', payload);
+  console.log(`🔍 [TASK CREATION] Response status:`, result.status, 'error:', result.error ? JSON.stringify(result.error) : 'None');
+
+  if (result.success) {
+    const createdTask = result.data?.data?.[0];
+    if (createdTask?.code === 'SUCCESS') {
+      console.log(`✅ Task created successfully: ${createdTask.details.id}`);
+      return {
+        success: true,
+        task: {
+          id: createdTask.details.id,
+          subject: taskData.subject,
+          dueDate: taskData.dueDate,
+          status: taskData.status || 'Not Started',
+          priority: taskData.priority || 'Medium',
+        }
+      };
+    }
+    const zohoError = result.data?.data?.[0];
+    const errorMessage = zohoError?.message || zohoError?.details || 'Unknown Zoho error';
+    console.error(`❌ Task creation failed:`, errorMessage);
+    return { success: false, error: errorMessage };
+  }
+
+  const errorMessage = result.error?.message || result.error || 'Unknown API error';
+  console.error(`❌ Task creation API call failed:`, errorMessage);
+  return { success: false, error: errorMessage };
 }
 
 export async function uploadBiginFile(dealId, pdfBuffer, fileName, options = {}) {
