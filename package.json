@@ -32,7 +32,7 @@
     "multer": "^2.0.2",
     "mustache": "^4.2.0",
     "nodemailer": "^7.0.12",
-    "puppeteer": "^22.0.0",
+    "puppeteer": "^22.15.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
