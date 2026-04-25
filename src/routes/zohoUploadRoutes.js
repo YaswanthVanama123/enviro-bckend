@@ -2977,10 +2977,10 @@ router.get("/users", async (req, res) => {
   }
 });
 
-// ─── CREATE TASK FOR A DEAL'S COMPANY ────────────────────────────────────────
+// ─── CREATE TASK ON THE PIPELINE (deal) linked to an agreement ───────────────
 router.post("/:agreementId/tasks", async (req, res) => {
   const { agreementId } = req.params;
-  const { subject, dueDate, status, priority, description, ownerId, seModule } = req.body;
+  const { subject, dueDate, status, priority, description, ownerId, reminder, reminderWhen, reminderTime, repeat, repeatFrequency, repeatUntil } = req.body;
 
   if (!subject?.trim()) {
     return res.status(400).json({ success: false, error: "Task subject is required." });
@@ -2988,18 +2988,25 @@ router.post("/:agreementId/tasks", async (req, res) => {
 
   try {
     const mapping = await ZohoMapping.findOne({ agreementId });
-    if (!mapping?.zohoCompany?.id) {
-      return res.status(404).json({ success: false, error: "No Bigin mapping found for this agreement. Upload to Bigin first." });
+    if (!mapping?.zohoDeal?.id) {
+      return res.status(404).json({ success: false, error: "No Bigin pipeline found for this agreement. Upload to Bigin first to create a pipeline." });
     }
 
-    const result = await createBiginTask(mapping.zohoCompany.id, {
+    console.log(`📋 Creating task on pipeline ${mapping.zohoDeal.id} (${mapping.zohoDeal.name})`);
+    const result = await createBiginTask(mapping.zohoDeal.id, {
       subject: subject.trim(),
       dueDate: dueDate || null,
       status: status || 'Not Started',
       priority: priority || 'Medium',
       description: description?.trim() || '',
       ownerId: ownerId || null,
-      seModule: seModule || 'Accounts',
+      seModule: 'Deals',
+      reminder: !!reminder,
+      reminderWhen: reminderWhen || 'On due date',
+      reminderTime: reminderTime || '08:00',
+      repeat: !!repeat,
+      repeatFrequency: repeatFrequency || 'Every Day',
+      repeatUntil: repeatUntil || null,
     });
 
     if (!result.success) {
@@ -3013,24 +3020,39 @@ router.post("/:agreementId/tasks", async (req, res) => {
   }
 });
 
-// ─── CREATE TASK DIRECTLY FOR A COMPANY (for unlinked agreements) ─────────────
+// ─── CREATE TASK FOR A COMPANY (unlinked) — looks up the company's pipeline ──
 router.post("/companies/:companyId/tasks", async (req, res) => {
   const { companyId } = req.params;
-  const { subject, dueDate, status, priority, description, ownerId, seModule } = req.body;
+  const { subject, dueDate, status, priority, description, ownerId, reminder, reminderWhen, reminderTime, repeat, repeatFrequency, repeatUntil } = req.body;
 
   if (!subject?.trim()) {
     return res.status(400).json({ success: false, error: "Task subject is required." });
   }
 
   try {
-    const result = await createBiginTask(companyId, {
+    // Find the most recent pipeline (deal) for this company
+    const dealsResult = await getBiginDealsByCompany(companyId, 1, 1);
+    const deal = dealsResult.deals?.[0];
+
+    if (!deal) {
+      return res.status(404).json({ success: false, error: "No pipeline found for this company. Please upload to Bigin first to create a pipeline." });
+    }
+
+    console.log(`📋 Creating task on pipeline ${deal.id} (${deal.name}) for company ${companyId}`);
+    const result = await createBiginTask(deal.id, {
       subject: subject.trim(),
       dueDate: dueDate || null,
       status: status || 'Not Started',
       priority: priority || 'Medium',
       description: description?.trim() || '',
       ownerId: ownerId || null,
-      seModule: seModule || 'Accounts',
+      seModule: 'Deals',
+      reminder: !!reminder,
+      reminderWhen: reminderWhen || 'On due date',
+      reminderTime: reminderTime || '08:00',
+      repeat: !!repeat,
+      repeatFrequency: repeatFrequency || 'Every Day',
+      repeatUntil: repeatUntil || null,
     });
 
     if (!result.success) {

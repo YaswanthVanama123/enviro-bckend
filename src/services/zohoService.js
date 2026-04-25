@@ -1606,7 +1606,7 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
 
 export async function getBiginUsers() {
   console.log(`👥 Fetching Bigin users...`);
-  const result = await makeBiginRequest('GET', '/Users?type=AllUsers&per_page=50');
+  const result = await makeBiginRequest('GET', '/users?type=AllUsers&per_page=200');
   console.log(`👥 [USERS] success:`, result.success, 'status:', result.status);
   console.log(`👥 [USERS] data keys:`, result.data ? Object.keys(result.data) : 'null');
   console.log(`👥 [USERS] error:`, result.error);
@@ -1614,6 +1614,7 @@ export async function getBiginUsers() {
     // Zoho Bigin returns `users` array
     const rawUsers = result.data?.users || result.data?.Users || [];
     console.log(`👥 [USERS] found ${rawUsers.length} users`);
+    if (rawUsers.length > 0) console.log(`👥 [USERS] first user raw:`, JSON.stringify(rawUsers[0], null, 2));
     const users = rawUsers.map((u) => ({
       id: u.id,
       name: u.full_name || u.name || u.display_name || '',
@@ -1696,18 +1697,23 @@ export async function searchBiginCompanies(searchTerm) {
 export async function createBiginCompany(companyData) {
   console.log(`🏢 Creating new Bigin company: ${companyData.name}`);
 
-  const payload = {
-    data: [{
-      Account_Name: companyData.name,
-      Phone: companyData.phone || '',
-      Email: companyData.email || '',
-      Website: companyData.website || '',
-      Billing_Street: companyData.address || '',
-      Description: `Created by EnviroMaster system on ${new Date().toISOString()}`
-    }]
+  const record = {
+    Account_Name: companyData.name,
   };
+  if (companyData.phone) record.Phone = companyData.phone;
+  if (companyData.email) record.Email = companyData.email;
+  // Only include Website if it looks like a valid URL (starts with http/https or has a dot)
+  const website = companyData.website;
+  if (website && website !== 'None' && website !== 'none' && /[.\w]/.test(website) && !['none', 'n/a', 'na', '-'].includes(website.toLowerCase())) {
+    record.Website = website.startsWith('http') ? website : `https://${website}`;
+  }
+  if (companyData.address) record.Billing_Street = companyData.address;
 
+  const payload = { data: [record] };
+
+  console.log(`📤 [CREATE COMPANY] Sending payload:`, JSON.stringify(payload, null, 2));
   const result = await makeBiginRequest('POST', '/Accounts', payload);
+  console.log(`📥 [CREATE COMPANY] Full result:`, JSON.stringify(result, null, 2));
 
   if (result.success) {
     const createdCompany = result.data?.data?.[0];
@@ -1892,27 +1898,54 @@ export async function createBiginNote(dealId, noteData) {
 export async function createBiginTask(companyId, taskData) {
   console.log(`✅ Creating task for company ${companyId}: ${taskData.subject}`);
 
-  const payload = {
-    data: [{
-      Subject: taskData.subject,
-      Due_Date: taskData.dueDate || null,
-      Status: taskData.status || 'Not Started',
-      Priority: taskData.priority || 'Medium',
-      Description: taskData.description || '',
-      $se_module: taskData.seModule || 'Accounts',
-      What_Id: companyId,
-      ...(taskData.ownerId ? { Owner: { id: taskData.ownerId } } : {}),
-    }]
+  const record = {
+    Subject: taskData.subject,
+    Status: taskData.status || 'Not Started',
+    Priority: taskData.priority || 'Medium',
+    $se_module: taskData.seModule || 'Accounts',
+    What_Id: companyId,
   };
 
-  // Remove null/empty fields
-  if (!payload.data[0].Due_Date) delete payload.data[0].Due_Date;
-  if (!payload.data[0].Description) delete payload.data[0].Description;
+  if (taskData.dueDate) record.Due_Date = taskData.dueDate;
+  if (taskData.description?.trim()) record.Description = taskData.description.trim();
+
+  // Set Remind_At based on when option + time
+  if (taskData.reminder && taskData.dueDate) {
+    const [year, month, day] = taskData.dueDate.split('-').map(Number);
+    const base = new Date(year, month - 1, day);
+    const when = taskData.reminderWhen || 'On due date';
+    if (when === 'A day before due date') base.setDate(base.getDate() - 1);
+    else if (when === '2 days before due date') base.setDate(base.getDate() - 2);
+    const remindDateStr = base.toISOString().split('T')[0];
+    const time = taskData.reminderTime || '08:00';
+    record.Remind_At = `${remindDateStr}T${time}:00+00:00`;
+  } else if (taskData.reminder) {
+    // No due date — remind tomorrow at specified time
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const time = taskData.reminderTime || '08:00';
+    record.Remind_At = `${tomorrow}T${time}:00+00:00`;
+  }
+
+  // Try owner as plain string ID first (Bigin v2 sometimes needs this format)
+  if (taskData.ownerId) record.Owner = taskData.ownerId;
+
+  const payload = { data: [record] };
 
   console.log(`🔍 [TASK CREATION] Payload:`, JSON.stringify(payload, null, 2));
 
-  const result = await makeBiginRequest('POST', '/Tasks', payload);
+  let result = await makeBiginRequest('POST', '/Tasks', payload);
   console.log(`🔍 [TASK CREATION] Response status:`, result.status, 'error:', result.error ? JSON.stringify(result.error) : 'None');
+
+  // If owner caused the error, retry without it
+  if (!result.success && result.status === 400 && taskData.ownerId) {
+    const ownerError = JSON.stringify(result.error || '');
+    if (ownerError.includes('Owner')) {
+      console.log(`⚠️ [TASK CREATION] Owner ID rejected, retrying without Owner field...`);
+      delete record.Owner;
+      result = await makeBiginRequest('POST', '/Tasks', { data: [record] });
+      console.log(`🔍 [TASK CREATION] Retry status:`, result.status, 'error:', result.error ? JSON.stringify(result.error) : 'None');
+    }
+  }
 
   if (result.success) {
     const createdTask = result.data?.data?.[0];
