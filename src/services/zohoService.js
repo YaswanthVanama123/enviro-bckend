@@ -1502,43 +1502,6 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
   console.log(`💼 Fetching Bigin deals for company: ${companyId} (page ${page}, ${perPage} per page)`);
 
   try {
-    const coqlQuery = `SELECT *
-                       FROM Deals
-                       WHERE Account_Name = '${companyId}'
-                       ORDER BY Modified_Time DESC
-                       LIMIT ${Math.min(perPage, 200)}
-                       OFFSET ${(page - 1) * perPage}`;
-
-    console.log(`🔍 [COMPANY-DEALS] Using COQL to fetch deals for company ${companyId}`);
-    const coqlResult = await makeBiginRequest('POST', '/coql', {
-      select_query: coqlQuery
-    });
-
-    if (coqlResult.success && coqlResult.data?.data) {
-      const deals = coqlResult.data.data;
-      console.log(`✅ [COMPANY-DEALS] Found ${deals.length} deals via COQL`);
-
-      return {
-        success: true,
-        deals: deals.map(deal => ({
-          id: deal.id,
-          name: deal.Deal_Name || 'Unnamed Deal',
-          stage: deal.Stage || '',
-          amount: deal.Amount || 0,
-          closingDate: deal.Closing_Date || null,
-          createdAt: deal.Created_Time || null,
-          modifiedAt: deal.Modified_Time || null
-        })),
-        pagination: {
-          page: page,
-          perPage: perPage,
-          total: deals.length 
-        }
-      };
-    }
-
-    console.log(`🔄 [COMPANY-DEALS] COQL failed, trying direct Deals endpoint`);
-
     const dealFields = [
       'id',
       'Deal_Name',
@@ -1552,18 +1515,22 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
       'Contact_Name'
     ].join(',');
 
-    const endpoint = `/Deals?page=${page}&per_page=${Math.min(perPage, 200)}&Account_Name=${companyId}&fields=${dealFields}`;
-    const directResult = await makeBiginRequest('GET', endpoint);
+    // Use /Pipelines/search with criteria (avoids COQL scope requirement)
+    const criteria = encodeURIComponent(`(Account_Name:equals:${companyId})`);
+    const endpoint = `/Pipelines/search?criteria=${criteria}&fields=${dealFields}&page=${page}&per_page=${Math.min(perPage, 200)}`;
 
-    if (directResult.success && directResult.data?.data) {
-      const deals = directResult.data.data;
-      console.log(`✅ [COMPANY-DEALS] Found ${deals.length} deals via direct endpoint`);
+    console.log(`🔍 [COMPANY-DEALS] Searching pipelines for company ${companyId}`);
+    const result = await makeBiginRequest('GET', endpoint);
+
+    if (result.success && result.data?.data) {
+      const deals = result.data.data;
+      console.log(`✅ [COMPANY-DEALS] Found ${deals.length} pipelines`);
 
       return {
         success: true,
         deals: deals.map(deal => ({
           id: deal.id,
-          name: deal.Deal_Name || 'Unnamed Deal',
+          name: deal.Deal_Name || 'Unnamed Pipeline',
           stage: deal.Stage || '',
           amount: deal.Amount || 0,
           closingDate: deal.Closing_Date || null,
@@ -1576,13 +1543,13 @@ export async function getBiginDealsByCompany(companyId, page = 1, perPage = 20) 
         pagination: {
           page: page,
           perPage: perPage,
-          total: directResult.data.info?.count || deals.length,
-          hasMore: directResult.data.info?.more_records || false
+          total: result.data.info?.count || deals.length,
+          hasMore: result.data.info?.more_records || false
         }
       };
     }
 
-    console.log(`⚠️ [COMPANY-DEALS] No deals found for company ${companyId}`);
+    console.log(`⚠️ [COMPANY-DEALS] No pipelines found for company ${companyId}`);
     return {
       success: true,
       deals: [],

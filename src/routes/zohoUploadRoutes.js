@@ -3020,22 +3020,59 @@ router.post("/:agreementId/tasks", async (req, res) => {
   }
 });
 
-// ─── CREATE TASK FOR A COMPANY (unlinked) — looks up the company's pipeline ──
+// ─── CREATE TASK FOR A COMPANY (unlinked) — always creates a new pipeline ──
 router.post("/companies/:companyId/tasks", async (req, res) => {
   const { companyId } = req.params;
-  const { subject, dueDate, status, priority, description, ownerId, reminder, reminderWhen, reminderTime, repeat, repeatFrequency, repeatUntil } = req.body;
+  const { subject, dueDate, status, priority, description, ownerId, companyName, agreementId, reminder, reminderWhen, reminderTime, repeat, repeatFrequency, repeatUntil } = req.body;
 
   if (!subject?.trim()) {
     return res.status(400).json({ success: false, error: "Task subject is required." });
   }
 
   try {
-    // Find the most recent pipeline (deal) for this company
-    const dealsResult = await getBiginDealsByCompany(companyId, 1, 1);
-    const deal = dealsResult.deals?.[0];
+    // No existing linkage — always create a fresh pipeline for this company
+    const name = companyName?.trim() || `Company ${companyId}`;
+    console.log(`📋 [COMPANY-TASKS] No linkage — creating new pipeline "${name} - EnviroMaster" for company ${companyId}...`);
+    const dealResult = await createBiginDeal({
+      dealName: `${name} - EnviroMaster`,
+      companyId,
+      stage: 'Qualification',
+    });
+    if (!dealResult.success) {
+      const errMsg = typeof dealResult.error === 'object'
+        ? JSON.stringify(dealResult.error)
+        : dealResult.error;
+      return res.status(500).json({ success: false, error: `Could not create pipeline for task: ${errMsg}` });
+    }
+    const deal = dealResult.deal;
+    console.log(`✅ [COMPANY-TASKS] Created pipeline: ${deal.id} (${deal.name})`);
 
-    if (!deal) {
-      return res.status(404).json({ success: false, error: "No pipeline found for this company. Please upload to Bigin first to create a pipeline." });
+    // Save ZohoMapping so next task creation skips company selection
+    if (agreementId && mongoose.Types.ObjectId.isValid(agreementId)) {
+      try {
+        await ZohoMapping.findOneAndUpdate(
+          { agreementId },
+          {
+            $setOnInsert: {
+              agreementId,
+              zohoCompany: { id: companyId, name, createdByUs: false },
+              zohoDeal: {
+                id: deal.id,
+                name: deal.name,
+                pipelineName: 'Sales Pipeline Standard',
+                stage: 'Qualification',
+              },
+              moduleName: 'Pipelines',
+              currentVersion: 1,
+            }
+          },
+          { upsert: true, new: true }
+        );
+        console.log(`✅ [COMPANY-TASKS] Saved ZohoMapping for agreement ${agreementId} → deal ${deal.id}`);
+      } catch (mappingErr) {
+        // Non-fatal — task still created even if mapping save fails
+        console.warn(`⚠️ [COMPANY-TASKS] Could not save ZohoMapping: ${mappingErr.message}`);
+      }
     }
 
     console.log(`📋 Creating task on pipeline ${deal.id} (${deal.name}) for company ${companyId}`);
