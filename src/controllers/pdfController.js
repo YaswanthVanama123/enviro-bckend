@@ -4501,6 +4501,9 @@ export async function exportPricingCatalog(req, res) {
     res.setHeader('Content-Length', buffer.length);
     res.send(buffer);
   } catch (err) {
+    if (err.code === 'PUPPETEER_BUSY') {
+      return res.status(429).json({ success: false, error: err.message });
+    }
     console.error("exportPricingCatalog error:", err);
     res.status(500).json({
       success: false,
@@ -4524,6 +4527,9 @@ export async function exportPricingCatalogFromDb(req, res) {
     res.setHeader('Content-Length', buffer.length);
     res.send(buffer);
   } catch (err) {
+    if (err.code === 'PUPPETEER_BUSY') {
+      return res.status(429).json({ success: false, error: err.message });
+    }
     console.error("exportPricingCatalogFromDb error:", err);
     res.status(500).json({
       success: false,

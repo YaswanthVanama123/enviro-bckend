@@ -2929,6 +2929,45 @@ ${services.length > 0 ? '<div class="slbl">Service Configurations</div>' : ''}
 </body></html>`;
 }
 
+// ── Puppeteer concurrency guard ───────────────────────────────────────────────
+// Max 1 Chromium instance at a time; callers beyond the limit get a clear error
+// instead of silently stacking up and exhausting RAM.
+const PUPPETEER_MAX_CONCURRENT = 1;
+const PUPPETEER_TIMEOUT_MS = 60_000; // 60 s hard limit per export
+let _puppeteerActive = 0;
+
+async function _withPuppeteer(fn) {
+  if (_puppeteerActive >= PUPPETEER_MAX_CONCURRENT) {
+    const err = new Error('A PDF export is already in progress. Please wait and try again.');
+    err.code = 'PUPPETEER_BUSY';
+    throw err;
+  }
+  _puppeteerActive++;
+
+  // Hard timeout: if fn takes longer than PUPPETEER_TIMEOUT_MS we kill the browser
+  let browser;
+  const timeoutHandle = setTimeout(() => {
+    console.error('⏰ [PUPPETEER] Hard timeout reached — force-closing browser');
+    browser?.close().catch(() => {});
+  }, PUPPETEER_TIMEOUT_MS);
+
+  try {
+    const puppeteer = (await import('puppeteer')).default;
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    });
+    return await fn(browser);
+  } finally {
+    clearTimeout(timeoutHandle);
+    _puppeteerActive--;
+    if (browser) {
+      browser.close().catch(e => console.warn('⚠️ [PUPPETEER] browser.close() error:', e.message));
+    }
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function compilePricingCatalogPdf({ services = [], catalog = null } = {}) {
   const exportDate = new Date().toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -2937,14 +2976,14 @@ export async function compilePricingCatalogPdf({ services = [], catalog = null }
   const currency = catalog?.currency || 'USD';
   const html = _buildPricingCatalogHtml({ exportDate, services: activeServices, catalog, currency });
 
-  const puppeteer = (await import('puppeteer')).default;
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-  });
-  try {
+  return _withPuppeteer(async (browser) => {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+
+    // Per-page navigation timeout so networkidle0 never hangs forever
+    page.setDefaultNavigationTimeout(PUPPETEER_TIMEOUT_MS);
+    page.setDefaultTimeout(PUPPETEER_TIMEOUT_MS);
+
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: PUPPETEER_TIMEOUT_MS });
     const pdfUint8 = await page.pdf({
       format: 'Letter',
       printBackground: true,
@@ -2954,9 +2993,7 @@ export async function compilePricingCatalogPdf({ services = [], catalog = null }
     const compressed = zlib.gzipSync(rawBuffer, { level: zlib.constants.Z_BEST_COMPRESSION });
     const filename = `pricing-catalog-${new Date().toISOString().slice(0, 10)}.pdf`;
     return { buffer: compressed, filename, encoding: 'gzip' };
-  } finally {
-    await browser.close();
-  }
+  });
 }
 
 export async function getPdfHealth() {
