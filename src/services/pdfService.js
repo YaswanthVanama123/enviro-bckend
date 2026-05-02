@@ -501,7 +501,13 @@ function latexEscapeHeader(value = "") {
 function formatCurrency(value) {
   const num = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(num)) return "";
-  return `$${num.toFixed(2)}`;
+  return `$${num.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+}
+
+function fmtNum(value) {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return "0.00";
+  return num.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
 function getFrequencyLabel(freq) {
@@ -533,9 +539,9 @@ function formatChargeLabel(amount, frequency) {
   }
   const freqLabel = getFrequencyLabel(frequency) || "Monthly";
   if (Number(frequency) === 0) {
-    return `$${num.toFixed(2)} (${freqLabel})`;
+    return `$${fmtNum(num)} (${freqLabel})`;
   }
-  return `$${num.toFixed(2)} × ${freqLabel}`;
+  return `$${fmtNum(num)} × ${freqLabel}`;
 }
 
 function buildProductsLatex(products = {}, customColumns = { products: [], dispensers: [] }) {
@@ -555,7 +561,7 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
     if (v === null || v === undefined || v === "") return "";
     const num = typeof v === "number" ? v : parseFloat(v);
     if (!isNaN(num)) {
-      return `$${num.toFixed(2)}`;
+      return `$${fmtNum(num)}`;
     }
     return `$${v}`;
   };
@@ -1155,8 +1161,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             type: 'atCharge',
             label: fixture.label || '',
             v1: String(fixture.qty || ''),
-            v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
-            v3: typeof fixture.total === 'number' ? `$${fixture.total.toFixed(2)}` : String(fixture.total || '')
+            v2: typeof correctRate === 'number' ? `${formatCurrency(correctRate)}` : String(correctRate || ''),
+            v3: typeof fixture.total === 'number' ? `${formatCurrency(fixture.total)}` : String(fixture.total || '')
           });
         }
       }
@@ -1176,8 +1182,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
               orderNo: drain.orderNo,
               label: drain.label || '',
               v1: String(drain.qty || ''),
-              v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
-              v3: typeof drain.total === 'number' ? `$${drain.total.toFixed(2)}` : String(drain.total || '')
+              v2: typeof correctRate === 'number' ? `${formatCurrency(correctRate)}` : String(correctRate || ''),
+              v3: typeof drain.total === 'number' ? `${formatCurrency(drain.total)}` : String(drain.total || '')
             });
           } else {
             rows.push({
@@ -1205,8 +1211,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             type: 'atCharge',
             label: item.label || '',
             v1: String(item.qty || ''),
-            v2: typeof item.rate === 'number' ? `$${item.rate.toFixed(2)}` : String(item.rate || ''),
-            v3: typeof item.total === 'number' ? `$${item.total.toFixed(2)}` : String(item.total || '')
+            v2: typeof item.rate === 'number' ? `${formatCurrency(item.rate)}` : String(item.rate || ''),
+            v3: typeof item.total === 'number' ? `${formatCurrency(item.total)}` : String(item.total || '')
           });
         } else if (item.qty) {
           pushRow(item, {
@@ -1226,8 +1232,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             type: 'atCharge',
             label: window.label || '',
             v1: String(window.qty || ''),
-            v2: typeof window.rate === 'number' ? `$${window.rate.toFixed(2)}` : String(window.rate || ''),
-            v3: typeof window.total === 'number' ? `$${window.total.toFixed(2)}` : String(window.total || '')
+            v2: typeof window.rate === 'number' ? `${formatCurrency(window.rate)}` : String(window.rate || ''),
+            v3: typeof window.total === 'number' ? `${formatCurrency(window.total)}` : String(window.total || '')
           });
         }
       }
@@ -1251,8 +1257,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             orderNo: data.service.orderNo,
             label: data.service.label || '',
             v1: String(data.service.qty || ''),
-            v2: typeof displayRate === 'number' ? `$${displayRate.toFixed(2)}` : String(displayRate || ''),
-            v3: typeof data.service.total === 'number' ? `$${data.service.total.toFixed(2)}` : String(data.service.total || '')
+            v2: typeof displayRate === 'number' ? `${formatCurrency(displayRate)}` : String(displayRate || ''),
+            v3: typeof data.service.total === 'number' ? `${formatCurrency(data.service.total)}` : String(data.service.total || '')
           });
         }
       } else if (data.service.qty) {
@@ -1275,8 +1281,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           orderNo: data.restroomFixtures.orderNo,
           label: data.restroomFixtures.label || 'Restroom Fixtures',
           v1: String(data.restroomFixtures.qty || ''),
-          v2: typeof data.restroomFixtures.rate === 'number' ? `$${data.restroomFixtures.rate.toFixed(2)}` : String(data.restroomFixtures.rate || ''),
-          v3: typeof data.restroomFixtures.total === 'number' ? `$${data.restroomFixtures.total.toFixed(2)}` : String(data.restroomFixtures.total || '')
+          v2: typeof data.restroomFixtures.rate === 'number' ? `${formatCurrency(data.restroomFixtures.rate)}` : String(data.restroomFixtures.rate || ''),
+          v3: typeof data.restroomFixtures.total === 'number' ? `${formatCurrency(data.restroomFixtures.total)}` : String(data.restroomFixtures.total || '')
         });
       } else {
         rows.push({
@@ -1298,8 +1304,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           orderNo: data.nonBathroomArea.orderNo,
           label: data.nonBathroomArea.label || 'Non-Bathroom Area',
           v1: `${data.nonBathroomArea.qty || ''} ${data.nonBathroomArea.unit || ''}`,
-          v2: typeof data.nonBathroomArea.rate === 'number' ? `$${data.nonBathroomArea.rate.toFixed(2)}` : String(data.nonBathroomArea.rate || ''),
-          v3: typeof data.nonBathroomArea.total === 'number' ? `$${data.nonBathroomArea.total.toFixed(2)}` : String(data.nonBathroomArea.total || '')
+          v2: typeof data.nonBathroomArea.rate === 'number' ? `${formatCurrency(data.nonBathroomArea.rate)}` : String(data.nonBathroomArea.rate || ''),
+          v3: typeof data.nonBathroomArea.total === 'number' ? `${formatCurrency(data.nonBathroomArea.total)}` : String(data.nonBathroomArea.total || '')
         });
       } else {
         rows.push({
@@ -1327,8 +1333,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             type: 'atCharge',
             label: area.label || areaKey.charAt(0).toUpperCase() + areaKey.slice(1),
             v1: String(area.qty || ''),
-            v2: typeof area.rate === 'number' ? `$${area.rate.toFixed(2)}` : String(area.rate || ''),
-            v3: typeof area.total === 'number' ? `$${area.total.toFixed(2)}` : String(area.total || '')
+            v2: typeof area.rate === 'number' ? `${formatCurrency(area.rate)}` : String(area.rate || ''),
+            v3: typeof area.total === 'number' ? `${formatCurrency(area.total)}` : String(area.total || '')
           });
         }
         else {
@@ -1344,8 +1350,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
               type: 'atCharge',
               label: area.label || areaKey.charAt(0).toUpperCase() + areaKey.slice(1),
               v1: `${area.qty || ''} ${area.unit || ''}`.trim(),
-              v2: typeof area.rate === 'number' ? `$${area.rate.toFixed(2)}` : String(area.rate || ''),
-              v3: typeof area.total === 'number' ? `$${area.total.toFixed(2)}` : String(area.total || '')
+              v2: typeof area.rate === 'number' ? `${formatCurrency(area.rate)}` : String(area.rate || ''),
+              v3: typeof area.total === 'number' ? `${formatCurrency(area.total)}` : String(area.total || '')
             });
           } else if (hasQty) {
             rows.push({
@@ -1376,8 +1382,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           type: 'atCharge',
           label: data.extraBags.label || 'Extra Bags',
           v1: String(data.extraBags.qty || ''),
-          v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
-          v3: typeof data.extraBags.total === 'number' ? `$${data.extraBags.total.toFixed(2)}` : String(data.extraBags.total || '')
+          v2: typeof correctRate === 'number' ? `${formatCurrency(correctRate)}` : String(correctRate || ''),
+          v3: typeof data.extraBags.total === 'number' ? `${formatCurrency(data.extraBags.total)}` : String(data.extraBags.total || '')
         });
       } else {
         pushRow(data.extraBags, {
@@ -1398,8 +1404,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           type: 'atCharge',
           label: data.installation.label || 'Installation',
           v1: String(data.installation.qty || ''),
-          v2: typeof correctRate === 'number' ? `$${correctRate.toFixed(2)}` : String(correctRate || ''),
-          v3: typeof data.installation.total === 'number' ? `$${data.installation.total.toFixed(2)}` : String(data.installation.total || '')
+          v2: typeof correctRate === 'number' ? `${formatCurrency(correctRate)}` : String(correctRate || ''),
+          v3: typeof data.installation.total === 'number' ? `${formatCurrency(data.installation.total)}` : String(data.installation.total || '')
         });
       } else {
         pushRow(data.installation, {
@@ -1414,7 +1420,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       pushRow(data.installationFee, {
         type: 'line',
         label: data.installationFee.label || 'Installation Fee',
-        value: typeof data.installationFee.amount === 'number' ? `$${data.installationFee.amount.toFixed(2)}` : String(data.installationFee.amount || '')
+        value: typeof data.installationFee.amount === 'number' ? `${formatCurrency(data.installationFee.amount)}` : String(data.installationFee.amount || '')
       });
     }
 
@@ -1422,7 +1428,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       pushRow(data.tripCharge, {
         type: 'line',
         label: data.tripCharge.label || 'Trip Charge',
-        value: typeof data.tripCharge.amount === 'number' ? `$${data.tripCharge.amount.toFixed(2)}` : String(data.tripCharge.amount || '')
+        value: typeof data.tripCharge.amount === 'number' ? `${formatCurrency(data.tripCharge.amount)}` : String(data.tripCharge.amount || '')
       });
     }
 
@@ -1435,8 +1441,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           type: 'atCharge',
           label: data.warranty.label || 'Warranty',
           v1: String(data.warranty.qty || ''),
-          v2: typeof data.warranty.rate === 'number' ? `$${data.warranty.rate.toFixed(2)}` : String(data.warranty.rate || ''),
-          v3: typeof data.warranty.total === 'number' ? `$${data.warranty.total.toFixed(2)}` : String(data.warranty.total || '')
+          v2: typeof data.warranty.rate === 'number' ? `${formatCurrency(data.warranty.rate)}` : String(data.warranty.rate || ''),
+          v3: typeof data.warranty.total === 'number' ? `${formatCurrency(data.warranty.total)}` : String(data.warranty.total || '')
         });
       } else {
         pushRow(data.warranty, {
@@ -1451,7 +1457,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       pushRow(data.luxuryUpgrade, {
         type: 'line',
         label: data.luxuryUpgrade.label || 'Luxury Soap Upgrade',
-        value: typeof data.luxuryUpgrade.total === 'number' ? `$${data.luxuryUpgrade.total.toFixed(2)}` : String(data.luxuryUpgrade.total || '')
+        value: typeof data.luxuryUpgrade.total === 'number' ? `${formatCurrency(data.luxuryUpgrade.total)}` : String(data.luxuryUpgrade.total || '')
       });
     }
 
@@ -1459,7 +1465,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
       pushRow(data.extraSoap, {
         type: 'line',
         label: data.extraSoap.label || 'Extra Soap',
-        value: typeof data.extraSoap.total === 'number' ? `$${data.extraSoap.total.toFixed(2)}` : String(data.extraSoap.total || '')
+        value: typeof data.extraSoap.total === 'number' ? `${formatCurrency(data.extraSoap.total)}` : String(data.extraSoap.total || '')
       });
     }
 
@@ -1674,7 +1680,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
       const formatMoneyValue = (amount) => {
         if (typeof amount === "number") {
-          return `$${amount.toFixed(2)}`;
+          return `$${fmtNum(amount)}`;
         }
         if (amount === undefined || amount === null) {
           return "";
@@ -1758,7 +1764,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         const formattedContract = formatMoneyValue(data.totals.contract.amount);
         const contractValue =
           typeof data.totals.contract.amount === "number"
-            ? `$${data.totals.contract.amount.toFixed(2)} (${data.totals.contract.months || 12}mo)`
+            ? `${formatCurrency(data.totals.contract.amount)} (${data.totals.contract.months || 12}mo)`
             : formattedContract;
         pushRow(data.totals.contract, {
           type: "bold",
@@ -1771,7 +1777,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
         const formattedAnnual = formatMoneyValue(data.totals.annual.amount);
         const annualValue =
           typeof data.totals.annual.amount === "number"
-            ? `$${data.totals.annual.amount.toFixed(2)} (${data.totals.annual.months || 12}mo)`
+            ? `${formatCurrency(data.totals.annual.amount)} (${data.totals.annual.months || 12}mo)`
             : formattedAnnual;
         pushRow(data.totals.annual, {
           type: "bold",
@@ -1811,8 +1817,8 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
                 type: 'atCharge',
                 label: fieldLabel,
                 v1: String(calcValue.qty || ''),
-                v2: typeof calcValue.rate === 'number' ? `$${calcValue.rate.toFixed(2)}` : String(calcValue.rate || ''),
-                v3: typeof calcValue.total === 'number' ? `$${calcValue.total.toFixed(2)}` : String(calcValue.total || '')
+                v2: typeof calcValue.rate === 'number' ? `${formatCurrency(calcValue.rate)}` : String(calcValue.rate || ''),
+                v3: typeof calcValue.total === 'number' ? `${formatCurrency(calcValue.total)}` : String(calcValue.total || '')
               });
               customIdx++;
             }
@@ -1823,7 +1829,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             pushRow({ orderNo: topOrderNo }, {
               type: 'line',
               label: fieldLabel,
-              value: `$${amount.toFixed(2)}`
+              value: `${formatCurrency(amount)}`
             });
             customIdx++;
           }
@@ -1874,24 +1880,24 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     if (data[mapping.key] !== undefined && data[mapping.key] !== null && data[mapping.key] !== '') {
       let value = String(data[mapping.key]);
       if (mapping.key.includes('rate') || mapping.key.includes('Price')) {
-        value = typeof data[mapping.key] === 'number' ? `$${data[mapping.key].toFixed(2)}` : value;
+        value = typeof data[mapping.key] === 'number' ? `${formatCurrency(data[mapping.key])}` : value;
       }
       rows.push({ type: 'line', label: mapping.label, value });
     }
   }
 
   if (data.weeklyTotal !== undefined && data.weeklyTotal !== null && data.weeklyTotal !== 0) {
-    const value = typeof data.weeklyTotal === 'number' ? `$${data.weeklyTotal.toFixed(2)}` : String(data.weeklyTotal);
+    const value = typeof data.weeklyTotal === 'number' ? `${formatCurrency(data.weeklyTotal)}` : String(data.weeklyTotal);
     rows.push({ type: 'bold', label: 'Weekly Total', value });
   }
 
   if (data.monthlyTotal !== undefined && data.monthlyTotal !== null && data.monthlyTotal !== 0) {
-    const value = typeof data.monthlyTotal === 'number' ? `$${data.monthlyTotal.toFixed(2)}` : String(data.monthlyTotal);
+    const value = typeof data.monthlyTotal === 'number' ? `${formatCurrency(data.monthlyTotal)}` : String(data.monthlyTotal);
     rows.push({ type: 'bold', label: 'Monthly Total', value });
   }
 
   if (data.contractTotal !== undefined && data.contractTotal !== null && data.contractTotal !== 0) {
-    const value = typeof data.contractTotal === 'number' ? `$${data.contractTotal.toFixed(2)}` : String(data.contractTotal);
+    const value = typeof data.contractTotal === 'number' ? `${formatCurrency(data.contractTotal)}` : String(data.contractTotal);
     const contractTotalLabel = data.frequency === 'oneTime' ? 'Total Price' : 'Contract Total';
     rows.push({ type: 'bold', label: contractTotalLabel, value });
   }
@@ -1927,7 +1933,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
               label: fieldLabel,
               v1: String(calcValue.left || ''),
               v2: String(calcValue.middle || ''),
-              v3: typeof calcValue.total === 'number' ? `$${calcValue.total.toFixed(2)}` : String(calcValue.total || '')
+              v3: typeof calcValue.total === 'number' ? `${formatCurrency(calcValue.total)}` : String(calcValue.total || '')
             });
             customIdx++;
           }
@@ -1939,7 +1945,7 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
             orderNo: topOrderNo,
             type: 'line',
             label: fieldLabel,
-            value: `$${amount.toFixed(2)}`
+            value: `${formatCurrency(amount)}`
           });
           customIdx++;
         }
@@ -1991,7 +1997,7 @@ function transformCustomServiceToColumn(customService) {
         if (field.type === 'dollar') {
           const numValue = parseFloat(field.value);
           if (!isNaN(numValue)) {
-            value = `$${numValue.toFixed(2)}`;
+            value = `${formatCurrency(numValue)}`;
           }
         }
 
@@ -2492,7 +2498,7 @@ function buildServicesLatex(services = {}) {
                   parts.push(`@ \\$${presetRate}`);
                 }
                 if (presetTotal) {
-                  parts.push(`= \\$${Number(presetTotal).toFixed(2)}`);
+                  parts.push(`= \\$${fmtNum(Number(presetTotal))}`);
                 }
                 details.push(`Preset: ${parts.join(" ")}`);
               }
@@ -2504,7 +2510,7 @@ function buildServicesLatex(services = {}) {
             if (breakdown) {
               let details = [];
               if (breakdown.fixed > 0) {
-                details.push(`Fixed: \\$${breakdown.fixed.toFixed(2)}`);
+                details.push(`Fixed: \\$${fmtNum(breakdown.fixed)}`);
               }
               if (breakdown.insideSqFt > 0) {
                 details.push(`Inside: ${breakdown.insideSqFt} @ \\$${breakdown.insideRate}`);
@@ -2541,9 +2547,9 @@ function buildServicesLatex(services = {}) {
           enabledAreas.slice(0, maxAreas)
             .map(area => {
               if (refreshData.services) {
-                return `\\textbf{\\textcolor{linegray}{\\$${area.data.total.value.toFixed(2)}}}`;
+                return `\\textbf{\\textcolor{linegray}{\\$${fmtNum(area.data.total.value)}}}`;
               } else {
-                return `\\textbf{\\textcolor{linegray}{\\$${area.data.total.toFixed(2)}}}`;
+                return `\\textbf{\\textcolor{linegray}{\\$${fmtNum(area.data.total)}}}`;
               }
             })
             .join(" & ") +
@@ -2578,7 +2584,7 @@ function buildServicesLatex(services = {}) {
                 if (refreshData.services && area.data.contract) {
                   const contractTotal = area.data.contract.total || 0;
                   const contractMonths = area.data.contract.quantity || 12;
-                  return `\\textbf{\\textcolor{linegray}{\\$${contractTotal.toFixed(2)}}} \\scriptsize{(${contractMonths}mo)}`;
+                  return `\\textbf{\\textcolor{linegray}{\\$${fmtNum(contractTotal)}}} \\scriptsize{(${contractMonths}mo)}`;
                 }
                 return "\\textbf{TBD}";
               })
@@ -2698,7 +2704,7 @@ function _formatConfigValue(key, val) {
   if (k.includes('multiplier') || k.includes('factor') || (k.includes('weeks') && val < 100) || k.includes('ratio')) {
     return `${val}x`;
   }
-  return `$${Number(val).toFixed(2)}`;
+  return `$${fmtNum(Number(val))}`;
 }
 
 function _detectUnit(key) {
@@ -2792,9 +2798,9 @@ function _productSectionsHtml(catalog) {
       const trs = family.products
         .filter(p => p.basePrice?.amount != null)
         .map(p => {
-          const price = `$${Number(p.basePrice.amount).toFixed(2)}`;
+          const price = `$${fmtNum(Number(p.basePrice.amount))}`;
           const warranty = p.warrantyPricePerUnit?.amount != null
-            ? `$${Number(p.warrantyPricePerUnit.amount).toFixed(2)}/${p.warrantyPricePerUnit.billingPeriod || 'mo'}`
+            ? `$${fmtNum(Number(p.warrantyPricePerUnit.amount))}/${p.warrantyPricePerUnit.billingPeriod || 'mo'}`
             : '—';
           return `
       <tr>

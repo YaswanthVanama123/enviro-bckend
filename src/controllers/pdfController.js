@@ -1825,7 +1825,7 @@ export async function getSavedFilesGrouped(req, res) {
         fileSize: log.fileSize || 0,
         pdfStoredAt: log.createdAt,
         hasPdf: true,
-        description: `${log.totalChanges} changes, $${(log.totalPriceImpact || 0).toFixed(2)} total impact`,
+        description: `${log.totalChanges} changes, $${(log.totalPriceImpact || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} total impact`,
         versionNumber: log.versionNumber,
         isDeleted: log.isDeleted || false,
         deletedAt: log.deletedAt || null,

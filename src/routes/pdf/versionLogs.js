@@ -193,7 +193,7 @@ function generateLogContent({
   content += '                        SUMMARY\n';
   content += '-'.repeat(80) + '\n';
   content += `Total Changes Made: ${totalChanges}\n`;
-  content += `Total Price Impact: $${totalPriceImpact.toFixed(2)}\n`;
+  content += `Total Price Impact: $${totalPriceImpact.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n`;
   content += `Significant Changes: ${significantChanges.length} (>=\$50 or >=15%)\n`;
   content += `Review Status: ${significantChanges.length > 0 ? 'REQUIRES REVIEW' : 'AUTO-APPROVED'}\n\n`;
 
@@ -234,9 +234,9 @@ function generateLogContent({
         const indicator = isSignificant ? 'SIGNIFICANT' : 'Minor';
 
         content += `   • ${change.fieldDisplayName}:\n`;
-        content += `     Original: $${(change.originalValue || 0).toFixed(2)}\n`;
-        content += `     New: $${(change.newValue || 0).toFixed(2)}\n`;
-        content += `     Change: ${change.changeAmount >= 0 ? '+' : ''}$${(change.changeAmount || 0).toFixed(2)} `;
+        content += `     Original: $${(change.originalValue || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n`;
+        content += `     New: $${(change.newValue || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n`;
+        content += `     Change: ${change.changeAmount >= 0 ? '+' : ''}$${(change.changeAmount || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} `;
         content += `(${change.changeAmount >= 0 ? '+' : ''}${(change.changePercentage || 0).toFixed(1)}%) ${indicator}\n\n`;
       });
 
@@ -251,7 +251,7 @@ function generateLogContent({
 
       significantChanges.forEach((change, index) => {
         content += `${index + 1}. ${change.productName} - ${change.fieldDisplayName}\n`;
-        content += `   Change: ${change.changeAmount >= 0 ? '+' : ''}$${(change.changeAmount || 0).toFixed(2)} `;
+        content += `   Change: ${change.changeAmount >= 0 ? '+' : ''}$${(change.changeAmount || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} `;
         content += `(${change.changeAmount >= 0 ? '+' : ''}${(change.changePercentage || 0).toFixed(1)}%)\n\n`;
       });
 
