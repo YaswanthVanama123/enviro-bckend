@@ -564,7 +564,7 @@ export async function getCustomerHeaderForEdit(req, res) {
 
       for (const [serviceKey, areaKey] of Object.entries(areaMapping)) {
 
-        if (storedRPS.services[serviceKey] && storedRPS.services[serviceKey].enabled) {
+        if (storedRPS.services?.[serviceKey] && storedRPS.services[serviceKey].enabled) {
 
           const serviceData = storedRPS.services[serviceKey];
 

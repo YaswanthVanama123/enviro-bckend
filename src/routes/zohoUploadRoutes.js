@@ -461,6 +461,17 @@ router.get("/companies", async (req, res) => {
   }
 });
 
+router.get("/users", async (req, res) => {
+  try {
+    console.log("👥 Fetching Bigin users");
+    const result = await getBiginUsers();
+    return res.json(result);
+  } catch (error) {
+    console.error("❌ Failed to fetch users:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.post("/companies", async (req, res) => {
   try {
     const { name, phone, email, website, address } = req.body;
