@@ -22,6 +22,7 @@ import versionLogRoutes from './routes/pdf/versionLogs.js';
 import emailRoutes from './routes/emailRoutes.js';
 import emailTemplateRoutes from './routes/emailTemplateRoutes.js';
 import serviceAgreementTemplateRoutes from './routes/serviceAgreementTemplateRoutes.js';
+import adminSettingsRoutes from './routes/adminSettingsRoutes.js';
 
 
 const app = express();
@@ -139,5 +140,6 @@ app.use("/api/pdf/version-logs", versionLogRoutes);
 app.use("/api/email", emailRoutes);
 app.use("/api/email-template", emailTemplateRoutes);
 app.use("/api/service-agreement-template", serviceAgreementTemplateRoutes);
+app.use("/api/admin-settings", adminSettingsRoutes);
 
 export default app;

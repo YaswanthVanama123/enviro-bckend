@@ -5,6 +5,7 @@ import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
 import Log from "../models/Log.js";
 import VersionPdf from "../models/VersionPdf.js";
+import AdminSettings from "../models/AdminSettings.js";
 import { compileCustomerHeader } from "../services/pdfService.js";
 import {
   getBiginCompanies,
@@ -3027,6 +3028,58 @@ router.post("/:agreementId/tasks", async (req, res) => {
     return res.json({ success: true, task: result.task });
   } catch (err) {
     console.error("❌ Task creation error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── AUTO APPROVAL TASK — fires automatically on pending_approval saves ───────
+// Silently skipped if no company/pipeline is linked or no default owner set.
+router.post("/:agreementId/auto-approval-task", async (req, res) => {
+  const { agreementId } = req.params;
+  const { agreementTitle } = req.body;
+
+  try {
+    // 1. Check that a pipeline is linked
+    const mapping = await ZohoMapping.findOne({ agreementId });
+    if (!mapping?.zohoDeal?.id) {
+      console.log(`📋 [AUTO-TASK] No pipeline linked for ${agreementId} — skipping auto task`);
+      return res.json({ success: true, skipped: true, reason: 'no_pipeline' });
+    }
+
+    // 2. Get default owner from admin settings
+    const settings = await AdminSettings.getSingleton();
+    const ownerId = settings.defaultApprovalTaskOwner?.id || null;
+    const ownerName = settings.defaultApprovalTaskOwner?.name || 'Unassigned';
+
+    // 3. Build subject from template
+    const title = agreementTitle?.trim() || 'Agreement';
+    const subject = (settings.approvalTaskSubject || 'Agreement "{{agreementTitle}}" needs your approval')
+      .replace('{{agreementTitle}}', title);
+
+    console.log(`📋 [AUTO-TASK] Creating approval task on pipeline ${mapping.zohoDeal.id} (${mapping.zohoDeal.name}) — owner: ${ownerName}`);
+
+    const result = await createBiginTask(mapping.zohoDeal.id, {
+      subject,
+      dueDate: null,
+      status: 'Not Started',
+      priority: 'High',
+      description: `This agreement has been submitted and is awaiting approval. Please review the pricing and approve or reject.`,
+      ownerId,
+      seModule: 'Deals',
+      reminder: false,
+      repeat: false,
+    });
+
+    if (!result.success) {
+      console.error(`❌ [AUTO-TASK] Bigin task creation failed:`, result.error);
+      return res.status(500).json({ success: false, error: result.error });
+    }
+
+    console.log(`✅ [AUTO-TASK] Approval task created for agreement ${agreementId}`);
+    return res.json({ success: true, task: result.task });
+
+  } catch (err) {
+    console.error('❌ [AUTO-TASK] Error:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
