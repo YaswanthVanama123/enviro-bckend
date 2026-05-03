@@ -3056,11 +3056,16 @@ router.post("/:agreementId/auto-approval-task", async (req, res) => {
     const subject = (settings.approvalTaskSubject || 'Agreement "{{agreementTitle}}" needs your approval')
       .replace('{{agreementTitle}}', title);
 
+    // Due date = next day after creation
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dueDate = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+
     console.log(`📋 [AUTO-TASK] Creating approval task on pipeline ${mapping.zohoDeal.id} (${mapping.zohoDeal.name}) — owner: ${ownerName}`);
 
     const result = await createBiginTask(mapping.zohoDeal.id, {
       subject,
-      dueDate: null,
+      dueDate,
       status: 'Not Started',
       priority: 'High',
       description: `This agreement has been submitted and is awaiting approval. Please review the pricing and approve or reject.`,
