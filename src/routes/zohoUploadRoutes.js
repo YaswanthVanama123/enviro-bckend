@@ -1,5 +1,5 @@
 import { Router } from "express";
-import mongoose from "mongoose"; // ✅ NEW: Added for ObjectId validation
+import mongoose from "mongoose"; 
 import ZohoMapping from "../models/ZohoMapping.js";
 import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
@@ -49,10 +49,10 @@ ${textContent}
 \\end{document}`;
 
   try {
-    // Use the remote PDF compilation service (same as compileCustomerHeader)
+    
     const PDF_REMOTE_BASE =
       process.env.PDF_REMOTE_BASE || "http://45.55.208.199:3000";
-    const timeoutMs = 30000; // 30 seconds for simple log conversion
+    const timeoutMs = 30000; 
 
     console.log(
       `🌐 [TEXT-TO-PDF] Calling remote LaTeX service: ${PDF_REMOTE_BASE}`,
@@ -67,7 +67,7 @@ ${textContent}
         "Content-Type": "application/json",
         Accept: "application/pdf",
       },
-      body: JSON.stringify({ template: latexContent }), // ✅ Use 'template' not 'latexContent'
+      body: JSON.stringify({ template: latexContent }), 
       signal: controller.signal,
     });
 
@@ -142,7 +142,7 @@ async function getPdfForAgreement(agreementId, options = {}) {
       console.error(
         `ƒ?O [PDF-LOOKUP] No VersionPdf documents found for agreement: ${agreementId}`,
       );
-      // ✅ FIX: Remove .lean() for proper buffer handling in fallback
+      
       const customerDoc =
         cachedAgreement ||
         (await CustomerHeaderDoc.findById(agreementId).select(
@@ -525,7 +525,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
       stage = "Proposal",
       noteText,
       dealName,
-      skipFileUpload = false, // ✅ NEW: Allow skipping PDF upload for bulk uploads
+      skipFileUpload = false, 
     } = req.body;
 
     console.log(`🚀 Starting first-time upload for agreement: ${agreementId}`);
@@ -562,18 +562,17 @@ router.post("/:agreementId/first-time", async (req, res) => {
         `⚠️ Pipeline/stage validation failed, using fallback values:`,
         validationResult.error,
       );
-      // Use validated values if available, otherwise use safe defaults
+      
       validatedPipeline =
         validationResult.correctedPipeline || "Sales Pipeline";
       validatedStage =
-        validationResult.correctedStage || "Proposal/Price Quote"; // ✅ V6 FIX: Use valid picklist value
+        validationResult.correctedStage || "Proposal/Price Quote"; 
       console.log(
         `🔧 Using validated fallback: "${validatedPipeline}" / "${validatedStage}"`,
       );
     }
 
-    // ✅ IMPROVED: Enhanced logging and error handling for agreement lookup
-    console.log(`🔍 Looking up CustomerHeaderDoc with ID: ${agreementId}`);
+console.log(`🔍 Looking up CustomerHeaderDoc with ID: ${agreementId}`);
     const agreement = await CustomerHeaderDoc.findById(agreementId);
 
     if (!agreement) {
@@ -607,9 +606,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
       `✅ Found CustomerHeaderDoc: ${agreement._id} (${agreement.payload?.headerTitle || "No title"})`,
     );
 
-    // ✅ FIX: Recompile PDF on-demand (like download route) instead of using stored PDF
-    // For first-time upload, get the latest version (v1) or use main agreement payload
-    console.log(
+console.log(
       `🔄 [ZOHO-FIRST-TIME] Getting document for on-demand PDF compilation...`,
     );
 
@@ -655,7 +652,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
     );
 
     const compiledPdf = await compileCustomerHeader(payloadForCompilation, {
-      watermark: false, // Zoho uploads should not have watermark
+      watermark: false, 
     });
 
     if (!compiledPdf || !compiledPdf.buffer) {
@@ -686,8 +683,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
 
     const existingMapping = await ZohoMapping.findByAgreementId(agreementId);
 
-    // ✅ V2 FIX: Clean up any failed mappings to allow fresh retry
-    if (existingMapping && existingMapping.lastUploadStatus === "failed") {
+if (existingMapping && existingMapping.lastUploadStatus === "failed") {
       console.log(
         `🔄 [V2-CLEAN-RETRY] Found failed mapping - deleting to allow fresh retry`,
       );
@@ -757,7 +753,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         console.warn(
           `⚠️ [CONTACT-LOOKUP] Could not get/create contact: ${contactResult.error}`,
         );
-        // Continue without contact - deal creation will proceed with just company
+        
       }
     } catch (contactError) {
       console.error(`❌ [CONTACT-LOOKUP] Exception: ${contactError.message}`);
@@ -766,9 +762,9 @@ router.post("/:agreementId/first-time", async (req, res) => {
     const dealResult = await createBiginDeal({
       dealName: dealName.trim(),
       companyId,
-      contactId, // ✅ V2 FIX: Pass contactId for Contact_Name lookup
-      subPipelineName: validatedPipeline, // ✅ V2 FIX: Use subPipelineName for Sub_Pipeline field
-      stage: validatedStage, // ✅ Use validated stage
+      contactId, 
+      subPipelineName: validatedPipeline, 
+      stage: validatedStage, 
       amount: dealAmount,
       closingDate: new Date().toISOString().split("T")[0],
       description: `EnviroMaster service agreement - ${agreement.payload?.headerTitle || "Service Proposal"}`,
@@ -777,8 +773,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
     if (!dealResult.success) {
       console.error(`❌ Deal creation failed:`, dealResult.error);
 
-      // ✅ V2 FIX: DON'T create any mapping on failure - keep state clean for retry
-      console.log(
+console.log(
         `🔄 [V2-CLEAN-RETRY] No mapping created - allowing clean retry`,
       );
 
@@ -786,7 +781,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         success: false,
         error: `Failed to create deal: ${dealResult.error?.message || "Unknown error"}`,
         details: dealResult.error,
-        retryable: true, // ✅ Signal that this can be retried cleanly
+        retryable: true, 
         suggestion: "Please try again - no partial data was saved",
       });
     }
@@ -802,8 +797,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
     if (!noteResult.success) {
       console.error(`❌ Failed to create note, but deal exists: ${deal.id}`);
 
-      // ✅ V2 FIX: Clean up the created deal and don't save partial mapping
-      console.log(
+console.log(
         `🔄 [V2-CLEAN-RETRY] Deal created but note failed - keeping state clean`,
       );
       console.log(
@@ -814,7 +808,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         success: false,
         error: `Deal created but failed to create note: ${noteResult.error?.message}`,
         dealId: deal.id,
-        retryable: true, // ✅ Signal that this can be retried
+        retryable: true, 
         suggestion:
           "Deal was created in Zoho. You can try uploading again - the system will handle the existing deal.",
         zohoStatus: "deal_created_note_failed",
@@ -828,8 +822,8 @@ router.post("/:agreementId/first-time", async (req, res) => {
     let finalVersionFileName = null;
 
     if (!skipFileUpload) {
-      // ✅ FIX: pdfData.pdfBuffer is now a proper Node.js Buffer (converted from MongoDB Buffer)
-      const pdfBuffer = pdfData.pdfBuffer; // Use the converted Buffer directly
+      
+      const pdfBuffer = pdfData.pdfBuffer; 
       const sanitizedDealNameBase = dealName
         ? dealName.replace(/[^a-zA-Z0-9-_.]/g, "_")
         : "deal";
@@ -861,8 +855,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
           `❌ Failed to upload file, but deal and note exist: ${deal.id}, ${note.id}`,
         );
 
-        // ✅ V2 FIX: Don't create partial mapping - keep state clean for retry
-        console.log(
+console.log(
           `🔄 [V2-CLEAN-RETRY] Deal and note created but file failed - keeping state clean`,
         );
         console.log(
@@ -874,7 +867,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
           error: `Deal and note created but failed to upload file: ${fileResult.error?.message}`,
           dealId: deal.id,
           noteId: note.id,
-          retryable: true, // ✅ Signal that this can be retried
+          retryable: true, 
           suggestion:
             "Deal and note were created in Zoho. You can try uploading again - the system will handle the existing records.",
           zohoStatus: "deal_note_created_file_failed",
@@ -892,13 +885,13 @@ router.post("/:agreementId/first-time", async (req, res) => {
       zohoCompany: {
         id: companyId,
         name: companyName,
-        createdByUs: false, // Assume existing company unless we track this
+        createdByUs: false, 
       },
       zohoDeal: {
         id: deal.id,
         name: deal.name,
-        pipelineName: "Default", // ✅ V6 FIX: Zoho handles pipeline internally
-        stage: validatedStage, // ✅ Store validated stage
+        pipelineName: "Default", 
+        stage: validatedStage, 
       },
       moduleName: "Pipelines",
       lastUploadStatus: "success",
@@ -911,7 +904,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
         zohoFileId: file.id,
         noteText: noteText.trim(),
         fileName: finalVersionFileName,
-        uploadedBy: "system", // TODO: Add user context
+        uploadedBy: "system", 
       });
     }
 
@@ -947,7 +940,7 @@ router.post("/:agreementId/first-time", async (req, res) => {
                 id: file.id,
                 fileName: finalVersionFileName,
               }
-            : null, // ✅ Handle case where file upload was skipped
+            : null, 
         mapping: {
           id: mapping._id,
           version: 1,
@@ -973,7 +966,7 @@ router.post("/:agreementId/update", async (req, res) => {
       versionId,
       versionFileName,
       skipFileUpload = false,
-    } = req.body; // ✅ NEW: Accept skipNoteCreation for bulk uploads + allow note-only updates
+    } = req.body; 
 
     console.log(
       `🔄 Starting update upload for agreement: ${agreementId}`,
@@ -983,8 +976,7 @@ router.post("/:agreementId/update", async (req, res) => {
       skipNoteCreation ? "(skipping note creation)" : "(will create note)",
     );
 
-    // Validate required fields
-    if (!noteText || !noteText.trim()) {
+if (!noteText || !noteText.trim()) {
       return res.status(400).json({
         success: false,
         error: "Note text is required for updates",
@@ -1003,9 +995,8 @@ router.post("/:agreementId/update", async (req, res) => {
     let versionDoc = null;
 
     if (!skipFileUpload) {
-      // ✅ FIX: Recompile PDF on-demand (like download route) instead of using stored PDF
-      // Stored PDFs may be corrupted/incomplete, but recompilation always works
-      console.log(
+
+console.log(
         `🔄 [ZOHO-UPLOAD] Getting version document for on-demand PDF compilation...`,
       );
 
@@ -1040,11 +1031,10 @@ router.post("/:agreementId/update", async (req, res) => {
         `🔄 [ZOHO-UPLOAD] Recompiling PDF on-demand for version ${versionDoc.versionNumber}...`,
       );
 
-      // Recompile PDF using the same method as download/view routes
-      const compiledPdf = await compileCustomerHeader(
+const compiledPdf = await compileCustomerHeader(
         versionDoc.payloadSnapshot,
         {
-          watermark: false, // Zoho uploads should not have watermark
+          watermark: false, 
         },
       );
 
@@ -1184,8 +1174,7 @@ router.post("/:agreementId/update", async (req, res) => {
         });
       }
 
-      // ✅ ENHANCED: Validate PDF content (check for PDF magic number)
-      if (
+if (
         pdfBuffer.length > 0 &&
         !pdfBuffer.slice(0, 4).toString("ascii").startsWith("%PDF")
       ) {
@@ -1235,11 +1224,11 @@ router.post("/:agreementId/update", async (req, res) => {
           zohoFileId: file.id,
           noteText: noteText.trim(),
           fileName: finalVersionFileName,
-          uploadedBy: "system", // TODO: Add user context
+          uploadedBy: "system", 
         });
         await mapping.save();
       } else {
-        // ✅ NEW: Create new mapping for bulk upload files
+        
         console.log(
           `📤 [BULK] Creating new ZohoMapping for agreement ${agreementId} in shared deal ${dealId}`,
         );
@@ -1259,7 +1248,7 @@ router.post("/:agreementId/update", async (req, res) => {
           uploads: [
             {
               version: 1,
-              zohoNoteId: note?.id || null, // ✅ FIXED: Allow null when note creation is skipped
+              zohoNoteId: note?.id || null, 
               zohoFileId: file.id,
               noteText: noteText.trim(),
               fileName: finalVersionFileName,
@@ -1307,7 +1296,7 @@ router.post("/:agreementId/update", async (req, res) => {
               id: note.id,
               title: note.title,
             }
-          : null, // ✅ Handle case where note creation was skipped
+          : null, 
         file: file
           ? {
               id: file.id,
@@ -1583,8 +1572,7 @@ router.post("/cleanup-failed", async (req, res) => {
       `🧹 [V2-CLEANUP] Found ${failedMappings.length} failed mappings to clean up`,
     );
 
-    // Delete all failed mappings
-    const deleteResult = await ZohoMapping.deleteMany({
+const deleteResult = await ZohoMapping.deleteMany({
       $or: [
         { lastUploadStatus: "failed" },
         { lastUploadStatus: "partial" },
@@ -1959,8 +1947,7 @@ router.post("/:agreementId/batch-update", async (req, res) => {
       `📦 [BATCH-UPDATE] Files to upload: ${versionIds?.length || 0}`,
     );
 
-    // Validate required fields
-    if (!noteText || !noteText.trim()) {
+if (!noteText || !noteText.trim()) {
       return res.status(400).json({
         success: false,
         error: "Note text is required for batch updates",
@@ -2052,8 +2039,7 @@ router.post("/:agreementId/batch-update", async (req, res) => {
           `🔄 [BATCH-UPDATE] Recompiling PDF for version ${versionDoc.versionNumber}...`,
         );
 
-        // Recompile PDF on-demand
-        const compiledPdf = await compileCustomerHeader(
+const compiledPdf = await compileCustomerHeader(
           versionDoc.payloadSnapshot,
           {
             watermark: false,
@@ -2123,8 +2109,7 @@ router.post("/:agreementId/batch-update", async (req, res) => {
       `📦 [BATCH-UPDATE] Successfully processed ${processedFiles.length}/${versionIds.length} files`,
     );
 
-    // Create SINGLE note with all file names listed
-    const fileList = processedFiles.map((f) => `• ${f.fileName}`).join("\n");
+const fileList = processedFiles.map((f) => `• ${f.fileName}`).join("\n");
     const batchNoteContent = `${noteText.trim()}\n\nBatch upload of ${processedFiles.length} files:\n${fileList}`;
 
     const noteResult = await createBiginNote(dealId, {
@@ -2386,8 +2371,7 @@ router.post("/batch-attached-files/add-to-deal", async (req, res) => {
           }
         }
 
-        // Generate Zoho filename
-        const sanitizedFileNameBase = (originalFileName || "file").replace(
+const sanitizedFileNameBase = (originalFileName || "file").replace(
           /[^a-zA-Z0-9-_.]/g,
           "_",
         );
@@ -2440,8 +2424,7 @@ router.post("/batch-attached-files/add-to-deal", async (req, res) => {
       `📦 [BATCH-ATTACHED] Successfully processed ${processedFiles.length}/${fileIds.length} files`,
     );
 
-    // Create SINGLE note with all file names listed
-    const fileList = processedFiles
+const fileList = processedFiles
       .map((f) => `• ${f.originalFileName}`)
       .join("\n");
     const batchNoteContent = `${trimmedNoteText}\n\nBatch upload of ${processedFiles.length} attached files:\n${fileList}`;
@@ -2556,10 +2539,6 @@ router.post("/batch-attached-files/add-to-deal", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/:agreementId/history
- * Get upload history for an agreement
- */
 router.get("/:agreementId/history", async (req, res) => {
   try {
     const { agreementId } = req.params;
@@ -2608,10 +2587,6 @@ router.get("/:agreementId/history", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/modules
- * Get available Zoho Bigin modules (for debugging/admin)
- */
 router.get("/modules", async (req, res) => {
   try {
     console.log(`📋 Fetching Zoho Bigin modules...`);
@@ -2638,17 +2613,12 @@ router.get("/modules", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/companies/:companyId/pipeline-options
- * Get pipeline and stage options for a specific company
- */
 router.get("/companies/:companyId/pipeline-options", async (req, res) => {
   try {
     const { companyId } = req.params;
     console.log(`📋 Fetching pipeline options for company: ${companyId}`);
 
-    // Validate companyId
-    if (!companyId || !companyId.trim()) {
+if (!companyId || !companyId.trim()) {
       return res.status(400).json({
         success: false,
         error: "Company ID is required",
@@ -2670,7 +2640,7 @@ router.get("/companies/:companyId/pipeline-options", async (req, res) => {
         success: false,
         companyId: companyId,
         error: result.error,
-        // Provide fallback values even if API fails
+        
         pipelines: result.pipelines || [
           {
             label: "Sales Pipeline Standard",
@@ -2696,7 +2666,7 @@ router.get("/companies/:companyId/pipeline-options", async (req, res) => {
       success: false,
       companyId: req.params.companyId,
       error: error.message,
-      // Provide fallback values
+      
       pipelines: [
         { label: "Sales Pipeline Standard", value: "Sales Pipeline Standard" },
       ],
@@ -2712,10 +2682,6 @@ router.get("/companies/:companyId/pipeline-options", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/pipeline-options
- * Get available pipeline and stage options from Zoho Bigin (general)
- */
 router.get("/pipeline-options", async (req, res) => {
   try {
     console.log(`📋 Fetching Zoho Bigin pipeline and stage options...`);
@@ -2732,7 +2698,7 @@ router.get("/pipeline-options", async (req, res) => {
       res.status(500).json({
         success: false,
         error: result.error,
-        // Provide fallback values even if API fails
+        
         pipelines: result.pipelines || [
           {
             label: "Sales Pipeline Standard",
@@ -2754,7 +2720,7 @@ router.get("/pipeline-options", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
-      // Provide fallback values
+      
       pipelines: [
         { label: "Sales Pipeline Standard", value: "Sales Pipeline Standard" },
       ],
@@ -2770,10 +2736,6 @@ router.get("/pipeline-options", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/validate-deal-fields
- * Validate pipeline and stage values before deal creation
- */
 router.post("/validate-deal-fields", async (req, res) => {
   try {
     const { pipelineName, stage } = req.body;
@@ -2817,16 +2779,11 @@ router.post("/validate-deal-fields", async (req, res) => {
   }
 });
 
-/**
- * POST /zoho-upload/cleanup-failed
- * Clean up any failed/partial mappings to ensure fresh state
- */
 router.post("/cleanup-failed", async (req, res) => {
   try {
     console.log(`🧹 [V2-CLEANUP] Starting cleanup of failed mappings...`);
 
-    // Find all failed or partial mappings
-    const failedMappings = await ZohoMapping.find({
+const failedMappings = await ZohoMapping.find({
       $or: [
         { lastUploadStatus: "failed" },
         { lastUploadStatus: "partial" },
@@ -2839,8 +2796,7 @@ router.post("/cleanup-failed", async (req, res) => {
       `🧹 [V2-CLEANUP] Found ${failedMappings.length} failed mappings to clean up`,
     );
 
-    // Delete all failed mappings
-    const deleteResult = await ZohoMapping.deleteMany({
+const deleteResult = await ZohoMapping.deleteMany({
       $or: [
         { lastUploadStatus: "failed" },
         { lastUploadStatus: "partial" },
@@ -2873,10 +2829,6 @@ router.post("/cleanup-failed", async (req, res) => {
   }
 });
 
-/**
- * GET /zoho-upload/companies/:companyId/deals
- * Fetch deals associated with a specific company
- */
 router.get("/companies/:companyId/deals", async (req, res) => {
   try {
     const { companyId } = req.params;
@@ -2886,16 +2838,14 @@ router.get("/companies/:companyId/deals", async (req, res) => {
       `💼 Fetching deals for company: ${companyId} (page ${page}, ${per_page} per page)`,
     );
 
-    // Validate companyId
-    if (!companyId || !companyId.trim()) {
+if (!companyId || !companyId.trim()) {
       return res.status(400).json({
         success: false,
         error: "Company ID is required",
       });
     }
 
-    // Validate pagination parameters
-    const pageNum = Math.max(1, parseInt(page) || 1);
+const pageNum = Math.max(1, parseInt(page) || 1);
     const perPage = Math.min(200, Math.max(1, parseInt(per_page) || 20));
 
     const result = await getBiginDealsByCompany(
@@ -2922,8 +2872,7 @@ router.get("/companies/:companyId/deals", async (req, res) => {
         result.error,
       );
 
-      // ✅ Provide helpful error messages for OAuth issues
-      if (result.error === "ZOHO_AUTH_REQUIRED") {
+if (result.error === "ZOHO_AUTH_REQUIRED") {
         return res.status(401).json({
           success: false,
           error:
@@ -2951,8 +2900,7 @@ router.get("/companies/:companyId/deals", async (req, res) => {
   } catch (error) {
     console.error("❌ Failed to fetch company deals:", error.message);
 
-    // ✅ Handle specific OAuth errors
-    if (error.message === "ZOHO_AUTH_REQUIRED") {
+if (error.message === "ZOHO_AUTH_REQUIRED") {
       return res.status(401).json({
         success: false,
         error:
@@ -2979,7 +2927,6 @@ router.get("/companies/:companyId/deals", async (req, res) => {
   }
 });
 
-// ─── GET BIGIN USERS ──────────────────────────────────────────────────────────
 router.get("/users", async (req, res) => {
   try {
     const result = await getBiginUsers();
@@ -2989,7 +2936,6 @@ router.get("/users", async (req, res) => {
   }
 });
 
-// ─── CREATE TASK ON THE PIPELINE (deal) linked to an agreement ───────────────
 router.post("/:agreementId/tasks", async (req, res) => {
   const { agreementId } = req.params;
   const { subject, dueDate, status, priority, description, ownerId, reminder, reminderWhen, reminderTime, repeat, repeatFrequency, repeatUntil } = req.body;
@@ -3032,34 +2978,29 @@ router.post("/:agreementId/tasks", async (req, res) => {
   }
 });
 
-// ─── AUTO APPROVAL TASK — fires automatically on pending_approval saves ───────
-// Silently skipped if no company/pipeline is linked or no default owner set.
 router.post("/:agreementId/auto-approval-task", async (req, res) => {
   const { agreementId } = req.params;
   const { agreementTitle } = req.body;
 
   try {
-    // 1. Check that a pipeline is linked
+    
     const mapping = await ZohoMapping.findOne({ agreementId });
     if (!mapping?.zohoDeal?.id) {
       console.log(`📋 [AUTO-TASK] No pipeline linked for ${agreementId} — skipping auto task`);
       return res.json({ success: true, skipped: true, reason: 'no_pipeline' });
     }
 
-    // 2. Get default owner from admin settings
-    const settings = await AdminSettings.getSingleton();
+const settings = await AdminSettings.getSingleton();
     const ownerId = settings.defaultApprovalTaskOwner?.id || null;
     const ownerName = settings.defaultApprovalTaskOwner?.name || 'Unassigned';
 
-    // 3. Build subject from template
     const title = agreementTitle?.trim() || 'Agreement';
     const subject = (settings.approvalTaskSubject || 'Agreement "{{agreementTitle}}" needs your approval')
       .replace('{{agreementTitle}}', title);
 
-    // Due date = next day after creation
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const dueDate = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dueDate = tomorrow.toISOString().split('T')[0];
 
     console.log(`📋 [AUTO-TASK] Creating approval task on pipeline ${mapping.zohoDeal.id} (${mapping.zohoDeal.name}) — owner: ${ownerName}`);
 
@@ -3089,7 +3030,6 @@ router.post("/:agreementId/auto-approval-task", async (req, res) => {
   }
 });
 
-// ─── CREATE TASK FOR A COMPANY (unlinked) — always creates a new pipeline ──
 router.post("/companies/:companyId/tasks", async (req, res) => {
   const { companyId } = req.params;
   const { subject, dueDate, status, priority, description, ownerId, companyName, agreementId, reminder, reminderWhen, reminderTime, repeat, repeatFrequency, repeatUntil } = req.body;
@@ -3099,7 +3039,7 @@ router.post("/companies/:companyId/tasks", async (req, res) => {
   }
 
   try {
-    // No existing linkage — always create a fresh pipeline for this company
+    
     const name = companyName?.trim() || `Company ${companyId}`;
     console.log(`📋 [COMPANY-TASKS] No linkage — creating new pipeline "${name} - EnviroMaster" for company ${companyId}...`);
     const dealResult = await createBiginDeal({
@@ -3116,8 +3056,7 @@ router.post("/companies/:companyId/tasks", async (req, res) => {
     const deal = dealResult.deal;
     console.log(`✅ [COMPANY-TASKS] Created pipeline: ${deal.id} (${deal.name})`);
 
-    // Save ZohoMapping so next task creation skips company selection
-    if (agreementId && mongoose.Types.ObjectId.isValid(agreementId)) {
+if (agreementId && mongoose.Types.ObjectId.isValid(agreementId)) {
       try {
         await ZohoMapping.findOneAndUpdate(
           { agreementId },
@@ -3139,7 +3078,7 @@ router.post("/companies/:companyId/tasks", async (req, res) => {
         );
         console.log(`✅ [COMPANY-TASKS] Saved ZohoMapping for agreement ${agreementId} → deal ${deal.id}`);
       } catch (mappingErr) {
-        // Non-fatal — task still created even if mapping save fails
+        
         console.warn(`⚠️ [COMPANY-TASKS] Could not save ZohoMapping: ${mappingErr.message}`);
       }
     }
