@@ -476,6 +476,7 @@ export async function getCustomerHeaderForEdit(req, res) {
         warrantyPriceOverride: d.warrantyPriceOverride,
         replacementRate: d.replacementRate,
         replacementPriceOverride: d.replacementPriceOverride,
+        costType: d.costType || 'productCost',
         frequency: d.frequency || '',
         total: d.total
       }))
