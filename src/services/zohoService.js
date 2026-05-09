@@ -1629,13 +1629,61 @@ export async function getBiginCompanies(page = 1, perPage = 50) {
   return result;
 }
 
+export async function getAllBiginCompanies() {
+  console.log(`📋 Fetching ALL Bigin companies (all pages)...`);
+
+  const fields = [
+    'id',
+    'Account_Name',
+    'Company_Name',
+    'Phone',
+    'Email',
+    'Website',
+    'Billing_Street'
+  ].join(',');
+
+  const allCompanies = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const endpoint = `/Accounts?page=${page}&per_page=${perPage}&fields=${fields}`;
+    const result = await makeBiginRequest('GET', endpoint);
+
+    if (!result.success) {
+      if (allCompanies.length > 0) break;
+      return result;
+    }
+
+    const batch = result.data?.data || [];
+    allCompanies.push(...batch.map(company => ({
+      id: company.id,
+      name: company.Account_Name || company.Company_Name || 'Unnamed Company',
+      phone: company.Phone || '',
+      email: company.Email || '',
+      website: company.Website || '',
+      address: company.Billing_Street || ''
+    })));
+
+    const info = result.data?.info || {};
+    const moreRecords = info.more_records ?? (batch.length === perPage);
+    console.log(`📄 Page ${page}: fetched ${batch.length} companies (total so far: ${allCompanies.length}, more: ${moreRecords})`);
+
+    if (!moreRecords || batch.length < perPage) break;
+    page++;
+  }
+
+  console.log(`✅ Fetched all ${allCompanies.length} companies`);
+  return { success: true, companies: allCompanies };
+}
+
 export async function searchBiginCompanies(searchTerm) {
   console.log(`🔍 Searching Bigin companies for: "${searchTerm}"`);
 
   const coqlQuery = `SELECT id, Account_Name, Phone, Email, Website
                      FROM Accounts
                      WHERE Account_Name LIKE '%${searchTerm}%'
-                     LIMIT 20`;
+                     LIMIT 200`;
 
   const endpoint = '/coql';
   const result = await makeBiginRequest('POST', endpoint, {

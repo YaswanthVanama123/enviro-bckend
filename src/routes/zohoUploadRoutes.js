@@ -9,6 +9,7 @@ import AdminSettings from "../models/AdminSettings.js";
 import { compileCustomerHeader } from "../services/pdfService.js";
 import {
   getBiginCompanies,
+  getAllBiginCompanies,
   searchBiginCompanies,
   createBiginCompany,
   getBiginDealsByCompany,
@@ -406,10 +407,10 @@ router.get("/:agreementId/status", async (req, res) => {
 
 router.get("/companies", async (req, res) => {
   try {
-    const { page = 1, search } = req.query;
+    const { search } = req.query;
 
     console.log(
-      `📋 Fetching companies for selection (page: ${page}, search: "${search || "none"}")`,
+      `📋 Fetching companies for selection (search: "${search || "none"}")`,
     );
 
     let result;
@@ -417,7 +418,7 @@ router.get("/companies", async (req, res) => {
     if (search && search.trim()) {
       result = await searchBiginCompanies(search.trim());
     } else {
-      result = await getBiginCompanies(parseInt(page), 50);
+      result = await getAllBiginCompanies();
     }
 
     if (result.success) {
