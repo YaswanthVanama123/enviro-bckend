@@ -11,6 +11,8 @@ import priceFixRoutes from "./routes/priceFixRoutes.js";
 import pdfRoutes from "./routes/pdfRoutes.js";
 import { PDF_MAX_BODY_MB } from "./config/pdfConfig.js";
 import adminAuthRoutes from "./routes/adminAuthRoutes.js";
+import employeeAuthRoutes from "./routes/employeeAuthRoutes.js";
+import userManagementRoutes from "./routes/userManagementRoutes.js";
 import productCatalogRoutes from './routes/productCatalogRoutes.js';
 import serviceConfigRoutes from './routes/serviceConfigRoutes.js';
 import manualUploadRoutes from './routes/manualUploadRoutes.js';
@@ -128,6 +130,8 @@ app.use((req, _res, next) => {
 app.use('/api/proposals', proposalRoutes);
 app.use("/api/pdf",       pdfRoutes);
 app.use("/api/admin", adminAuthRoutes);
+app.use("/api/employee", employeeAuthRoutes);
+app.use("/api/users", userManagementRoutes);
 app.use("/api/pricefix", priceFixRoutes);
 app.use("/api/product-catalog", productCatalogRoutes);
 app.use("/api/service-configs", serviceConfigRoutes);

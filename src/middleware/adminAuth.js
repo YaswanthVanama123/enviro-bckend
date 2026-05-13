@@ -7,6 +7,7 @@ export function signAdminToken(admin) {
   const payload = {
     id: admin._id.toString(),
     username: admin.username,
+    role: 'admin',
   };
 
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
