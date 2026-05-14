@@ -468,7 +468,10 @@ export async function checkVersionStatus(req, res) {
 export async function createVersion(req, res) {
   try {
     const { agreementId } = req.params;
-    const { changeNotes, createdBy, replaceRecent, isFirstTime, watermark = false } = req.body || {};
+    const { changeNotes, createdBy: bodyCreatedBy, replaceRecent, isFirstTime, watermark = false } = req.body || {};
+
+    // Use createdBy from body, or fallback to authenticated user
+    const createdBy = bodyCreatedBy || req.user?.username || req.admin?.username || null;
 
     if (!mongoose.isValidObjectId(agreementId)) {
       return res.status(400).json({

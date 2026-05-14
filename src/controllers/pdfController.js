@@ -222,8 +222,8 @@ export async function compileAndStoreCustomerHeader(req, res) {
         externalUrl: null,
       },
       status,
-      createdBy: req.admin?.id || null,
-      updatedBy: req.admin?.id || null,
+      createdBy: req.user?.username || req.admin?.username || req.admin?.id || null,
+      updatedBy: req.user?.username || req.admin?.username || req.admin?.id || null,
       zoho: zohoData,
     });
 
@@ -811,7 +811,7 @@ export async function updateCustomerHeader(req, res) {
       doc.zoho.crm = { ...doc.zoho.crm, ...body.zoho.crm };
     }
 
-    doc.updatedBy = req.admin?.id || doc.updatedBy;
+    doc.updatedBy = req.user?.username || req.admin?.username || doc.updatedBy;
 
     const shouldCompilePdf = recompile || (statusChanged && wasDraft && isNowFinal);
 
@@ -912,7 +912,7 @@ export async function updateCustomerHeaderStatus(req, res) {
     }
 
     doc.status = status;
-    doc.updatedBy = req.admin?.id || doc.updatedBy;
+    doc.updatedBy = req.user?.username || req.admin?.username || doc.updatedBy;
     await doc.save();
 
     res.json({
@@ -955,8 +955,8 @@ export async function compileAndStoreAdminHeader(req, res) {
         externalUrl: null,
       },
       status: body.status || "saved",
-      createdBy: req.admin?.id || null,
-      updatedBy: req.admin?.id || null,
+      createdBy: req.user?.username || req.admin?.username || req.admin?.id || null,
+      updatedBy: req.user?.username || req.admin?.username || req.admin?.id || null,
       label: body.label || "",
     });
 
@@ -1071,7 +1071,7 @@ export async function updateAdminHeader(req, res) {
     }
 
 
-    doc.updatedBy = req.admin?.id || doc.updatedBy;
+    doc.updatedBy = req.user?.username || req.admin?.username || doc.updatedBy;
 
     let buffer = null;
     let filename = "admin-header.pdf";
@@ -1623,7 +1623,8 @@ export async function getSavedFilesGrouped(req, res) {
                       deletedAt: 1,
                       deletedBy: 1,
                       createdAt: 1,
-                      size: '$pdf_meta.sizeBytes' 
+                      createdBy: 1,
+                      size: '$pdf_meta.sizeBytes'
                     }
                   },
                   { $sort: { versionNumber: -1 } }
@@ -1793,8 +1794,8 @@ export async function getSavedFilesGrouped(req, res) {
         status: version.status || 'saved',
         createdAt: version.createdAt,
         updatedAt: version.createdAt,
-        createdBy: null,
-        updatedBy: null,
+        createdBy: version.createdBy || null,
+        updatedBy: version.createdBy || null,
         fileSize: version.size || 0,
         pdfStoredAt: version.createdAt,
         hasPdf: !!(version.size && version.size > 0),
@@ -2532,7 +2533,7 @@ export async function restoreFile(req, res) {
         isDeleted: false,
         deletedAt: null,
         deletedBy: null,
-        updatedBy: req.user?.id || req.admin?.id || 'system'
+        updatedBy: req.user?.username || req.admin?.username || 'system'
       });
     }
 

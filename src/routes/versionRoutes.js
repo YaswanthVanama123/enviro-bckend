@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/authMiddleware.js";
 import {
   getAllVersionPdfs,
   getVersionPdfById,
@@ -27,9 +28,9 @@ router.delete("/:id", deleteVersionPdf);
 
 router.get("/:agreementId/check-status", checkVersionStatus);
 
-router.post("/:agreementId/create-version", createVersion);
+router.post("/:agreementId/create-version", requireAuth, createVersion);
 
-router.post("/:agreementId/replace-main", replaceMainPdf);
+router.post("/:agreementId/replace-main", requireAuth, replaceMainPdf);
 
 router.get("/:agreementId/list", getVersionsList);
 

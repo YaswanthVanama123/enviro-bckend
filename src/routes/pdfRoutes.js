@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
+import { requireAuth } from "../middleware/authMiddleware.js";
 import {
   pdfHealth,
   testZohoAccessEndpoint,
@@ -79,12 +80,12 @@ router.post("/compile", compileFromRaw);
 router.post("/proposal", compileFromProposalFile);
 
 router.post("/customer-header-preview", compileCustomerHeaderPdf);
-router.post("/customer-header", compileAndStoreCustomerHeader);
+router.post("/customer-header", requireAuth, compileAndStoreCustomerHeader);
 router.get("/customer-headers", getCustomerHeaders);
 router.get("/customer-headers/:id", getCustomerHeaderById);
 router.get("/customer-headers/:id/edit-format", getCustomerHeaderForEdit);
-router.put("/customer-headers/:id", updateCustomerHeader);
-router.patch("/customer-headers/:id/status", updateCustomerHeaderStatus);
+router.put("/customer-headers/:id", requireAuth, updateCustomerHeader);
+router.patch("/customer-headers/:id/status", requireAuth, updateCustomerHeaderStatus);
 
 router.post("/admin-header", compileAndStoreAdminHeader);
 router.get("/admin-headers", getAdminHeaders);
