@@ -25,6 +25,7 @@ import emailRoutes from './routes/emailRoutes.js';
 import emailTemplateRoutes from './routes/emailTemplateRoutes.js';
 import serviceAgreementTemplateRoutes from './routes/serviceAgreementTemplateRoutes.js';
 import adminSettingsRoutes from './routes/adminSettingsRoutes.js';
+import commissionRoutes from './routes/commissionRoutes.js';
 
 
 const app = express();
@@ -145,5 +146,6 @@ app.use("/api/email", emailRoutes);
 app.use("/api/email-template", emailTemplateRoutes);
 app.use("/api/service-agreement-template", serviceAgreementTemplateRoutes);
 app.use("/api/admin-settings", adminSettingsRoutes);
+app.use("/api/commission", commissionRoutes);
 
 export default app;

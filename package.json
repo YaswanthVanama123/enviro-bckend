@@ -12,7 +12,9 @@
     "restart:pm2": "pm2 restart ecosystem.config.cjs",
     "logs:pm2": "pm2 logs enviro-backend",
     "monitor:pm2": "pm2 monit",
-    "test": "echo \"No tests specified\" && exit 0",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "build:docker": "docker build -t enviro-backend .",
     "run:docker": "docker run -p 5000:5000 --env-file .env enviro-backend"
   },
@@ -36,6 +38,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "jest": "^29.7.0",
     "nodemon": "^3.1.11"
   }
 }
