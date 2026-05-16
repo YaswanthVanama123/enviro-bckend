@@ -160,6 +160,65 @@ const GlobalSummarySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Commission calculation schema - embedded in agreement
+const CommissionInputSchema = new mongoose.Schema(
+  {
+    monthlyValue: { type: Number, default: 0 },
+    agreementTerm: {
+      type: String,
+      enum: ['3-year', '1-year', 'MTM-with-install', 'MTM-no-install'],
+      default: '1-year'
+    },
+    accountType: {
+      type: String,
+      enum: ['Anchor', 'Bread5', 'Bread15', 'Pit'],
+      default: 'Anchor'
+    },
+    pricingLine: {
+      type: String,
+      enum: ['Redline', 'Greenline'],
+      default: 'Redline'
+    },
+    quotaLevel: {
+      type: String,
+      enum: ['below', 'above', 'double'],
+      default: 'below'
+    },
+    businessType: {
+      type: String,
+      enum: ['new', 'renewal'],
+      default: 'new'
+    },
+    yearsAsCustomer: { type: Number, default: 0 },
+    isInsideSales: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const CommissionBreakdownSchema = new mongoose.Schema(
+  {
+    baseRate: { type: Number, default: 0 },
+    agreementMultiplier: { type: Number, default: 100 },
+    accountTypeAdjustment: { type: Number, default: 0 },
+    greenlineBonus: { type: Number, default: 0 },
+    renewalBonus: { type: Number, default: 0 },
+    insideSalesDeduction: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const CommissionSchema = new mongoose.Schema(
+  {
+    input: { type: CommissionInputSchema, default: () => ({}) },
+    breakdown: { type: CommissionBreakdownSchema, default: () => ({}) },
+    finalCommissionRate: { type: Number, default: 0 },
+    monthlyCommission: { type: Number, default: 0 },
+    annualCommission: { type: Number, default: 0 },
+    contractCommission: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const HeaderRowSchema = new mongoose.Schema(
   {
     labelLeft: { type: String, default: "" },
@@ -238,6 +297,7 @@ const PayloadSchema = new mongoose.Schema(
     agreement: { type: AgreementSchema, default: () => ({}) },
     serviceAgreement: { type: ServiceAgreementSchema, default: null },
     summary: { type: GlobalSummarySchema, default: null },
+    commission: { type: CommissionSchema, default: null },
   },
   { _id: false }
 );
