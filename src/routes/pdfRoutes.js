@@ -53,7 +53,10 @@ import {
   verifyTrashWorkflow,
   getDocumentStatusCounts,
   exportPricingCatalog,
-  exportPricingCatalogFromDb
+  exportPricingCatalogFromDb,
+  getUserCommissions,
+  getAllEmployeesCommissions,
+  getEmployeeCommissions
 } from "../controllers/pdfController.js";
 
 import {
@@ -132,6 +135,10 @@ router.get("/logs/:logId/download", downloadVersionLog);
 
 router.post("/pricing-catalog/export", exportPricingCatalog);
 router.get("/pricing-catalog/export", requireAdminAuth, exportPricingCatalogFromDb);
+
+router.get("/user/commissions", requireAuth, getUserCommissions);
+router.get("/admin/commissions/employees", requireAdminAuth, getAllEmployeesCommissions);
+router.get("/admin/commissions/employee/:username", requireAdminAuth, getEmployeeCommissions);
 
 router.post("/compile-file", upload.single("file"), proxyCompileFile);
 router.post(

@@ -4545,3 +4545,469 @@ export async function exportPricingCatalogFromDb(req, res) {
     });
   }
 }
+
+// Commission calculation constants
+const COMMISSION_RULES = {
+  quotaRates: { below: 3, above: 6, double: 9 },
+  agreementMultipliers: {
+    '3-year': 135,
+    '1-year': 100,
+    'MTM-with-install': 100,
+    'MTM-no-install': 50
+  },
+  accountTypeAdjustments: {
+    'Anchor': 0,
+    'Bread5': -1,
+    'Bread15': -0.5,
+    'Pit': 0
+  },
+  greenlineBonus: 2,
+  renewalBonusRate: 4,
+  renewalMinYears: 2,
+  insideSalesDeduction: -3,
+  anchorMinMonthlyValue: 200
+};
+
+function calculateCommission(monthlyValue, contractMonths, pricingLine, quotaLevel, accountType, isInsideSales) {
+  const rules = COMMISSION_RULES;
+
+  // Derive agreement term from contract months
+  let agreementTerm = 'MTM-no-install';
+  if (contractMonths >= 36) agreementTerm = '3-year';
+  else if (contractMonths >= 12) agreementTerm = '1-year';
+
+  // Base rate from quota level
+  const baseRate = rules.quotaRates[quotaLevel] || rules.quotaRates.above;
+
+  // Agreement multiplier
+  const multiplier = rules.agreementMultipliers[agreementTerm] || 100;
+
+  // Account type adjustment
+  const accountAdj = rules.accountTypeAdjustments[accountType] || 0;
+
+  // Greenline bonus
+  const greenline = pricingLine === 'Greenline' ? rules.greenlineBonus : 0;
+
+  // Inside sales deduction
+  const insideSales = isInsideSales ? rules.insideSalesDeduction : 0;
+
+  // Calculate effective rate
+  const effectiveRate = baseRate + accountAdj + greenline + insideSales;
+  const finalRate = effectiveRate * (multiplier / 100);
+
+  // Calculate amounts
+  const monthlyCommission = monthlyValue * (finalRate / 100);
+  const contractTotal = monthlyCommission * (contractMonths || 1);
+
+  return {
+    baseRate,
+    agreementTerm,
+    multiplier,
+    accountTypeAdjustment: accountAdj,
+    greenlineBonus: greenline,
+    insideSalesDeduction: insideSales,
+    finalCommissionRate: parseFloat(finalRate.toFixed(2)),
+    monthlyCommission: parseFloat(monthlyCommission.toFixed(2)),
+    contractTotal: parseFloat(contractTotal.toFixed(2))
+  };
+}
+
+export async function getUserCommissions(req, res) {
+  try {
+    const username = req.user?.username || req.admin?.username || null;
+
+    if (!username) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        detail: 'User not authenticated'
+      });
+    }
+
+    console.log(`📊 [COMMISSIONS] Fetching commissions for user: ${username}`);
+
+    // Get all agreements created by this user
+    const agreements = await CustomerHeaderDoc.find({
+      createdBy: username,
+      isDeleted: { $ne: true }
+    })
+      .sort({ createdAt: -1 })
+      .select({
+        _id: 1,
+        status: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: 1,
+        'payload.headerTitle': 1,
+        'payload.summary.contractMonths': 1,
+        'payload.summary.serviceAgreementTotal': 1,
+        'payload.summary.productMonthlyTotal': 1,
+        'payload.agreement.startDate': 1,
+      })
+      .lean();
+
+    console.log(`📊 [COMMISSIONS] Found ${agreements.length} agreements for ${username}`);
+
+    // Default commission settings (can be customized per user later)
+    const defaultQuotaLevel = 'above';
+    const defaultAccountType = 'Anchor';
+    const defaultIsInsideSales = false;
+
+    // Calculate commissions for each agreement
+    const commissionsData = agreements.map(agreement => {
+      const title = agreement.payload?.headerTitle || 'Untitled Agreement';
+      const contractMonths = agreement.payload?.summary?.contractMonths || 12;
+
+      // serviceAgreementTotal is the TOTAL contract value, not monthly
+      // We need to divide by contract months to get the monthly value
+      const serviceContractTotal = agreement.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = agreement.payload?.summary?.productMonthlyTotal || 0;
+
+      // Calculate monthly value from contract total
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+
+      const startDate = agreement.payload?.agreement?.startDate || null;
+
+      // Determine pricing line (simplified - could be enhanced)
+      const pricingLine = 'Redline'; // Default, could be stored in agreement
+
+      const commission = calculateCommission(
+        monthlyValue,
+        contractMonths,
+        pricingLine,
+        defaultQuotaLevel,
+        defaultAccountType,
+        defaultIsInsideSales
+      );
+
+      return {
+        id: agreement._id,
+        title,
+        status: agreement.status,
+        createdAt: agreement.createdAt,
+        startDate,
+        contractMonths,
+        monthlyValue: parseFloat(monthlyValue.toFixed(2)),
+        contractValue: parseFloat((monthlyValue * contractMonths).toFixed(2)),
+        commission: {
+          rate: commission.finalCommissionRate,
+          monthly: commission.monthlyCommission,
+          total: commission.contractTotal,
+          breakdown: {
+            baseRate: commission.baseRate,
+            agreementTerm: commission.agreementTerm,
+            multiplier: commission.multiplier,
+            accountTypeAdjustment: commission.accountTypeAdjustment,
+            greenlineBonus: commission.greenlineBonus,
+            insideSalesDeduction: commission.insideSalesDeduction
+          }
+        }
+      };
+    });
+
+    // Calculate totals
+    const totals = {
+      totalAgreements: commissionsData.length,
+      totalMonthlyCommission: parseFloat(
+        commissionsData.reduce((sum, c) => sum + c.commission.monthly, 0).toFixed(2)
+      ),
+      totalContractCommission: parseFloat(
+        commissionsData.reduce((sum, c) => sum + c.commission.total, 0).toFixed(2)
+      ),
+      totalContractValue: parseFloat(
+        commissionsData.reduce((sum, c) => sum + c.contractValue, 0).toFixed(2)
+      ),
+      averageCommissionRate: commissionsData.length > 0
+        ? parseFloat(
+            (commissionsData.reduce((sum, c) => sum + c.commission.rate, 0) / commissionsData.length).toFixed(2)
+          )
+        : 0
+    };
+
+    // Group by status
+    const byStatus = {
+      draft: commissionsData.filter(c => c.status === 'draft'),
+      saved: commissionsData.filter(c => c.status === 'saved'),
+      pending_approval: commissionsData.filter(c => c.status === 'pending_approval'),
+      approved: commissionsData.filter(c => ['approved_salesman', 'approved_admin'].includes(c.status)),
+      active: commissionsData.filter(c => c.status === 'active')
+    };
+
+    res.json({
+      success: true,
+      user: username,
+      totals,
+      byStatus: {
+        draft: { count: byStatus.draft.length, commission: byStatus.draft.reduce((s, c) => s + c.commission.total, 0) },
+        saved: { count: byStatus.saved.length, commission: byStatus.saved.reduce((s, c) => s + c.commission.total, 0) },
+        pending: { count: byStatus.pending_approval.length, commission: byStatus.pending_approval.reduce((s, c) => s + c.commission.total, 0) },
+        approved: { count: byStatus.approved.length, commission: byStatus.approved.reduce((s, c) => s + c.commission.total, 0) },
+        active: { count: byStatus.active.length, commission: byStatus.active.reduce((s, c) => s + c.commission.total, 0) }
+      },
+      commissions: commissionsData
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching user commissions:", error.message);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch commissions",
+      detail: error.message
+    });
+  }
+}
+
+// Admin endpoint: Get all employees with commission summaries
+export async function getAllEmployeesCommissions(req, res) {
+  try {
+    console.log(`📊 [ADMIN COMMISSIONS] Fetching all employees commissions`);
+
+    // Get all unique employees who have created agreements
+    const employeeAggregation = await CustomerHeaderDoc.aggregate([
+      {
+        $match: {
+          isDeleted: { $ne: true },
+          createdBy: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$createdBy',
+          totalAgreements: { $sum: 1 },
+          agreements: {
+            $push: {
+              id: '$_id',
+              status: '$status',
+              contractMonths: '$payload.summary.contractMonths',
+              serviceAgreementTotal: '$payload.summary.serviceAgreementTotal',
+              productMonthlyTotal: '$payload.summary.productMonthlyTotal',
+              createdAt: '$createdAt'
+            }
+          },
+          statuses: {
+            $push: '$status'
+          }
+        }
+      },
+      {
+        $sort: { totalAgreements: -1 }
+      }
+    ]);
+
+    // Calculate commissions for each employee
+    const employees = employeeAggregation.map(emp => {
+      let totalMonthlyCommission = 0;
+      let totalContractCommission = 0;
+      let totalContractValue = 0;
+
+      // Status counts
+      const statusCounts = {
+        draft: 0,
+        saved: 0,
+        pending_approval: 0,
+        approved: 0,
+        active: 0
+      };
+
+      emp.agreements.forEach(agreement => {
+        const contractMonths = agreement.contractMonths || 12;
+        const serviceContractTotal = agreement.serviceAgreementTotal || 0;
+        const productMonthlyTotal = agreement.productMonthlyTotal || 0;
+
+        // Calculate monthly value from contract total
+        const serviceMonthlyValue = serviceContractTotal / contractMonths;
+        const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+
+        const commission = calculateCommission(
+          monthlyValue,
+          contractMonths,
+          'Redline',
+          'above',
+          'Anchor',
+          false
+        );
+
+        totalMonthlyCommission += commission.monthlyCommission;
+        totalContractCommission += commission.contractTotal;
+        totalContractValue += monthlyValue * contractMonths;
+
+        // Count statuses
+        if (agreement.status === 'draft') statusCounts.draft++;
+        else if (agreement.status === 'saved') statusCounts.saved++;
+        else if (agreement.status === 'pending_approval') statusCounts.pending_approval++;
+        else if (['approved_salesman', 'approved_admin'].includes(agreement.status)) statusCounts.approved++;
+        else if (agreement.status === 'active') statusCounts.active++;
+      });
+
+      return {
+        username: emp._id,
+        totalAgreements: emp.totalAgreements,
+        statusCounts,
+        totalMonthlyCommission: parseFloat(totalMonthlyCommission.toFixed(2)),
+        totalContractCommission: parseFloat(totalContractCommission.toFixed(2)),
+        totalContractValue: parseFloat(totalContractValue.toFixed(2)),
+        averageCommissionRate: 8.1 // Default for now
+      };
+    });
+
+    // Calculate grand totals
+    const grandTotals = {
+      totalEmployees: employees.length,
+      totalAgreements: employees.reduce((sum, e) => sum + e.totalAgreements, 0),
+      totalMonthlyCommission: parseFloat(employees.reduce((sum, e) => sum + e.totalMonthlyCommission, 0).toFixed(2)),
+      totalContractCommission: parseFloat(employees.reduce((sum, e) => sum + e.totalContractCommission, 0).toFixed(2)),
+      totalContractValue: parseFloat(employees.reduce((sum, e) => sum + e.totalContractValue, 0).toFixed(2))
+    };
+
+    res.json({
+      success: true,
+      grandTotals,
+      employees
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching all employees commissions:", error.message);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch employees commissions",
+      detail: error.message
+    });
+  }
+}
+
+// Admin endpoint: Get commissions for a specific employee
+export async function getEmployeeCommissions(req, res) {
+  try {
+    const { username } = req.params;
+
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        detail: 'Username parameter is required'
+      });
+    }
+
+    console.log(`📊 [ADMIN COMMISSIONS] Fetching commissions for employee: ${username}`);
+
+    // Get all agreements created by this employee
+    const agreements = await CustomerHeaderDoc.find({
+      createdBy: username,
+      isDeleted: { $ne: true }
+    })
+      .sort({ createdAt: -1 })
+      .select({
+        _id: 1,
+        status: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: 1,
+        'payload.headerTitle': 1,
+        'payload.summary.contractMonths': 1,
+        'payload.summary.serviceAgreementTotal': 1,
+        'payload.summary.productMonthlyTotal': 1,
+        'payload.agreement.startDate': 1,
+      })
+      .lean();
+
+    console.log(`📊 [ADMIN COMMISSIONS] Found ${agreements.length} agreements for ${username}`);
+
+    // Calculate commissions for each agreement
+    const commissionsData = agreements.map(agreement => {
+      const title = agreement.payload?.headerTitle || 'Untitled Agreement';
+      const contractMonths = agreement.payload?.summary?.contractMonths || 12;
+
+      const serviceContractTotal = agreement.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = agreement.payload?.summary?.productMonthlyTotal || 0;
+
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+
+      const startDate = agreement.payload?.agreement?.startDate || null;
+
+      const commission = calculateCommission(
+        monthlyValue,
+        contractMonths,
+        'Redline',
+        'above',
+        'Anchor',
+        false
+      );
+
+      return {
+        id: agreement._id,
+        title,
+        status: agreement.status,
+        createdAt: agreement.createdAt,
+        startDate,
+        contractMonths,
+        monthlyValue: parseFloat(monthlyValue.toFixed(2)),
+        contractValue: parseFloat((monthlyValue * contractMonths).toFixed(2)),
+        commission: {
+          rate: commission.finalCommissionRate,
+          monthly: commission.monthlyCommission,
+          total: commission.contractTotal,
+          breakdown: {
+            baseRate: commission.baseRate,
+            agreementTerm: commission.agreementTerm,
+            multiplier: commission.multiplier,
+            accountTypeAdjustment: commission.accountTypeAdjustment,
+            greenlineBonus: commission.greenlineBonus,
+            insideSalesDeduction: commission.insideSalesDeduction
+          }
+        }
+      };
+    });
+
+    // Calculate totals
+    const totals = {
+      totalAgreements: commissionsData.length,
+      totalMonthlyCommission: parseFloat(
+        commissionsData.reduce((sum, c) => sum + c.commission.monthly, 0).toFixed(2)
+      ),
+      totalContractCommission: parseFloat(
+        commissionsData.reduce((sum, c) => sum + c.commission.total, 0).toFixed(2)
+      ),
+      totalContractValue: parseFloat(
+        commissionsData.reduce((sum, c) => sum + c.contractValue, 0).toFixed(2)
+      ),
+      averageCommissionRate: commissionsData.length > 0
+        ? parseFloat(
+            (commissionsData.reduce((sum, c) => sum + c.commission.rate, 0) / commissionsData.length).toFixed(2)
+          )
+        : 0
+    };
+
+    // Group by status
+    const byStatus = {
+      draft: commissionsData.filter(c => c.status === 'draft'),
+      saved: commissionsData.filter(c => c.status === 'saved'),
+      pending_approval: commissionsData.filter(c => c.status === 'pending_approval'),
+      approved: commissionsData.filter(c => ['approved_salesman', 'approved_admin'].includes(c.status)),
+      active: commissionsData.filter(c => c.status === 'active')
+    };
+
+    res.json({
+      success: true,
+      employee: username,
+      totals,
+      byStatus: {
+        draft: { count: byStatus.draft.length, commission: byStatus.draft.reduce((s, c) => s + c.commission.total, 0) },
+        saved: { count: byStatus.saved.length, commission: byStatus.saved.reduce((s, c) => s + c.commission.total, 0) },
+        pending: { count: byStatus.pending_approval.length, commission: byStatus.pending_approval.reduce((s, c) => s + c.commission.total, 0) },
+        approved: { count: byStatus.approved.length, commission: byStatus.approved.reduce((s, c) => s + c.commission.total, 0) },
+        active: { count: byStatus.active.length, commission: byStatus.active.reduce((s, c) => s + c.commission.total, 0) }
+      },
+      commissions: commissionsData
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching employee commissions:", error.message);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch employee commissions",
+      detail: error.message
+    });
+  }
+}
