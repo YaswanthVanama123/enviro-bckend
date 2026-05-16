@@ -1581,6 +1581,8 @@ export async function getSavedFilesGrouped(req, res) {
                 deletedBy: 1,
                 createdAt: 1,
                 updatedAt: 1,
+                createdBy: 1,
+                updatedBy: 1,
                 title: '$payload.headerTitle',
                 startDate: '$payload.agreement.startDate',
                 contractMonths: '$payload.summary.contractMonths',
@@ -1851,6 +1853,9 @@ export async function getSavedFilesGrouped(req, res) {
         isDeleted: agreement.isDeleted || false,
         deletedAt: agreement.deletedAt,
         deletedBy: agreement.deletedBy,
+        createdBy: agreement.createdBy || null,
+        updatedBy: agreement.updatedBy || null,
+        agreementStatus: agreement.status || 'draft',
         hasUploads: allFiles.some(f => f.zohoInfo.biginDealId || f.zohoInfo.crmDealId) ||
                     !!(agreement.biginDealId || agreement.crmDealId),
         startDate: agreement.startDate || null,
