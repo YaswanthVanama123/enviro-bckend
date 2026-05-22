@@ -23,6 +23,10 @@ const EmployeeSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    phone: {
+      type: String,
+      trim: true,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -32,6 +36,40 @@ const EmployeeSchema = new mongoose.Schema(
     },
     passwordChangedAt: {
       type: Date,
+    },
+    // Sales/Quota related fields
+    salesRole: {
+      type: String,
+      enum: ["field_sales", "inside_sales", "account_manager", "sales_manager", "none"],
+      default: "field_sales",
+    },
+    territory: {
+      type: String,
+      trim: true,
+    },
+    managerId: {
+      type: String,
+      default: null,
+    },
+    hireDate: {
+      type: Date,
+      default: Date.now,
+    },
+    // Quota configuration
+    quota: {
+      monthlyTarget: {
+        type: Number,
+        default: 50000,
+      },
+      effectiveDate: {
+        type: Date,
+        default: Date.now,
+      },
+      periodType: {
+        type: String,
+        enum: ["monthly", "quarterly", "annual"],
+        default: "monthly",
+      },
     },
   },
   {

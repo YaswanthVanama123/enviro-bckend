@@ -26,6 +26,10 @@ import emailTemplateRoutes from './routes/emailTemplateRoutes.js';
 import serviceAgreementTemplateRoutes from './routes/serviceAgreementTemplateRoutes.js';
 import adminSettingsRoutes from './routes/adminSettingsRoutes.js';
 import commissionRoutes from './routes/commissionRoutes.js';
+import accountTypeRoutes from './routes/accountTypeRoutes.js';
+import quotaRoutes from './routes/quotaRoutes.js';
+import routestarCustomersRoutes from './routes/routestarCustomersRoutes.js';
+import biginAuditRoutes from './routes/biginAuditRoutes.js';
 
 
 const app = express();
@@ -147,5 +151,9 @@ app.use("/api/email-template", emailTemplateRoutes);
 app.use("/api/service-agreement-template", serviceAgreementTemplateRoutes);
 app.use("/api/admin-settings", adminSettingsRoutes);
 app.use("/api/commission", commissionRoutes);
+app.use("/api/account-type", accountTypeRoutes);
+app.use("/api/quota", quotaRoutes);
+app.use("/api/routestar-customers", routestarCustomersRoutes);
+app.use("/api/bigin-audit", biginAuditRoutes);
 
 export default app;
