@@ -29,6 +29,7 @@ export const getAllAuditLogs = async (req, res) => {
       user,
       action,
       module,
+      pipeline,
       startDate,
       endDate,
       limit = 50,
@@ -49,6 +50,26 @@ export const getAllAuditLogs = async (req, res) => {
     if (user) filter.user = { $regex: user, $options: "i" };
     if (action) filter.action = { $regex: action, $options: "i" };
     if (module) filter.module = { $regex: module, $options: "i" };
+    if (pipeline) {
+      // Search for pipeline in multiple fields
+      filter.$or = filter.$or || [];
+      const pipelineConditions = [
+        { "rawData.pipeline": { $regex: pipeline, $options: "i" } },
+        { details: { $regex: `Pipeline:\\s*${pipeline}`, $options: "i" } },
+        { module: { $regex: pipeline, $options: "i" } },
+      ];
+      // If there's already an $or from search, we need to combine with $and
+      if (filter.$or.length > 0) {
+        const existingOr = filter.$or;
+        delete filter.$or;
+        filter.$and = [
+          { $or: existingOr },
+          { $or: pipelineConditions }
+        ];
+      } else {
+        filter.$or = pipelineConditions;
+      }
+    }
     if (startDate || endDate) {
       filter.timestamp = {};
       if (startDate) filter.timestamp.$gte = new Date(startDate);
@@ -281,40 +302,47 @@ async function saveAuditLogsToDatabase(auditLogs, sessionId) {
 
   for (const log of auditLogs) {
     try {
-      // Parse timestamp
-      let timestamp = new Date();
-      if (log.timestamp) {
+      // Handle timestamp - it may already be a Date object from the scraper
+      let timestamp;
+      if (log.timestamp instanceof Date) {
+        timestamp = log.timestamp;
+      } else if (log.timestamp) {
         const parsed = new Date(log.timestamp);
-        if (!isNaN(parsed.getTime())) {
-          timestamp = parsed;
-        }
+        timestamp = !isNaN(parsed.getTime()) ? parsed : new Date();
+      } else {
+        timestamp = new Date();
       }
 
       const logData = {
-        biginId: log.id || null,
+        biginId: log.id || log.recordId || null,
         timestamp,
-        user: log.user || "Unknown",
+        user: (log.user || "Unknown").trim(),
         userEmail: log.userEmail || null,
-        action: log.action || "Unknown",
-        module: log.module || null,
-        recordName: log.recordName || null,
+        action: (log.action || "Unknown").trim(),
+        module: log.module?.trim() || null,
+        recordName: log.recordName?.trim() || null,
         recordId: log.recordId || null,
         details: log.details || null,
         ipAddress: log.ipAddress || null,
-        rawData: log,
+        rawData: log.rawData || log,
         scrapeSessionId: sessionId,
         scrapedAt: new Date(),
       };
 
-      // Check for duplicate by biginId or timestamp+user+action combination
-      const existingFilter = log.id
-        ? { biginId: log.id }
-        : {
-            timestamp,
-            user: logData.user,
-            action: logData.action,
-            module: logData.module,
-          };
+      // Check for duplicate - use time range to handle slight differences
+      const timeStart = new Date(timestamp.getTime() - 60000); // 1 minute before
+      const timeEnd = new Date(timestamp.getTime() + 60000); // 1 minute after
+
+      const existingFilter = {
+        timestamp: { $gte: timeStart, $lte: timeEnd },
+        user: logData.user,
+        action: logData.action,
+      };
+
+      // Add recordName to filter if it exists
+      if (logData.recordName) {
+        existingFilter.recordName = logData.recordName;
+      }
 
       const existing = await BiginAuditLog.findOne(existingFilter);
 
@@ -348,6 +376,36 @@ export const getAuditStats = async (req, res) => {
 
     // Get unique modules
     const modules = await BiginAuditLog.distinct("module");
+
+    // Get unique pipelines from multiple sources
+    // 1. From rawData.pipeline (CSV uploads)
+    const rawPipelines = await BiginAuditLog.distinct("rawData.pipeline");
+
+    // 2. Extract pipeline names from details field (e.g., "Pipeline: Sales Pipeline")
+    const logsWithPipelineDetails = await BiginAuditLog.find({
+      details: { $regex: /Pipeline:\s*([^|]+)/i }
+    }).select("details").lean();
+
+    const detailsPipelines = logsWithPipelineDetails
+      .map(log => {
+        const match = log.details?.match(/Pipeline:\s*([^|]+)/i);
+        return match ? match[1].trim() : null;
+      })
+      .filter(p => p);
+
+    // 3. Get modules that are pipeline-related (like "Sales Pipeline Deal")
+    const pipelineModules = await BiginAuditLog.distinct("module", {
+      module: { $regex: /pipeline/i }
+    });
+
+    // Combine all pipeline sources
+    const allPipelines = [...new Set([
+      ...rawPipelines.filter(p => p),
+      ...detailsPipelines,
+      ...pipelineModules.filter(p => p)
+    ])];
+
+    const pipelines = allPipelines;
 
     // Get logs from last 24 hours
     const oneDayAgo = new Date();
@@ -389,6 +447,7 @@ export const getAuditStats = async (req, res) => {
         users: users.filter((u) => u).sort(),
         actions: actions.filter((a) => a).sort(),
         modules: modules.filter((m) => m).sort(),
+        pipelines: pipelines.filter((p) => p).sort(),
         actionBreakdown: actionBreakdown.map((a) => ({
           action: a._id || "Unknown",
           count: a.count,
@@ -542,11 +601,11 @@ export const uploadCsv = async (req, res) => {
         const logData = {
           biginId: null,
           timestamp,
-          user: doneBy || "Unknown",
+          user: doneBy.trim() || "Unknown",
           userEmail: null,
-          action: action || "Unknown",
-          module: module || null,
-          recordName: recordName || null,
+          action: action.trim() || "Unknown",
+          module: module.trim() || null,
+          recordName: recordName.trim() || null,
           recordId: null,
           details: details || null,
           ipAddress: null,
@@ -565,14 +624,21 @@ export const uploadCsv = async (req, res) => {
           scrapedAt: new Date(),
         };
 
-        // Check for duplicate by timestamp+user+action+module+recordName
+        // Check for duplicate - use time range to handle slight differences
+        // Look for logs within 1 minute of this timestamp with same user/action/recordName
+        const timeStart = new Date(timestamp.getTime() - 60000); // 1 minute before
+        const timeEnd = new Date(timestamp.getTime() + 60000); // 1 minute after
+
         const existingFilter = {
-          timestamp,
+          timestamp: { $gte: timeStart, $lte: timeEnd },
           user: logData.user,
           action: logData.action,
-          module: logData.module,
-          recordName: logData.recordName,
         };
+
+        // Add recordName to filter if it exists
+        if (logData.recordName) {
+          existingFilter.recordName = logData.recordName;
+        }
 
         const existing = await BiginAuditLog.findOne(existingFilter);
 

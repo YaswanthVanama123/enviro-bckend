@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 /**
  * Schema for tracking Bigin audit scrape sessions
@@ -42,4 +42,4 @@ const BiginScrapeSessionSchema = new mongoose.Schema(
 
 BiginScrapeSessionSchema.index({ status: 1, createdAt: -1 });
 
-module.exports = mongoose.model("BiginScrapeSession", BiginScrapeSessionSchema);
+export default mongoose.model("BiginScrapeSession", BiginScrapeSessionSchema);

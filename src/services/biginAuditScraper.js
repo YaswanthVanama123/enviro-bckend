@@ -1,281 +1,358 @@
 /**
  * Zoho Bigin Audit Log Scraper Service
  * Scrapes audit history from Zoho Bigin using Puppeteer
+ * Stops when it reaches logs already in our database
  */
 
 import puppeteer from 'puppeteer';
+import BiginAuditLog from '../models/BiginAuditLog.js';
 
+const BIGIN_AUDIT_URL = 'https://bigin.zoho.in/bigin/Home#/settings/audit-log';
 const BIGIN_SIGNIN_URL = 'https://accounts.zoho.in/signin?servicename=ZohoBigin&signupurl=https://www.bigin.com/signup.html';
 const BIGIN_EMAIL = process.env.BIGIN_EMAIL || 'hvanama@enviromasternva.com';
 const BIGIN_PASSWORD = process.env.BIGIN_PASSWORD || 'Satyavani@970';
+
+/**
+ * Get the most recent audit log timestamp from our database
+ */
+async function getLatestStoredLogTimestamp() {
+  const latestLog = await BiginAuditLog.findOne({})
+    .sort({ timestamp: -1 })
+    .select('timestamp user action recordName')
+    .lean();
+
+  if (latestLog) {
+    console.log('📅 Latest stored log:', {
+      timestamp: latestLog.timestamp,
+      user: latestLog.user,
+      action: latestLog.action,
+      recordName: latestLog.recordName
+    });
+  }
+
+  return latestLog;
+}
+
+/**
+ * Check if a log entry already exists in our database
+ * Uses time range to handle slight timestamp differences
+ */
+async function logExistsInDatabase(timestamp, user, action, recordName) {
+  // Look for logs within 1 minute of this timestamp with same user/action
+  const timeStart = new Date(timestamp.getTime() - 60000); // 1 minute before
+  const timeEnd = new Date(timestamp.getTime() + 60000); // 1 minute after
+
+  const filter = {
+    timestamp: { $gte: timeStart, $lte: timeEnd },
+    user: user.trim(),
+    action: action.trim(),
+  };
+
+  // Add recordName to filter if it exists
+  if (recordName) {
+    filter.recordName = recordName.trim();
+  }
+
+  const exists = await BiginAuditLog.findOne(filter).lean();
+  return !!exists;
+}
+
+/**
+ * Parse date string from timeline (handles "Yesterday", "Today", "May 20, 2026", etc.)
+ */
+function parseTimelineDate(dateHeader, timeStr) {
+  const now = new Date();
+  let dateObj;
+
+  if (dateHeader.toLowerCase() === 'today') {
+    dateObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (dateHeader.toLowerCase() === 'yesterday') {
+    dateObj = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  } else {
+    // Parse "May 20, 2026" format
+    dateObj = new Date(dateHeader);
+  }
+
+  // Parse time "12:09 PM"
+  if (timeStr) {
+    const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (timeMatch) {
+      let hours = parseInt(timeMatch[1]);
+      const minutes = parseInt(timeMatch[2]);
+      const ampm = timeMatch[3].toUpperCase();
+
+      if (ampm === 'PM' && hours !== 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+
+      dateObj.setHours(hours, minutes, 0, 0);
+    }
+  }
+
+  return dateObj;
+}
+
+/**
+ * Parse action text to extract action type, module, and record name
+ */
+function parseActionText(actionText) {
+  // Examples:
+  // "Mark Lineberry added a note for Event CONF: Mark/True Food..."
+  // "Lisa Rothwell updated a Event Mark/Glory Days/..."
+  // "Heather Hartwell added a Company Urban Air - Woodbridge"
+
+  const result = {
+    user: '',
+    action: '',
+    module: '',
+    recordName: ''
+  };
+
+  // Extract user name (first bold span)
+  const userMatch = actionText.match(/^([A-Za-z\s]+?)\s+(added|updated|deleted|sent|created|removed)/i);
+  if (userMatch) {
+    result.user = userMatch[1].trim();
+  }
+
+  // Extract action type
+  if (actionText.includes('added a note')) {
+    result.action = 'Added Note';
+  } else if (actionText.includes('updated a note')) {
+    result.action = 'Updated Note';
+  } else if (actionText.includes('added a file')) {
+    result.action = 'Added File';
+  } else if (actionText.includes('sent an email')) {
+    result.action = 'Sent Email';
+  } else if (actionText.includes('added a')) {
+    result.action = 'Added';
+  } else if (actionText.includes('updated a')) {
+    result.action = 'Updated';
+  } else if (actionText.includes('deleted a')) {
+    result.action = 'Deleted';
+  }
+
+  // Extract module
+  const modulePatterns = [
+    /for (Pipeline|Event|Contact|Company|Task|Call|Note|Product)/i,
+    /(added|updated|deleted) a (Pipeline|Event|Contact|Company|Task|Call|Note|Product|Sales Pipeline Deal|File)/i
+  ];
+
+  for (const pattern of modulePatterns) {
+    const match = actionText.match(pattern);
+    if (match) {
+      result.module = match[match.length - 1];
+      break;
+    }
+  }
+
+  return result;
+}
 
 /**
  * Login to Zoho Bigin
  */
 async function login(page) {
   console.log('🔐 Logging into Zoho Bigin...');
-  console.log(`   URL: ${BIGIN_SIGNIN_URL}`);
-  console.log(`   Email: ${BIGIN_EMAIL ? BIGIN_EMAIL.substring(0, 5) + '***' : 'NOT SET'}`);
 
   if (!BIGIN_EMAIL || !BIGIN_PASSWORD) {
     throw new Error('BIGIN_EMAIL or BIGIN_PASSWORD not set');
   }
 
-  // Navigate to sign-in page
   await page.goto(BIGIN_SIGNIN_URL, {
     waitUntil: 'networkidle2',
     timeout: 60000
   });
 
-  // Wait for login form to load
   await page.waitForSelector('#login_id', { timeout: 30000 });
   console.log('   Login form loaded');
 
-  // Step 1: Enter email
-  console.log('   Step 1: Entering email...');
+  // Enter email
   await page.type('#login_id', BIGIN_EMAIL, { delay: 50 });
-
-  // Wait a bit for any validation
   await new Promise(resolve => setTimeout(resolve, 1000));
-
-  // Click Next button
   await page.click('#nextbtn');
-  console.log('   Clicked Next button');
+  console.log('   Entered email, clicked Next');
 
-  // Wait for password field to appear
-  try {
-    await page.waitForSelector('#password_container:not(.zeroheight)', { timeout: 15000 });
-    // Also wait for the password input to be visible
-    await page.waitForFunction(() => {
-      const container = document.querySelector('#password_container');
-      return container && !container.classList.contains('zeroheight');
-    }, { timeout: 15000 });
-  } catch (e) {
-    // Check if password field is already visible
-    const passwordVisible = await page.evaluate(() => {
-      const container = document.querySelector('#password_container');
-      return container && !container.classList.contains('zeroheight');
-    });
-    if (!passwordVisible) {
-      throw new Error('Password field did not appear after entering email');
-    }
-  }
+  // Wait for password field
+  await page.waitForFunction(() => {
+    const container = document.querySelector('#password_container');
+    return container && !container.classList.contains('zeroheight');
+  }, { timeout: 15000 });
 
-  console.log('   Password field appeared');
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  // Step 2: Enter password
-  console.log('   Step 2: Entering password...');
+  // Enter password
   await page.type('#password', BIGIN_PASSWORD, { delay: 50 });
-
-  // Wait a bit before clicking
   await new Promise(resolve => setTimeout(resolve, 500));
-
-  // Click Sign in button
   await page.click('#nextbtn');
-  console.log('   Clicked Sign in button');
+  console.log('   Entered password, clicked Sign in');
 
-  // Wait for navigation or dashboard to appear
-  try {
-    await Promise.race([
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
-      page.waitForSelector('.bigin-home, .bigin-dashboard, .crm-header, [data-module], .zb-header', { timeout: 60000 })
-    ]);
-  } catch (e) {
-    // Check current URL to see if we're logged in
-    const currentUrl = page.url();
-    console.log('   Current URL after login:', currentUrl);
+  // Wait for navigation
+  await Promise.race([
+    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+    page.waitForSelector('.bigin-home, .bigin-dashboard, .crm-header, [data-module], .zb-header', { timeout: 60000 })
+  ]).catch(() => {});
 
-    // Check for error messages
-    const errorMsg = await page.$eval('.fielderror', el => el.textContent).catch(() => null);
-    if (errorMsg && errorMsg.trim()) {
-      throw new Error(`Login failed: ${errorMsg}`);
-    }
-  }
-
-  // Verify login success by checking URL
   const currentUrl = page.url();
   if (currentUrl.includes('signin') || currentUrl.includes('login')) {
-    // Check for any error message
-    const errorMsg = await page.$eval('.fielderror', el => el.textContent).catch(() => '');
-    if (errorMsg.trim()) {
-      throw new Error(`Login failed: ${errorMsg}`);
-    }
     throw new Error('Login may have failed - still on login page');
   }
 
   console.log('✅ Login successful');
-  console.log('   Redirected to:', currentUrl);
   return true;
 }
 
 /**
- * Navigate to audit logs page in Bigin
+ * Navigate to audit logs page
  */
 async function navigateToAuditLogs(page) {
   console.log('📍 Navigating to audit logs...');
 
-  // Bigin audit logs are typically at Settings > Audit Log
-  // Try different possible URLs
-  const auditUrls = [
-    'https://bigin.zoho.in/crm/org*/tab/AuditLog',
-    'https://bigin.zoho.in/crm/settings/audit-log',
-    'https://bigin.zoho.in/crm/tab/AuditLog',
-  ];
-
-  // First, let's navigate to settings
-  const settingsUrl = 'https://bigin.zoho.in/crm/settings';
-
-  try {
-    await page.goto(settingsUrl, {
-      waitUntil: 'networkidle2',
-      timeout: 30000
-    });
-    console.log('   Loaded settings page');
-  } catch (e) {
-    console.log('   Could not load settings directly, trying from current page');
-  }
-
-  // Wait for page to stabilize
-  await new Promise(resolve => setTimeout(resolve, 2000));
-
-  // Try to find and click on Audit Log link
-  const auditLogClicked = await page.evaluate(() => {
-    // Look for audit log links
-    const links = document.querySelectorAll('a, div, span, li');
-    for (const link of links) {
-      const text = link.textContent?.toLowerCase() || '';
-      if (text.includes('audit') && text.includes('log')) {
-        link.click();
-        return true;
-      }
-    }
-    return false;
+  await page.goto(BIGIN_AUDIT_URL, {
+    waitUntil: 'networkidle2',
+    timeout: 60000
   });
 
-  if (auditLogClicked) {
-    console.log('   Clicked on Audit Log link');
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    await page.waitForNetworkIdle({ timeout: 15000 }).catch(() => {});
-  } else {
-    // Try direct navigation to audit log page
-    console.log('   Trying direct navigation to audit log...');
+  // Wait for timeline to load
+  await page.waitForSelector('.detail-timeline-wrap, .audit-log-timeline-wrapper, zt-timeline', {
+    timeout: 30000
+  }).catch(() => {});
 
-    // Get current URL to extract org ID
-    const currentUrl = page.url();
-    const orgMatch = currentUrl.match(/org(\d+)/);
-    const orgId = orgMatch ? orgMatch[1] : '';
+  await new Promise(resolve => setTimeout(resolve, 3000));
 
-    if (orgId) {
-      const directUrl = `https://bigin.zoho.in/crm/org${orgId}/tab/AuditLog`;
-      await page.goto(directUrl, {
-        waitUntil: 'networkidle2',
-        timeout: 30000
-      }).catch(() => {});
-    }
-  }
-
-  console.log('   Current URL:', page.url());
+  console.log('   Audit log page loaded');
   return true;
 }
 
 /**
- * Scrape audit logs from the page
+ * Scrape visible audit logs from the timeline
  */
-async function scrapeAuditLogs(page) {
-  console.log('🔍 Scraping audit logs...');
-
-  // Wait for audit log content to load
-  await new Promise(resolve => setTimeout(resolve, 3000));
-
-  const auditLogs = await page.evaluate(() => {
+async function scrapeVisibleLogs(page) {
+  return await page.evaluate(() => {
     const logs = [];
+    let currentDateHeader = '';
 
-    // Try different selectors for audit log table
-    const tableSelectors = [
-      '.audit-log-table tbody tr',
-      '.lyte-table tbody tr',
-      '.zc-datatable tbody tr',
-      'table tbody tr',
-      '.audit-list-item',
-      '[data-audit-entry]'
-    ];
+    const timelineBoxes = document.querySelectorAll('.detail-timeline-box');
 
-    let rows = [];
-    for (const selector of tableSelectors) {
-      rows = document.querySelectorAll(selector);
-      if (rows.length > 0) break;
-    }
-
-    if (rows.length === 0) {
-      // Try to get any visible text content that looks like audit logs
-      const content = document.body.innerText;
-      console.log('No table found. Page content preview:', content.substring(0, 500));
-      return logs;
-    }
-
-    rows.forEach((row, index) => {
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 2) return;
-
-      // Common audit log fields
-      const logEntry = {
-        id: `audit-${index}`,
-        timestamp: cells[0]?.textContent?.trim() || '',
-        user: cells[1]?.textContent?.trim() || '',
-        action: cells[2]?.textContent?.trim() || '',
-        module: cells[3]?.textContent?.trim() || '',
-        details: cells[4]?.textContent?.trim() || '',
-        ipAddress: '',
-        recordId: '',
-      };
-
-      // Try to extract more specific data
-      const allText = row.textContent || '';
-
-      // Extract IP address if present
-      const ipMatch = allText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
-      if (ipMatch) {
-        logEntry.ipAddress = ipMatch[1];
+    timelineBoxes.forEach(box => {
+      // Check for date header
+      const dateHeader = box.querySelector('.detail-timeline-head');
+      if (dateHeader) {
+        currentDateHeader = dateHeader.textContent.trim();
       }
 
-      // Only add if we have meaningful data
-      if (logEntry.timestamp || logEntry.user || logEntry.action) {
-        logs.push(logEntry);
+      // Get timeline row
+      const row = box.querySelector('.detail-timeline-row');
+      if (!row) return;
+
+      const timeEl = row.querySelector('.detail-timeline-left');
+      const descEl = row.querySelector('.detail-timeline-desc');
+
+      if (!timeEl || !descEl) return;
+
+      const time = timeEl.textContent.trim();
+      const descHead = descEl.querySelector('.timeline-desc-head');
+      if (!descHead) return;
+
+      // Get user name
+      const userEl = descHead.querySelector('.fw-semi');
+      const user = userEl ? userEl.textContent.trim() : '';
+
+      // Get full action text
+      const fullText = descHead.textContent.trim();
+
+      // Get record name from link
+      const linkEl = descHead.querySelector('a');
+      const recordName = linkEl ? linkEl.textContent.trim() : '';
+      const recordHref = linkEl ? linkEl.getAttribute('href') : '';
+
+      // Extract record ID from href if available
+      let recordId = '';
+      if (recordHref) {
+        const idMatch = recordHref.match(/\/(\d+)$/);
+        if (idMatch) recordId = idMatch[1];
       }
+
+      // Parse action
+      let action = '';
+      let module = '';
+
+      if (fullText.includes('added a note')) {
+        action = 'Added Note';
+      } else if (fullText.includes('updated a note')) {
+        action = 'Updated Note';
+      } else if (fullText.includes('added a file')) {
+        action = 'Added File';
+      } else if (fullText.includes('sent an email')) {
+        action = 'Sent Email';
+      } else if (fullText.includes('added a')) {
+        action = 'Added';
+      } else if (fullText.includes('updated a')) {
+        action = 'Updated';
+      } else if (fullText.includes('deleted')) {
+        action = 'Deleted';
+      }
+
+      // Extract module
+      const moduleMatch = fullText.match(/(Pipeline|Event|Contact|Company|Task|Call|Note|Product|Sales Pipeline Deal)/i);
+      if (moduleMatch) {
+        module = moduleMatch[1];
+      }
+
+      logs.push({
+        dateHeader: currentDateHeader,
+        time,
+        user,
+        action,
+        module,
+        recordName,
+        recordId,
+        fullText
+      });
     });
 
     return logs;
   });
-
-  console.log(`✅ Scraped ${auditLogs.length} audit log entries`);
-  return auditLogs;
 }
 
 /**
- * Take a screenshot for debugging
+ * Click "View More" button to load more logs
  */
-async function takeDebugScreenshot(page, filename) {
-  try {
-    const screenshotPath = `/tmp/${filename}-${Date.now()}.png`;
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    console.log(`   Screenshot saved: ${screenshotPath}`);
-    return screenshotPath;
-  } catch (e) {
-    console.log('   Could not take screenshot:', e.message);
-    return null;
+async function clickViewMore(page) {
+  const clicked = await page.evaluate(() => {
+    const viewMoreBtn = document.querySelector('lyte-button[data-zcqa="loadTimelineMoreOption"] button');
+    if (viewMoreBtn && viewMoreBtn.offsetParent !== null) {
+      viewMoreBtn.click();
+      return true;
+    }
+    return false;
+  });
+
+  if (clicked) {
+    // Wait for new content to load
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await page.waitForNetworkIdle({ timeout: 10000 }).catch(() => {});
   }
+
+  return clicked;
 }
 
 /**
  * Main function to scrape Bigin audit logs
+ * Stops when it reaches logs that already exist in our database
  */
 export async function scrapeBiginAuditLogs(onProgress) {
   let browser = null;
+  const newLogs = [];
+  let reachedExisting = false;
+  let totalScraped = 0;
+  let viewMoreClicks = 0;
+  const MAX_VIEW_MORE_CLICKS = 50; // Safety limit
 
   try {
     console.log('🚀 Starting Zoho Bigin audit log scrape...');
     onProgress?.(5, 'Launching browser...');
+
+    // Get latest stored log to know when to stop
+    const latestStored = await getLatestStoredLogTimestamp();
 
     browser = await puppeteer.launch({
       headless: 'new',
@@ -284,46 +361,101 @@ export async function scrapeBiginAuditLogs(onProgress) {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-features=IsolateOrigins,site-per-process',
         '--window-size=1920,1080'
       ],
     });
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
-
-    // Set user agent to avoid detection
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-    // Set longer timeouts
     page.setDefaultTimeout(60000);
-    page.setDefaultNavigationTimeout(60000);
 
     // Login
     onProgress?.(10, 'Logging into Zoho Bigin...');
     await login(page);
 
-    // Take screenshot after login for debugging
-    await takeDebugScreenshot(page, 'after-login');
-
     // Navigate to audit logs
-    onProgress?.(40, 'Navigating to audit logs...');
+    onProgress?.(30, 'Navigating to audit logs...');
     await navigateToAuditLogs(page);
 
-    // Take screenshot of audit page
-    await takeDebugScreenshot(page, 'audit-page');
+    // Scrape logs, clicking "View More" until we reach existing records
+    onProgress?.(40, 'Scraping audit logs...');
 
-    // Scrape audit logs
-    onProgress?.(70, 'Scraping audit log data...');
-    const auditLogs = await scrapeAuditLogs(page);
+    const seenLogs = new Set(); // Track seen logs to avoid duplicates
+
+    while (!reachedExisting && viewMoreClicks < MAX_VIEW_MORE_CLICKS) {
+      const visibleLogs = await scrapeVisibleLogs(page);
+      console.log(`   Found ${visibleLogs.length} visible logs`);
+
+      for (const log of visibleLogs) {
+        // Create unique key for this log
+        const logKey = `${log.dateHeader}|${log.time}|${log.user}|${log.action}|${log.recordName}`;
+
+        if (seenLogs.has(logKey)) continue;
+        seenLogs.add(logKey);
+
+        // Parse the timestamp
+        const timestamp = parseTimelineDate(log.dateHeader, log.time);
+
+        // Check if this log exists in our database
+        if (latestStored) {
+          const existsInDb = await logExistsInDatabase(
+            timestamp,
+            log.user,
+            log.action,
+            log.recordName || null
+          );
+
+          if (existsInDb) {
+            console.log(`   ✅ Found existing log - stopping scrape`);
+            console.log(`      Log: ${log.user} - ${log.action} - ${log.recordName}`);
+            reachedExisting = true;
+            break;
+          }
+        }
+
+        // Add to new logs
+        newLogs.push({
+          timestamp,
+          user: log.user,
+          action: log.action,
+          module: log.module || null,
+          recordName: log.recordName || null,
+          recordId: log.recordId || null,
+          details: log.fullText,
+          rawData: log
+        });
+
+        totalScraped++;
+      }
+
+      if (reachedExisting) break;
+
+      // Click "View More" to load more logs
+      const moreAvailable = await clickViewMore(page);
+      if (!moreAvailable) {
+        console.log('   No more logs to load');
+        break;
+      }
+
+      viewMoreClicks++;
+      const progress = Math.min(40 + (viewMoreClicks * 2), 90);
+      onProgress?.(progress, `Loaded ${totalScraped} new logs... (click ${viewMoreClicks})`);
+
+      console.log(`   Clicked View More (${viewMoreClicks}), total new logs: ${totalScraped}`);
+    }
 
     await browser.close();
+    browser = null;
 
-    console.log('🎉 Audit log scrape completed!');
+    console.log(`🎉 Scrape completed! Found ${newLogs.length} new audit logs`);
+
     return {
       success: true,
-      auditLogs,
-      totalCount: auditLogs.length,
+      auditLogs: newLogs,
+      totalCount: newLogs.length,
+      reachedExisting,
+      viewMoreClicks,
       scrapedAt: new Date().toISOString(),
     };
   } catch (error) {

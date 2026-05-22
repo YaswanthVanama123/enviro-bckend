@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 /**
  * Schema for storing Bigin CRM audit log entries scraped from Zoho Bigin
@@ -49,4 +49,4 @@ BiginAuditLogSchema.index({ timestamp: -1, user: 1 });
 BiginAuditLogSchema.index({ module: 1, action: 1 });
 BiginAuditLogSchema.index({ scrapedAt: -1 });
 
-module.exports = mongoose.model("BiginAuditLog", BiginAuditLogSchema);
+export default mongoose.model("BiginAuditLog", BiginAuditLogSchema);
