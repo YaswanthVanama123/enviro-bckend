@@ -31,6 +31,7 @@ import quotaRoutes from './routes/quotaRoutes.js';
 import routestarCustomersRoutes from './routes/routestarCustomersRoutes.js';
 import biginAuditRoutes from './routes/biginAuditRoutes.js';
 import biginCompanyRoutes from './routes/biginCompanyRoutes.js';
+import companyMappingRoutes from './routes/companyMappingRoutes.js';
 
 
 const app = express();
@@ -157,5 +158,6 @@ app.use("/api/quota", quotaRoutes);
 app.use("/api/routestar-customers", routestarCustomersRoutes);
 app.use("/api/bigin-audit", biginAuditRoutes);
 app.use("/api/bigin-companies", biginCompanyRoutes);
+app.use("/api/company-mappings", companyMappingRoutes);
 
 export default app;
