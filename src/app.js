@@ -30,6 +30,7 @@ import accountTypeRoutes from './routes/accountTypeRoutes.js';
 import quotaRoutes from './routes/quotaRoutes.js';
 import routestarCustomersRoutes from './routes/routestarCustomersRoutes.js';
 import biginAuditRoutes from './routes/biginAuditRoutes.js';
+import biginCompanyRoutes from './routes/biginCompanyRoutes.js';
 
 
 const app = express();
@@ -155,5 +156,6 @@ app.use("/api/account-type", accountTypeRoutes);
 app.use("/api/quota", quotaRoutes);
 app.use("/api/routestar-customers", routestarCustomersRoutes);
 app.use("/api/bigin-audit", biginAuditRoutes);
+app.use("/api/bigin-companies", biginCompanyRoutes);
 
 export default app;

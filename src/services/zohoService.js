@@ -1639,7 +1639,14 @@ export async function getAllBiginCompanies() {
     'Phone',
     'Email',
     'Website',
-    'Billing_Street'
+    'Billing_Street',
+    'Billing_City',
+    'Billing_State',
+    'Billing_Code',
+    'Billing_Country',
+    'Industry',
+    'Owner',
+    'Description'
   ].join(',');
 
   const allCompanies = [];
@@ -1656,13 +1663,27 @@ export async function getAllBiginCompanies() {
     }
 
     const batch = result.data?.data || [];
+
+    // Debug: log first company to see Owner structure
+    if (batch.length > 0 && page === 1) {
+      console.log('📋 Sample company data:', JSON.stringify(batch[0], null, 2));
+    }
+
     allCompanies.push(...batch.map(company => ({
       id: company.id,
       name: company.Account_Name || company.Company_Name || 'Unnamed Company',
       phone: company.Phone || '',
       email: company.Email || '',
       website: company.Website || '',
-      address: company.Billing_Street || ''
+      address: company.Billing_Street || '',
+      city: company.Billing_City || '',
+      state: company.Billing_State || '',
+      zipCode: company.Billing_Code || '',
+      country: company.Billing_Country || '',
+      industry: company.Industry || '',
+      // Owner can be object {name, id} or string
+      owner: typeof company.Owner === 'object' ? (company.Owner?.name || '') : (company.Owner || ''),
+      description: company.Description || ''
     })));
 
     const info = result.data?.info || {};
