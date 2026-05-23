@@ -18,6 +18,7 @@ import ServiceConfig from "../models/ServiceConfig.js";
 import ProductCatalog from "../models/ProductCatalog.js";
 import ManualUploadDocument from "../models/ManualUploadDocument.js";
 import VersionPdf from "../models/VersionPdf.js";
+import ZohoMapping from "../models/ZohoMapping.js";
 import PriceOverrideLog from "../models/PriceOverrideLog.js";
 import VersionChangeLog from "../models/VersionChangeLog.js";
 import Log from "../models/Log.js";
@@ -395,6 +396,18 @@ export async function getCustomerHeaderForEdit(req, res) {
         .json({ error: "bad_request", detail: "Invalid id" });
     }
 
+    // Check if agreement is connected to Bigin via ZohoMapping
+    const zohoMapping = await ZohoMapping.findOne({ agreementId: id }).lean();
+    const isConnectedToBigin = !!(zohoMapping?.zohoDeal?.id);
+
+    console.log(`🔍 [BIGIN CHECK] Document ID: ${id}`);
+    console.log(`🔍 [BIGIN CHECK] ZohoMapping found:`, zohoMapping ? 'Yes' : 'No');
+    if (zohoMapping) {
+      console.log(`🔍 [BIGIN CHECK] Deal ID:`, zohoMapping.zohoDeal?.id);
+      console.log(`🔍 [BIGIN CHECK] Company:`, zohoMapping.zohoCompany?.name);
+    }
+    console.log(`🔍 [BIGIN CHECK] isConnectedToBigin:`, isConnectedToBigin);
+
     const doc = await CustomerHeaderDoc.findById(id)
       .select('-pdf_meta.pdfBuffer -attachedFiles -versions -zoho')
       .lean();
@@ -404,7 +417,10 @@ export async function getCustomerHeaderForEdit(req, res) {
         .json({ error: "not_found", detail: "Document not found" });
     }
 
-    console.log(`🔄 [EDIT FORMAT] Converting document for edit mode - ID: ${id}`);
+    // Add Bigin connection status to doc
+    doc.isConnectedToBigin = isConnectedToBigin;
+
+    console.log(`🔄 [EDIT FORMAT] Converting document for edit mode - ID: ${id}, isConnectedToBigin: ${isConnectedToBigin}`);
 
     const originalProducts = doc.payload?.products || {};
 
@@ -711,6 +727,7 @@ export async function getCustomerHeaderForEdit(req, res) {
 
     const editResponse = {
       ...doc,
+      isConnectedToBigin,
       payload: {
         ...doc.payload,
         products: {

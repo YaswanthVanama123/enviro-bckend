@@ -32,6 +32,7 @@ import routestarCustomersRoutes from './routes/routestarCustomersRoutes.js';
 import biginAuditRoutes from './routes/biginAuditRoutes.js';
 import biginCompanyRoutes from './routes/biginCompanyRoutes.js';
 import companyMappingRoutes from './routes/companyMappingRoutes.js';
+import mapDistanceRoutes from './routes/mapDistanceRoutes.js';
 
 
 const app = express();
@@ -159,5 +160,6 @@ app.use("/api/routestar-customers", routestarCustomersRoutes);
 app.use("/api/bigin-audit", biginAuditRoutes);
 app.use("/api/bigin-companies", biginCompanyRoutes);
 app.use("/api/company-mappings", companyMappingRoutes);
+app.use("/api/map-distance", mapDistanceRoutes);
 
 export default app;
