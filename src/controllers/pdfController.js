@@ -419,8 +419,12 @@ export async function getCustomerHeaderForEdit(req, res) {
 
     // Add Bigin connection status to doc
     doc.isConnectedToBigin = isConnectedToBigin;
+    // Add Bigin company ID if available (for account type auto-detection)
+    if (zohoMapping?.zohoCompany?.id) {
+      doc.biginCompanyId = zohoMapping.zohoCompany.id;
+    }
 
-    console.log(`🔄 [EDIT FORMAT] Converting document for edit mode - ID: ${id}, isConnectedToBigin: ${isConnectedToBigin}`);
+    console.log(`🔄 [EDIT FORMAT] Converting document for edit mode - ID: ${id}, isConnectedToBigin: ${isConnectedToBigin}, biginCompanyId: ${doc.biginCompanyId || 'none'}`);
 
     const originalProducts = doc.payload?.products || {};
 

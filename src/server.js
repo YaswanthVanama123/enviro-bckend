@@ -13,6 +13,13 @@ const PORT = process.env.PORT || 5000;
     const dbConnected = await connectDB();
     if (dbConnected) {
       console.log('✅ Database connection successful');
+      // Initialize job status (mark any interrupted jobs as failed)
+      try {
+        const { initializeJobStatus } = await import('./controllers/mapDistanceController.js');
+        await initializeJobStatus();
+      } catch (initErr) {
+        console.warn('⚠️ Could not initialize map distance job status:', initErr.message);
+      }
     } else {
       console.log('⚠️ Running without database - some features may not work');
     }
