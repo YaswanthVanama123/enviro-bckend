@@ -13,6 +13,9 @@ import {
   getAuditStats,
   getScrapeHistory,
   uploadCsv,
+  deleteAllAuditLogs,
+  deleteUnnecessaryData,
+  checkInsideSalesEligibility,
 } from "../controllers/biginAuditController.js";
 
 const router = express.Router();
@@ -40,6 +43,9 @@ router.get("/", getAllAuditLogs);
 // Get audit statistics
 router.get("/stats", getAuditStats);
 
+// Check inside sales eligibility for a Bigin ID
+router.get("/check-inside-sales", checkInsideSalesEligibility);
+
 // Get scrape status
 router.get("/scrape/status", getScrapeStatus);
 
@@ -51,6 +57,12 @@ router.post("/scrape/start", startScrape);
 
 // Upload CSV file
 router.post("/upload-csv", upload.single("file"), uploadCsv);
+
+// Delete all audit logs
+router.delete("/delete-all", deleteAllAuditLogs);
+
+// Delete unnecessary audit logs (keeps Lisa Rothwell's records)
+router.delete("/delete-unnecessary", deleteUnnecessaryData);
 
 // Get audit log by ID
 router.get("/:id", getAuditLogById);

@@ -5,12 +5,44 @@
  */
 
 import puppeteer from 'puppeteer';
+import path from 'path';
+import fs from 'fs';
 import BiginAuditLog from '../models/BiginAuditLog.js';
 
-const BIGIN_AUDIT_URL = 'https://bigin.zoho.in/bigin/Home#/settings/audit-log';
+const BIGIN_AUDIT_URL = 'https://bigin.zoho.com/bigin/Home#/settings/data-administration/audit-log';
 const BIGIN_SIGNIN_URL = 'https://accounts.zoho.in/signin?servicename=ZohoBigin&signupurl=https://www.bigin.com/signup.html';
 const BIGIN_EMAIL = process.env.BIGIN_EMAIL || 'hvanama@enviromasternva.com';
 const BIGIN_PASSWORD = process.env.BIGIN_PASSWORD || 'Satyavani@970';
+
+// Screenshots directory
+const SCREENSHOTS_DIR = path.join(process.cwd(), 'screenshots', 'bigin-audit');
+
+/**
+ * Ensure screenshots directory exists
+ */
+function ensureScreenshotsDir() {
+  if (!fs.existsSync(SCREENSHOTS_DIR)) {
+    fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+  }
+}
+
+/**
+ * Take a screenshot with timestamp
+ */
+async function takeScreenshot(page, stepName) {
+  try {
+    ensureScreenshotsDir();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `${timestamp}_${stepName}.png`;
+    const filepath = path.join(SCREENSHOTS_DIR, filename);
+    await page.screenshot({ path: filepath, fullPage: true });
+    console.log(`📸 Screenshot saved: ${filename}`);
+    return filepath;
+  } catch (err) {
+    console.error(`📸 Failed to take screenshot (${stepName}):`, err.message);
+    return null;
+  }
+}
 
 /**
  * Get the most recent audit log timestamp from our database
@@ -164,12 +196,14 @@ async function login(page) {
 
   await page.waitForSelector('#login_id', { timeout: 30000 });
   console.log('   Login form loaded');
+  await takeScreenshot(page, '01_login_form_loaded');
 
   // Enter email
   await page.type('#login_id', BIGIN_EMAIL, { delay: 50 });
   await new Promise(resolve => setTimeout(resolve, 1000));
   await page.click('#nextbtn');
   console.log('   Entered email, clicked Next');
+  await takeScreenshot(page, '02_entered_email');
 
   // Wait for password field
   await page.waitForFunction(() => {
@@ -178,12 +212,14 @@ async function login(page) {
   }, { timeout: 15000 });
 
   await new Promise(resolve => setTimeout(resolve, 1000));
+  await takeScreenshot(page, '03_password_field_visible');
 
   // Enter password
   await page.type('#password', BIGIN_PASSWORD, { delay: 50 });
   await new Promise(resolve => setTimeout(resolve, 500));
   await page.click('#nextbtn');
   console.log('   Entered password, clicked Sign in');
+  await takeScreenshot(page, '04_clicked_sign_in');
 
   // Wait for navigation
   await Promise.race([
@@ -191,8 +227,13 @@ async function login(page) {
     page.waitForSelector('.bigin-home, .bigin-dashboard, .crm-header, [data-module], .zb-header', { timeout: 60000 })
   ]).catch(() => {});
 
+  await takeScreenshot(page, '05_after_login_navigation');
+
   const currentUrl = page.url();
+  console.log('   Current URL after login:', currentUrl);
+
   if (currentUrl.includes('signin') || currentUrl.includes('login')) {
+    await takeScreenshot(page, '05_ERROR_still_on_login');
     throw new Error('Login may have failed - still on login page');
   }
 
@@ -201,25 +242,359 @@ async function login(page) {
 }
 
 /**
- * Navigate to audit logs page
+ * Close any promotional modals that may appear (like "Meet Bigin AI")
  */
-async function navigateToAuditLogs(page) {
-  console.log('📍 Navigating to audit logs...');
+async function closePromotionalModals(page) {
+  console.log('   Checking for promotional modals...');
 
-  await page.goto(BIGIN_AUDIT_URL, {
-    waitUntil: 'networkidle2',
-    timeout: 60000
+  // First, try clicking the X button directly using coordinates or specific Lyte selectors
+  const closedViaEval = await page.evaluate(() => {
+    // Zoho uses lyte-wormhole for modals - look for close button inside
+    const wormholes = document.querySelectorAll('lyte-wormhole, lyte-modal, lyte-dialog');
+    for (const wormhole of wormholes) {
+      // Look for the X/close icon - usually an SVG or span with specific class
+      const closeElements = wormhole.querySelectorAll('svg, lyte-icon, span, button, div');
+      for (const el of closeElements) {
+        const rect = el.getBoundingClientRect();
+        // The X button is usually in the top-right corner of the modal (x > 1000, y < 100)
+        if (rect.width > 0 && rect.height > 0 && rect.x > 1000 && rect.y < 100 && rect.y > 40) {
+          // Check if it looks like a close button (small, square-ish)
+          if (rect.width < 50 && rect.height < 50) {
+            el.click();
+            return 'clicked-corner-element';
+          }
+        }
+      }
+    }
+
+    // Try finding any element that looks like an X close button
+    const allElements = document.querySelectorAll('*');
+    for (const el of allElements) {
+      const rect = el.getBoundingClientRect();
+      // Look for elements in top-right area of a modal (around x:1070-1090, y:50-70 based on screenshot)
+      if (rect.x > 1060 && rect.x < 1100 && rect.y > 40 && rect.y < 80) {
+        if (rect.width > 0 && rect.width < 40 && rect.height > 0 && rect.height < 40) {
+          el.click();
+          return 'clicked-position-based';
+        }
+      }
+    }
+
+    // Look for SVG close icons
+    const svgs = document.querySelectorAll('svg');
+    for (const svg of svgs) {
+      const rect = svg.getBoundingClientRect();
+      // Modal close buttons are typically in top-right of modal
+      if (rect.x > 1000 && rect.y < 100 && rect.width > 0) {
+        const parent = svg.closest('button, div, span, lyte-button');
+        if (parent) {
+          parent.click();
+          return 'clicked-svg-parent';
+        }
+        svg.click();
+        return 'clicked-svg';
+      }
+    }
+
+    return false;
   });
 
-  // Wait for timeline to load
-  await page.waitForSelector('.detail-timeline-wrap, .audit-log-timeline-wrapper, zt-timeline', {
-    timeout: 30000
-  }).catch(() => {});
+  if (closedViaEval) {
+    console.log(`   Closed modal via: ${closedViaEval}`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return true;
+  }
 
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  // Try clicking at the exact position of the X button (based on screenshot analysis)
+  // The X appears to be around coordinates (1081, 58) in a 1920x1080 viewport
+  try {
+    console.log('   Trying to click X button at position...');
+    await page.mouse.click(1081, 58);
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-  console.log('   Audit log page loaded');
-  return true;
+    // Check if modal is still there
+    const modalStillExists = await page.evaluate(() => {
+      const wormholes = document.querySelectorAll('lyte-wormhole, lyte-modal');
+      for (const w of wormholes) {
+        if (w.offsetParent !== null && w.innerHTML.includes('Meet Bigin AI')) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (!modalStillExists) {
+      console.log('   Modal closed via position click');
+      return true;
+    }
+  } catch (e) {
+    console.log('   Position click failed:', e.message);
+  }
+
+  // Try pressing Escape key
+  console.log('   Trying Escape key...');
+  await page.keyboard.press('Escape');
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Click outside the modal to close it
+  console.log('   Trying to click outside modal...');
+  await page.mouse.click(100, 400);
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  return false;
+}
+
+/**
+ * Navigate to audit logs page using UI navigation (not direct URL)
+ * Direct URL navigation loses the session and redirects to public page
+ */
+async function navigateToAuditLogs(page) {
+  console.log('📍 Navigating to audit logs via UI...');
+
+  await takeScreenshot(page, '06_before_audit_navigation');
+
+  try {
+    // First, make sure we're on the Bigin app (not public page)
+    const currentUrl = page.url();
+    console.log('   Current URL before navigation:', currentUrl);
+
+    // Close any promotional modals that may appear
+    await closePromotionalModals(page);
+
+    // Wait for the app to be fully loaded
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Look for the Settings gear icon/button in the header
+    // Common selectors for settings in Zoho apps
+    const settingsSelectors = [
+      '[data-zcqa="settings"]',
+      '.zb-settings-icon',
+      '.settings-icon',
+      '[title="Settings"]',
+      '[aria-label="Settings"]',
+      'a[href*="settings"]',
+      '.zb-header-settings',
+      '[class*="setting"]',
+      'lyte-icon[name="gear"]',
+      'svg[name="gear"]',
+      '.gear-icon',
+      '[data-icon="gear"]'
+    ];
+
+    console.log('   Looking for Settings button...');
+    let settingsFound = false;
+
+    for (const selector of settingsSelectors) {
+      try {
+        const element = await page.$(selector);
+        if (element) {
+          const isVisible = await page.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }, element);
+
+          if (isVisible) {
+            console.log(`   Found Settings button: ${selector}`);
+            await element.click();
+            settingsFound = true;
+            break;
+          }
+        }
+      } catch (e) {
+        // Try next selector
+      }
+    }
+
+    if (!settingsFound) {
+      // Alternative: Use keyboard shortcut or direct URL manipulation within the app
+      console.log('   Settings button not found, trying alternative approach...');
+
+      // Try to find and click the settings link in any sidebar/menu
+      const menuSettingsClicked = await page.evaluate(() => {
+        // Look for any clickable element with "Settings" text
+        const elements = document.querySelectorAll('a, button, div[role="button"], span[role="button"]');
+        for (const el of elements) {
+          if (el.textContent && el.textContent.trim().toLowerCase().includes('settings')) {
+            el.click();
+            return true;
+          }
+        }
+        // Look for gear icon by SVG content
+        const svgs = document.querySelectorAll('svg');
+        for (const svg of svgs) {
+          const parent = svg.closest('a, button, [role="button"]');
+          if (parent && svg.outerHTML.includes('gear')) {
+            parent.click();
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (menuSettingsClicked) {
+        console.log('   Clicked Settings via text/icon search');
+        settingsFound = true;
+      }
+    }
+
+    await takeScreenshot(page, '07_after_settings_click');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Now look for Data Administration in the settings sidebar, then Audit Log
+    console.log('   Looking for Data Administration link...');
+
+    // First click on Data Administration
+    const dataAdminClicked = await page.evaluate(() => {
+      const elements = document.querySelectorAll('a, button, div[role="button"], li, span');
+      for (const el of elements) {
+        const text = el.textContent?.trim().toLowerCase() || '';
+        if (text === 'data administration' || text.includes('data admin')) {
+          el.click();
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (dataAdminClicked) {
+      console.log('   Clicked Data Administration');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await takeScreenshot(page, '07b_after_data_admin_click');
+    }
+
+    // Now look for Audit Log link
+    console.log('   Looking for Audit Log link...');
+
+    const auditLogSelectors = [
+      '[data-zcqa*="audit"]',
+      'a[href*="audit-log"]',
+      'a[href*="audit_log"]',
+      '[title*="Audit"]',
+      '[aria-label*="Audit"]'
+    ];
+
+    let auditLogFound = false;
+
+    for (const selector of auditLogSelectors) {
+      try {
+        const element = await page.$(selector);
+        if (element) {
+          console.log(`   Found Audit Log link: ${selector}`);
+          await element.click();
+          auditLogFound = true;
+          break;
+        }
+      } catch (e) {
+        // Try next selector
+      }
+    }
+
+    if (!auditLogFound) {
+      // Try finding by text content
+      const auditClicked = await page.evaluate(() => {
+        const elements = document.querySelectorAll('a, button, div[role="button"], li, span');
+        for (const el of elements) {
+          const text = el.textContent?.trim().toLowerCase() || '';
+          if (text === 'audit log' || text === 'audit logs') {
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (auditClicked) {
+        console.log('   Clicked Audit Log via text search');
+        auditLogFound = true;
+      }
+    }
+
+    await takeScreenshot(page, '08_after_audit_click');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // If UI navigation didn't work, try hash navigation within the current page
+    if (!settingsFound || !auditLogFound) {
+      console.log('   UI navigation incomplete, trying hash navigation...');
+
+      // Use evaluate to change the hash without losing session
+      // Correct path: Settings > Data Administration > Audit Log
+      await page.evaluate(() => {
+        window.location.hash = '#/settings/data-administration/audit-log';
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Close any modals that may have appeared
+      await closePromotionalModals(page);
+
+      await takeScreenshot(page, '08b_hash_navigation');
+    }
+
+    // Close any promotional modals that may have appeared during navigation
+    await closePromotionalModals(page);
+    await takeScreenshot(page, '08c_after_modal_close');
+
+    // Check current URL
+    const finalUrl = page.url();
+    console.log('   Final URL:', finalUrl);
+
+    // Wait for timeline to load (try multiple selectors)
+    const timelineSelectors = [
+      '.detail-timeline-wrap',
+      '.audit-log-timeline-wrapper',
+      'zt-timeline',
+      '.audit-log-content',
+      '.timeline-wrapper',
+      '[data-component="timeline"]',
+      '.detail-timeline-box'
+    ];
+
+    let timelineFound = false;
+    for (const selector of timelineSelectors) {
+      try {
+        await page.waitForSelector(selector, { timeout: 10000 });
+        console.log(`   Found timeline element: ${selector}`);
+        timelineFound = true;
+        break;
+      } catch (e) {
+        // Try next selector
+      }
+    }
+
+    if (!timelineFound) {
+      console.log('   Timeline element not found, checking page content...');
+
+      // Log what elements are on the page
+      const pageInfo = await page.evaluate(() => {
+        return {
+          title: document.title,
+          url: window.location.href,
+          bodyClasses: document.body.className,
+          mainElements: Array.from(document.querySelectorAll('main, [role="main"], .main-content, #content')).map(el => el.className),
+          hasTimeline: !!document.querySelector('[class*="timeline"]'),
+          settingsLinks: Array.from(document.querySelectorAll('a[href*="settings"]')).map(a => a.href),
+          visibleText: document.body.innerText.substring(0, 1000)
+        };
+      });
+      console.log('   Page info:', JSON.stringify(pageInfo, null, 2));
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await takeScreenshot(page, '09_audit_page_final');
+
+    console.log('   Audit log page loaded');
+    return true;
+
+  } catch (error) {
+    console.error('   Navigation error:', error.message);
+    await takeScreenshot(page, '09_ERROR_navigation_failed');
+
+    // Log current page state
+    const currentUrl = page.url();
+    console.log('   Current URL on error:', currentUrl);
+
+    throw error;
+  }
 }
 
 /**
@@ -341,6 +716,7 @@ async function clickViewMore(page) {
  */
 export async function scrapeBiginAuditLogs(onProgress) {
   let browser = null;
+  let page = null;
   const newLogs = [];
   let reachedExisting = false;
   let totalScraped = 0;
@@ -349,6 +725,7 @@ export async function scrapeBiginAuditLogs(onProgress) {
 
   try {
     console.log('🚀 Starting Zoho Bigin audit log scrape...');
+    console.log(`📁 Screenshots will be saved to: ${SCREENSHOTS_DIR}`);
     onProgress?.(5, 'Launching browser...');
 
     // Get latest stored log to know when to stop
@@ -365,7 +742,7 @@ export async function scrapeBiginAuditLogs(onProgress) {
       ],
     });
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     page.setDefaultTimeout(60000);
@@ -461,6 +838,15 @@ export async function scrapeBiginAuditLogs(onProgress) {
   } catch (error) {
     console.error('❌ Audit log scrape failed:', error);
 
+    // Try to capture error screenshot
+    if (page) {
+      try {
+        await takeScreenshot(page, 'ERROR_scrape_failed');
+      } catch (e) {
+        console.error('Could not capture error screenshot:', e.message);
+      }
+    }
+
     if (browser) {
       await browser.close();
     }
@@ -470,6 +856,7 @@ export async function scrapeBiginAuditLogs(onProgress) {
       auditLogs: [],
       totalCount: 0,
       error: error.message || 'Unknown error',
+      screenshotsDir: SCREENSHOTS_DIR,
       scrapedAt: new Date().toISOString(),
     };
   }
