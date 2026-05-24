@@ -6,6 +6,7 @@
 
 import mongoose from "mongoose";
 import Employee from "../models/Employee.js";
+import CustomerHeaderDoc from "../models/CustomerHeaderDoc.js";
 import {
   Agreement,
   QuotaPeriod,
@@ -654,41 +655,86 @@ export const getQuotaStatus = async (req, res) => {
     const targetDate = date ? new Date(date) : new Date();
     const { start, end, label } = getPeriodBoundaries(targetDate, periodType);
 
-    // Get or create quota period
-    let quotaPeriod = await QuotaPeriod.findOne({
-      salesPersonId: employee.username,
-      periodStart: start,
-      periodType,
+    // Get quota target from employee
+    const quotaTarget = employee.quota?.monthlyTarget || 50000;
+
+    // Query SavedPDFs (CustomerHeaderDoc) created by this user in the current period
+    const savedPdfs = await CustomerHeaderDoc.find({
+      createdBy: employee.username,
+      isDeleted: { $ne: true },
+      createdAt: { $gte: start, $lte: end },
+    })
+      .sort({ createdAt: -1 })
+      .select({
+        _id: 1,
+        status: 1,
+        createdAt: 1,
+        'payload.headerTitle': 1,
+        'payload.summary.contractMonths': 1,
+        'payload.summary.serviceAgreementTotal': 1,
+        'payload.summary.productMonthlyTotal': 1,
+        'payload.commission': 1,
+        'payload.agreement.accountType': 1,
+      })
+      .lean();
+
+    // Calculate actual sales from SavedPDFs
+    // Monthly value = (serviceAgreementTotal / contractMonths) + productMonthlyTotal
+    let actualSales = 0;
+    let totalCommissionEarned = 0;
+    let agreementCount = savedPdfs.length;
+    let newBusinessCount = 0;
+    let renewalCount = 0;
+
+    const recentAgreements = savedPdfs.slice(0, 5).map(pdf => {
+      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
+      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+
+      actualSales += monthlyValue;
+
+      // Get commission earned
+      const commission = pdf.payload?.commission;
+      if (commission?.contractCommission) {
+        totalCommissionEarned += commission.contractCommission;
+      }
+
+      // Count business types (for now, treat all as new business)
+      newBusinessCount++;
+
+      return {
+        _id: pdf._id,
+        customer: { name: pdf.payload?.headerTitle || 'Untitled' },
+        monthlyValue,
+        signedDate: pdf.createdAt,
+        status: pdf.status,
+        accountType: pdf.payload?.agreement?.accountType || 'Anchor',
+      };
     });
 
-    if (!quotaPeriod) {
-      quotaPeriod = new QuotaPeriod({
-        salesPersonId: employee.username,
-        salesPersonName: employee.fullName,
-        periodType,
-        periodStart: start,
-        periodEnd: end,
-        periodLabel: label,
-        quotaTarget: employee.quota?.monthlyTarget || 50000,
-        status: "in_progress",
-      });
-      await quotaPeriod.save();
-    }
+    // Also count remaining PDFs for totals
+    savedPdfs.slice(5).forEach(pdf => {
+      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
+      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
 
-    // Calculate values
-    const quotaPercentage =
-      quotaPeriod.quotaTarget > 0
-        ? (quotaPeriod.actualSales / quotaPeriod.quotaTarget) * 100
-        : 0;
+      actualSales += monthlyValue;
+
+      const commission = pdf.payload?.commission;
+      if (commission?.contractCommission) {
+        totalCommissionEarned += commission.contractCommission;
+      }
+
+      newBusinessCount++;
+    });
+
+    // Calculate quota percentage and level
+    const quotaPercentage = quotaTarget > 0 ? (actualSales / quotaTarget) * 100 : 0;
     const quotaLevel = calculateQuotaLevel(quotaPercentage);
-
-    // Get recent agreements
-    const recentAgreements = await Agreement.find({
-      "salesPerson.id": employee.username,
-      signedDate: { $gte: start, $lte: end },
-    })
-      .sort({ signedDate: -1 })
-      .limit(5);
 
     // Get commission rate for current level
     let rules = await CommissionRules.findOne({ isActive: true });
@@ -698,8 +744,8 @@ export const getQuotaStatus = async (req, res) => {
     const commissionRate = rules.quotaRates[quotaLevel] || 3;
 
     // Calculate progress
-    const toReachQuota = Math.max(0, quotaPeriod.quotaTarget - quotaPeriod.actualSales);
-    const toReachDouble = Math.max(0, quotaPeriod.quotaTarget * 2 - quotaPeriod.actualSales);
+    const toReachQuota = Math.max(0, quotaTarget - actualSales);
+    const toReachDouble = Math.max(0, quotaTarget * 2 - actualSales);
 
     res.json({
       success: true,
@@ -716,8 +762,8 @@ export const getQuotaStatus = async (req, res) => {
           end: end.toISOString(),
         },
         quota: {
-          target: quotaPeriod.quotaTarget,
-          actual: quotaPeriod.actualSales,
+          target: quotaTarget,
+          actual: actualSales,
           percentage: quotaPercentage,
           level: quotaLevel,
           commissionRate,
@@ -725,12 +771,12 @@ export const getQuotaStatus = async (req, res) => {
         progress: {
           toReachQuota,
           toReachDouble,
-          agreementCount: quotaPeriod.agreementCount,
-          newBusinessCount: quotaPeriod.newBusinessCount,
-          renewalCount: quotaPeriod.renewalCount,
+          agreementCount,
+          newBusinessCount,
+          renewalCount,
         },
         commission: {
-          earned: quotaPeriod.totalCommissionEarned,
+          earned: totalCommissionEarned,
         },
         recentAgreements,
       },
@@ -752,9 +798,90 @@ export const getQuotaHistory = async (req, res) => {
     const { salesPersonId } = req.params;
     const { limit = 12 } = req.query;
 
-    const quotaPeriods = await QuotaPeriod.find({ salesPersonId })
-      .sort({ periodStart: -1 })
-      .limit(parseInt(limit));
+    // Get employee
+    const employee = await Employee.findOne(buildEmployeeQuery(salesPersonId));
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        error: "Sales person not found",
+      });
+    }
+
+    const quotaTarget = employee.quota?.monthlyTarget || 50000;
+
+    // Get all SavedPDFs for this user
+    const savedPdfs = await CustomerHeaderDoc.find({
+      createdBy: employee.username,
+      isDeleted: { $ne: true },
+    })
+      .sort({ createdAt: -1 })
+      .select({
+        _id: 1,
+        createdAt: 1,
+        'payload.summary.contractMonths': 1,
+        'payload.summary.serviceAgreementTotal': 1,
+        'payload.summary.productMonthlyTotal': 1,
+        'payload.commission': 1,
+      })
+      .lean();
+
+    // Group by month
+    const monthlyData = {};
+    savedPdfs.forEach(pdf => {
+      const date = new Date(pdf.createdAt);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+      if (!monthlyData[monthKey]) {
+        const { start, end, label } = getPeriodBoundaries(date, 'monthly');
+        monthlyData[monthKey] = {
+          _id: monthKey,
+          salesPersonId: employee.username,
+          salesPersonName: employee.fullName,
+          periodType: 'monthly',
+          periodStart: start.toISOString(),
+          periodEnd: end.toISOString(),
+          periodLabel: label,
+          quotaTarget,
+          actualSales: 0,
+          agreementCount: 0,
+          newBusinessCount: 0,
+          renewalCount: 0,
+          quotaLevel: 'below',
+          quotaPercentage: 0,
+          totalCommissionEarned: 0,
+          status: 'closed',
+        };
+      }
+
+      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
+      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+
+      monthlyData[monthKey].actualSales += monthlyValue;
+      monthlyData[monthKey].agreementCount += 1;
+      monthlyData[monthKey].newBusinessCount += 1;
+
+      const commission = pdf.payload?.commission;
+      if (commission?.contractCommission) {
+        monthlyData[monthKey].totalCommissionEarned += commission.contractCommission;
+      }
+    });
+
+    // Calculate quota percentages and levels
+    Object.values(monthlyData).forEach(period => {
+      period.quotaPercentage = period.quotaTarget > 0
+        ? (period.actualSales / period.quotaTarget) * 100
+        : 0;
+      period.quotaLevel = calculateQuotaLevel(period.quotaPercentage);
+    });
+
+    // Sort by period start and limit
+    const quotaPeriods = Object.values(monthlyData)
+      .sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart))
+      .slice(0, parseInt(limit));
 
     res.json({
       success: true,
@@ -786,32 +913,33 @@ export const getCurrentQuotaLevel = async (req, res) => {
     }
 
     const periodType = employee.quota?.periodType || "monthly";
-    const { start } = getPeriodBoundaries(new Date(), periodType);
+    const { start, end } = getPeriodBoundaries(new Date(), periodType);
+    const quotaTarget = employee.quota?.monthlyTarget || 50000;
 
-    const quotaPeriod = await QuotaPeriod.findOne({
-      salesPersonId: employee.username,
-      periodStart: start,
-      periodType,
+    // Query SavedPDFs for the current period
+    const savedPdfs = await CustomerHeaderDoc.find({
+      createdBy: employee.username,
+      isDeleted: { $ne: true },
+      createdAt: { $gte: start, $lte: end },
+    })
+      .select({
+        'payload.summary.contractMonths': 1,
+        'payload.summary.serviceAgreementTotal': 1,
+        'payload.summary.productMonthlyTotal': 1,
+      })
+      .lean();
+
+    // Calculate actual sales
+    let actualSales = 0;
+    savedPdfs.forEach(pdf => {
+      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
+      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      actualSales += serviceMonthlyValue + productMonthlyTotal;
     });
 
-    if (!quotaPeriod) {
-      return res.json({
-        success: true,
-        data: {
-          salesPersonId: employee.username,
-          salesPersonName: employee.fullName,
-          quotaLevel: "below",
-          quotaPercentage: 0,
-          quotaTarget: employee.quota?.monthlyTarget || 50000,
-          actualSales: 0,
-        },
-      });
-    }
-
-    const quotaPercentage =
-      quotaPeriod.quotaTarget > 0
-        ? (quotaPeriod.actualSales / quotaPeriod.quotaTarget) * 100
-        : 0;
+    const quotaPercentage = quotaTarget > 0 ? (actualSales / quotaTarget) * 100 : 0;
 
     res.json({
       success: true,
@@ -820,8 +948,8 @@ export const getCurrentQuotaLevel = async (req, res) => {
         salesPersonName: employee.fullName,
         quotaLevel: calculateQuotaLevel(quotaPercentage),
         quotaPercentage,
-        quotaTarget: quotaPeriod.quotaTarget,
-        actualSales: quotaPeriod.actualSales,
+        quotaTarget,
+        actualSales,
       },
     });
   } catch (error) {
@@ -842,21 +970,79 @@ export const getLeaderboard = async (req, res) => {
     const targetDate = date ? new Date(date) : new Date();
     const { start, end, label } = getPeriodBoundaries(targetDate, periodType);
 
-    const quotaPeriods = await QuotaPeriod.find({
-      periodType,
-      periodStart: start,
-    }).sort({ actualSales: -1 });
+    // Get all active employees
+    const employees = await Employee.find({ isActive: true })
+      .select('username fullName quota')
+      .lean();
 
-    const leaderboard = quotaPeriods.map((qp, index) => ({
+    // Get all SavedPDFs in the current period
+    const savedPdfs = await CustomerHeaderDoc.find({
+      isDeleted: { $ne: true },
+      createdAt: { $gte: start, $lte: end },
+    })
+      .select({
+        createdBy: 1,
+        'payload.summary.contractMonths': 1,
+        'payload.summary.serviceAgreementTotal': 1,
+        'payload.summary.productMonthlyTotal': 1,
+        'payload.commission': 1,
+      })
+      .lean();
+
+    // Group PDFs by creator
+    const salesByEmployee = {};
+    savedPdfs.forEach(pdf => {
+      const creator = pdf.createdBy;
+      if (!salesByEmployee[creator]) {
+        salesByEmployee[creator] = {
+          actualSales: 0,
+          agreementCount: 0,
+          totalCommission: 0,
+        };
+      }
+
+      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
+      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
+      const serviceMonthlyValue = serviceContractTotal / contractMonths;
+      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+
+      salesByEmployee[creator].actualSales += monthlyValue;
+      salesByEmployee[creator].agreementCount += 1;
+
+      const commission = pdf.payload?.commission;
+      if (commission?.contractCommission) {
+        salesByEmployee[creator].totalCommission += commission.contractCommission;
+      }
+    });
+
+    // Build leaderboard from employees
+    const leaderboardData = employees.map(emp => {
+      const sales = salesByEmployee[emp.username] || {
+        actualSales: 0,
+        agreementCount: 0,
+        totalCommission: 0,
+      };
+      const quotaTarget = emp.quota?.monthlyTarget || 50000;
+      const quotaPercentage = quotaTarget > 0 ? (sales.actualSales / quotaTarget) * 100 : 0;
+
+      return {
+        salesPersonId: emp.username,
+        salesPersonName: emp.fullName,
+        actualSales: sales.actualSales,
+        quotaTarget,
+        quotaPercentage,
+        quotaLevel: calculateQuotaLevel(quotaPercentage),
+        agreementCount: sales.agreementCount,
+        totalCommission: sales.totalCommission,
+      };
+    });
+
+    // Sort by actual sales descending and add rank
+    leaderboardData.sort((a, b) => b.actualSales - a.actualSales);
+    const leaderboard = leaderboardData.map((entry, index) => ({
       rank: index + 1,
-      salesPersonId: qp.salesPersonId,
-      salesPersonName: qp.salesPersonName,
-      actualSales: qp.actualSales,
-      quotaTarget: qp.quotaTarget,
-      quotaPercentage: qp.quotaPercentage,
-      quotaLevel: qp.quotaLevel,
-      agreementCount: qp.agreementCount,
-      totalCommission: qp.totalCommissionEarned,
+      ...entry,
     }));
 
     res.json({
