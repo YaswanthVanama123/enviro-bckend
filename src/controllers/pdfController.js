@@ -191,6 +191,7 @@ export async function compileAndStoreCustomerHeader(req, res) {
       serviceAgreement: body.serviceAgreement || null,
       summary: body.summary || null,
       includeProductsTable: body.includeProductsTable !== false,
+      commission: body.commission || null,
     };
 
     let buffer = null;
@@ -822,6 +823,7 @@ export async function updateCustomerHeader(req, res) {
     if (body.serviceAgreement !== undefined) doc.payload.serviceAgreement = body.serviceAgreement;
     if (body.summary !== undefined) doc.payload.summary = body.summary;
     if (body.includeProductsTable !== undefined) doc.payload.includeProductsTable = body.includeProductsTable;
+    if (body.commission !== undefined) doc.payload.commission = body.commission;
     doc.status = newStatus;
 
     doc.zoho ||= { bigin: {}, crm: {} };
@@ -4647,7 +4649,7 @@ export async function getUserCommissions(req, res) {
 
     console.log(`📊 [COMMISSIONS] Fetching commissions for user: ${username}`);
 
-    // Get all agreements created by this user
+    // Get all agreements created by this user, including saved commission data
     const agreements = await CustomerHeaderDoc.find({
       createdBy: username,
       isDeleted: { $ne: true }
@@ -4664,15 +4666,11 @@ export async function getUserCommissions(req, res) {
         'payload.summary.serviceAgreementTotal': 1,
         'payload.summary.productMonthlyTotal': 1,
         'payload.agreement.startDate': 1,
+        'payload.commission': 1, // Include saved commission data
       })
       .lean();
 
     console.log(`📊 [COMMISSIONS] Found ${agreements.length} agreements for ${username}`);
-
-    // Default commission settings (can be customized per user later)
-    const defaultQuotaLevel = 'above';
-    const defaultAccountType = 'Anchor';
-    const defaultIsInsideSales = false;
 
     // Calculate commissions for each agreement
     const commissionsData = agreements.map(agreement => {
@@ -4690,8 +4688,43 @@ export async function getUserCommissions(req, res) {
 
       const startDate = agreement.payload?.agreement?.startDate || null;
 
-      // Determine pricing line (simplified - could be enhanced)
-      const pricingLine = 'Redline'; // Default, could be stored in agreement
+      // Check if we have saved commission data from the form
+      const savedCommission = agreement.payload?.commission;
+
+      if (savedCommission && savedCommission.finalCommissionRate !== undefined) {
+        // Use saved commission data
+        console.log(`📊 [COMMISSIONS] Using saved commission for ${title}: rate=${savedCommission.finalCommissionRate}%`);
+        return {
+          id: agreement._id,
+          title,
+          status: agreement.status,
+          createdAt: agreement.createdAt,
+          startDate,
+          contractMonths,
+          monthlyValue: parseFloat(monthlyValue.toFixed(2)),
+          contractValue: parseFloat((monthlyValue * contractMonths).toFixed(2)),
+          commission: {
+            rate: savedCommission.finalCommissionRate,
+            monthly: savedCommission.monthlyCommission,
+            total: savedCommission.contractCommission,
+            breakdown: {
+              baseRate: savedCommission.breakdown?.baseRate || 3,
+              agreementTerm: savedCommission.input?.agreementTerm || `${contractMonths / 12}-year`,
+              multiplier: savedCommission.breakdown?.agreementMultiplier || 100,
+              accountTypeAdjustment: savedCommission.breakdown?.accountTypeAdjustment || 0,
+              greenlineBonus: savedCommission.breakdown?.greenlineBonus || 0,
+              insideSalesDeduction: savedCommission.breakdown?.insideSalesDeduction || 0
+            }
+          }
+        };
+      }
+
+      // Fallback: Recalculate commission with defaults (for older agreements without saved data)
+      console.log(`📊 [COMMISSIONS] Recalculating commission for ${title} (no saved data)`);
+      const pricingLine = 'Redline';
+      const defaultQuotaLevel = 'below';
+      const defaultAccountType = 'Anchor';
+      const defaultIsInsideSales = false;
 
       const commission = calculateCommission(
         monthlyValue,
