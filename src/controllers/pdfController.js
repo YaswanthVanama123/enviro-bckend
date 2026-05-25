@@ -2598,7 +2598,7 @@ export async function deleteAgreement(req, res) {
       });
     }
 
-    const userId = req.user?.id || req.admin?.id || 'system';
+    const userId = req.user?.username || req.admin?.username || 'system';
     const deleteTimestamp = new Date();
 
     console.log(`🗑️ [BULK DELETE] Starting bulk delete for agreement ${agreementId}...`);
