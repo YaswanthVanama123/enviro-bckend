@@ -432,6 +432,8 @@ function latexEscape(value = "") {
       return '';
     })
     .replace(/[^\x20-\x7E\n\r\t]/g, '')
+    .replace(/[\n\r\t]+/g, ' ')  // Replace newlines and tabs with spaces to prevent breaking LaTeX macros
+    .replace(/\s+/g, ' ')        // Collapse multiple spaces
     .normalize('NFC')
     .trim();
 
@@ -444,12 +446,23 @@ function latexEscape(value = "") {
     console.warn('⚠️ [LATEX-ESCAPE] Sanitization removed', original.length - sanitized.length, 'characters');
   }
 
+  // Use placeholder approach to avoid double-escaping braces in LaTeX commands
+  const BACKSLASH_PLACEHOLDER = '\u0000BKSL\u0000';
+  const CARET_PLACEHOLDER = '\u0000CRET\u0000';
+  const TILDE_PLACEHOLDER = '\u0000TLDE\u0000';
+
   return sanitized
-    .replace(/\\/g, "\\textbackslash{}")
+    // First, use placeholders for special sequences that have braces
+    .replace(/\\/g, BACKSLASH_PLACEHOLDER)
+    .replace(/\^/g, CARET_PLACEHOLDER)
+    .replace(/~/g, TILDE_PLACEHOLDER)
+    // Escape braces and other special characters
     .replace(/([{}%&_#])/g, "\\$1")
     .replace(/\$/g, "\\$")
-    .replace(/\^/g, "\\textasciicircum{}")
-    .replace(/~/g, "\\textasciitilde{}");
+    // Replace placeholders with actual LaTeX commands (braces won't be re-escaped)
+    .replace(new RegExp(BACKSLASH_PLACEHOLDER, 'g'), "\\textbackslash{}")
+    .replace(new RegExp(CARET_PLACEHOLDER, 'g'), "\\textasciicircum{}")
+    .replace(new RegExp(TILDE_PLACEHOLDER, 'g'), "\\textasciitilde{}");
 }
 
 function latexEscapeHeader(value = "") {
@@ -487,12 +500,23 @@ function latexEscapeHeader(value = "") {
     .replace(/Frequency/g, "Fre-quency")
     .replace(/Install/g, "In-stall");
 
+  // Use placeholder approach to avoid double-escaping braces in LaTeX commands
+  const BACKSLASH_PLACEHOLDER = '\u0000BKSL\u0000';
+  const CARET_PLACEHOLDER = '\u0000CRET\u0000';
+  const TILDE_PLACEHOLDER = '\u0000TLDE\u0000';
+
   result = result
-    .replace(/\\/g, "\\textbackslash{}")
+    // First, use placeholders for special sequences that have braces
+    .replace(/\\/g, BACKSLASH_PLACEHOLDER)
+    .replace(/\^/g, CARET_PLACEHOLDER)
+    .replace(/~/g, TILDE_PLACEHOLDER)
+    // Escape braces and other special characters
     .replace(/([{}%&_#])/g, "\\$1")
     .replace(/\$/g, "\\$")
-    .replace(/\^/g, "\\textasciicircum{}")
-    .replace(/~/g, "\\textasciitilde{}")
+    // Replace placeholders with actual LaTeX commands (braces won't be re-escaped)
+    .replace(new RegExp(BACKSLASH_PLACEHOLDER, 'g'), "\\textbackslash{}")
+    .replace(new RegExp(CARET_PLACEHOLDER, 'g'), "\\textasciicircum{}")
+    .replace(new RegExp(TILDE_PLACEHOLDER, 'g'), "\\textasciitilde{}")
     .replace(/\//g, "/");
 
   return result;
@@ -600,6 +624,7 @@ function buildProductsLatex(products = {}, customColumns = { products: [], dispe
       productsColSpecLatex: "p{\\textwidth}",
       productsHeaderRowLatex: "",
       productsBodyRowsLatex: "",
+      hasProducts: false,  // Signal to hide products section
     };
   }
 
@@ -830,6 +855,7 @@ const productsHeaderRowLatex =
     productsColSpecLatex,
     productsHeaderRowLatex,
     productsBodyRowsLatex,
+    hasProducts: true,  // Signal to show products section
   };
 }
 
@@ -1092,6 +1118,7 @@ function transformServicesToPdfFormat(usedServices) {
     sanipod: 'SANI POD',
     carpetclean: 'CARPET CLEAN',
     janitorial: 'JANITORIAL',
+    pureJanitorial: 'JANITORIAL',
     stripwax: 'STRIP & WAX',
     greaseTrap: 'GREASE TRAP',
     electrostaticSpray: 'ELECTROSTATIC SPRAY',
@@ -1137,6 +1164,15 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
 
   const data = serviceData.formData || serviceData;
 
+  // Debug logging for pureJanitorial
+  if (serviceKey === 'pureJanitorial') {
+    console.log('🧹 [PURE JANITORIAL PDF] serviceKey:', serviceKey);
+    console.log('🧹 [PURE JANITORIAL PDF] serviceData keys:', Object.keys(serviceData));
+    console.log('🧹 [PURE JANITORIAL PDF] serviceData.formData exists:', !!serviceData.formData);
+    console.log('🧹 [PURE JANITORIAL PDF] using data from:', serviceData.formData ? 'serviceData.formData' : 'serviceData');
+    console.log('🧹 [PURE JANITORIAL PDF] data.isActive:', data.isActive);
+  }
+
   if (serviceKey === 'refreshPowerScrub') {
   }
 
@@ -1146,6 +1182,121 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
     }
     return item.rate;
   };
+
+  // Special handling for pureJanitorial service (may come as 'janitorial' or 'pureJanitorial')
+  if ((serviceKey === 'pureJanitorial' || serviceKey === 'janitorial') && data.isActive && data.serviceId === 'pureJanitorial') {
+    console.log('🧹 [PURE JANITORIAL PDF] Processing pureJanitorial service');
+    console.log('🧹 [PURE JANITORIAL PDF] data keys:', Object.keys(data));
+    console.log('🧹 [PURE JANITORIAL PDF] data.frequency:', JSON.stringify(data.frequency));
+    console.log('🧹 [PURE JANITORIAL PDF] data.sqFt:', JSON.stringify(data.sqFt));
+    console.log('🧹 [PURE JANITORIAL PDF] data.totals keys:', data.totals ? Object.keys(data.totals) : 'no totals');
+
+    // Add frequency
+    if (data.frequency && shouldDisplayField(data.frequency) && data.frequency.value) {
+      pushRow(data.frequency, {
+        type: 'line',
+        label: data.frequency.label || 'Frequency',
+        value: data.frequency.value
+      });
+    }
+
+    // Add visits per week
+    if (data.visitsPerWeek && shouldDisplayField(data.visitsPerWeek) && data.visitsPerWeek.value) {
+      pushRow(data.visitsPerWeek, {
+        type: 'line',
+        label: data.visitsPerWeek.label || 'Visits per Week',
+        value: data.visitsPerWeek.value
+      });
+    }
+
+    // Add place type
+    if (data.placeType && shouldDisplayField(data.placeType) && data.placeType.value) {
+      pushRow(data.placeType, {
+        type: 'line',
+        label: data.placeType.label || 'Place Type',
+        value: data.placeType.value
+      });
+    }
+
+    // Add square feet
+    if (data.sqFt && shouldDisplayField(data.sqFt) && data.sqFt.value) {
+      pushRow(data.sqFt, {
+        type: 'line',
+        label: data.sqFt.label || 'Square Feet',
+        value: data.sqFt.value
+      });
+    }
+
+    // Add hours per visit
+    if (data.hoursPerVisit && shouldDisplayField(data.hoursPerVisit) && data.hoursPerVisit.value) {
+      pushRow(data.hoursPerVisit, {
+        type: 'line',
+        label: data.hoursPerVisit.label || 'Hours Per Visit',
+        value: data.hoursPerVisit.value
+      });
+    }
+
+    // Add cost per hour
+    if (data.costPerHour && shouldDisplayField(data.costPerHour) && data.costPerHour.amount != null) {
+      pushRow(data.costPerHour, {
+        type: 'line',
+        label: data.costPerHour.label || 'Cost Per Hour',
+        value: `${formatCurrency(data.costPerHour.amount)}`
+      });
+    }
+
+    // Add totals from the totals object
+    if (data.totals) {
+      const totalFields = [
+        'annualBaseLabor',
+        'annualLaborTax',
+        'annualSupplies',
+        'totalAnnualCost',
+        'grossProfit',
+        'annualContractValue',
+        'monthlyRecurring',
+        'recurringVisitTotal'
+      ];
+
+      for (const fieldKey of totalFields) {
+        const field = data.totals[fieldKey];
+        if (field && shouldDisplayField(field) && field.amount != null) {
+          const numAmount = Number(field.amount);
+          if (!isNaN(numAmount) && numAmount !== 0) {
+            pushRow(field, {
+              type: 'line',
+              label: field.label || fieldKey,
+              value: `${formatCurrency(numAmount)}`
+            });
+          }
+        }
+      }
+
+      // Add contract total (bold)
+      if (data.totals.contract && shouldDisplayField(data.totals.contract) && data.totals.contract.amount != null) {
+        const numAmount = Number(data.totals.contract.amount);
+        if (!isNaN(numAmount) && numAmount !== 0) {
+          const contractLabel = data.totals.contract.label || 'Contract Total';
+          const monthsLabel = data.totals.contract.months ? ` (${data.totals.contract.months}mo)` : '';
+          pushRow(data.totals.contract, {
+            type: 'bold',
+            label: contractLabel,
+            value: `${formatCurrency(numAmount)}${monthsLabel}`
+          });
+        }
+      }
+    }
+
+    // Add notes
+    if (data.notes && data.notes.trim()) {
+      rows.push({ type: 'line', label: 'Notes', value: data.notes });
+    }
+
+    return {
+      heading: label || data.displayName || 'JANITORIAL',
+      rows
+    };
+  }
 
   if (data.isActive && (data.fixtureBreakdown || data.drainBreakdown || data.serviceBreakdown || data.windows || data.service || data.restroomFixtures || data.nonBathroomArea ||
       data.dumpster || data.patio || data.walkway || data.foh || data.boh || data.other)) {
@@ -1785,6 +1936,29 @@ function transformServiceToColumn(serviceKey, serviceData, label) {
           value: annualValue,
         });
       }
+
+      // Handle generic dollar-type totals fields (e.g., pureJanitorial)
+      // These are fields with type: "dollar" and amount property
+      const knownTotalKeys = new Set([
+        'weekly', 'monthly', 'monthlyRecurring', 'contract', 'firstMonth',
+        'firstVisit', 'perVisit', 'annual', 'recurringVisit', 'totalPrice'
+      ]);
+
+      for (const [totalKey, totalField] of Object.entries(data.totals)) {
+        if (knownTotalKeys.has(totalKey)) continue; // Skip already-handled fields
+        if (!totalField || typeof totalField !== 'object') continue;
+        if (!shouldDisplayField(totalField)) continue;
+        if (totalField.type !== 'dollar' || totalField.amount == null) continue;
+
+        const numAmount = Number(totalField.amount);
+        if (isNaN(numAmount) || numAmount === 0) continue;
+
+        pushRow(totalField, {
+          type: 'line',
+          label: totalField.label || totalKey,
+          value: formatMoneyValue(totalField.amount),
+        });
+      }
     }
 
     if (data.customFields && Array.isArray(data.customFields)) {
@@ -2271,14 +2445,26 @@ function buildServicesLatex(services = {}) {
     "sanipod",
     "carpetclean",
     "janitorial",
+    "pureJanitorial",
     "stripwax",
     "greaseTrap",
     "electrostaticSpray",
   ];
 
+  console.log('🔍 [SERVICES DEBUG] services object keys:', Object.keys(services));
+  console.log('🔍 [SERVICES DEBUG] services.pureJanitorial exists:', !!services.pureJanitorial);
+  if (services.pureJanitorial) {
+    console.log('🔍 [SERVICES DEBUG] pureJanitorial data:', JSON.stringify(services.pureJanitorial, null, 2).slice(0, 1000));
+  }
+
   for (const serviceKey of allServiceKeys) {
     const svc = services[serviceKey];
     const isUsed = svc && isServiceUsed(svc);
+
+    if (serviceKey === 'pureJanitorial') {
+      console.log('🔍 [SERVICES DEBUG] pureJanitorial svc:', !!svc);
+      console.log('🔍 [SERVICES DEBUG] pureJanitorial isUsed:', isUsed);
+    }
 
     if (svc && serviceKey === 'refreshPowerScrub') {
     }
@@ -2287,6 +2473,8 @@ function buildServicesLatex(services = {}) {
       usedServices[serviceKey] = svc;
     }
   }
+
+  console.log('🔍 [SERVICES DEBUG] usedServices keys:', Object.keys(usedServices));
 
   if (services.customServices && Array.isArray(services.customServices)) {
     const usedCustomServices = services.customServices.filter((cs) => {
@@ -3157,8 +3345,14 @@ export async function compileCustomerHeader(body = {}, options = {}) {
       body.agreement?.paymentOption === "others" ? "Other"  : ""
     ),
     agreementPaymentNote: latexEscape(body.agreement?.paymentNote || ""),
-    includeProductsTable: body.includeProductsTable !== false,
-    ...buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] }),
+    ...(() => {
+      const productsData = buildProductsLatex(body.products || {}, body.products?.customColumns || { products: [], dispensers: [] });
+      return {
+        ...productsData,
+        // Only show products table if there are actual products AND user hasn't explicitly disabled it
+        includeProductsTable: productsData.hasProducts && body.includeProductsTable !== false,
+      };
+    })(),
     ...buildServicesLatex(body.services || {}),
     includeWatermark: watermark,
     summaryContractMonthsDisplay,
@@ -3223,13 +3417,23 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   }
 
   const headerDir = path.dirname(PDF_HEADER_TEMPLATE_PATH);
-  const logoBuf = await fs.readFile(path.join(headerDir, "images", "Envimaster.png"));
+  const logoPath = path.join(headerDir, "images", "Envimaster.png");
+  console.log(`📷 [PDF] Reading logo from: ${logoPath}`);
+
+  const logoBuf = await fs.readFile(logoPath);
+  console.log(`📷 [PDF] Logo buffer size: ${logoBuf.length} bytes`);
 
   const files = [
     { field: "main", name: "doc.tex", data: Buffer.from(tex, "utf8"), type: "application/x-tex" },
-    { field: "assets", name: "images/Envimaster.png", data: logoBuf, type: "image/png" },
+    // Send with just filename, let manifest specify the target path
+    { field: "assets", name: "Envimaster.png", data: logoBuf, type: "image/png" },
   ];
+  // Manifest maps source filename to target path in working directory
   const manifest = { "Envimaster.png": "images/Envimaster.png" };
+
+  console.log(`📷 [PDF] Sending ${files.length} files to remote PDF service`);
+  console.log(`📷 [PDF] Files: ${files.map(f => `${f.name} (${f.data.length} bytes)`).join(', ')}`);
+  console.log(`📷 [PDF] Manifest:`, JSON.stringify(manifest));
 
   try {
     const buffer = await remotePostMultipart("pdf/compile-bundle", files, { assetsManifest: manifest });
