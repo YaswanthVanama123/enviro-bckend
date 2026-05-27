@@ -1,4 +1,4 @@
-import { PRICE_CATEGORIES } from "../models/priceFixModel.js";
+import { PRICE_CATEGORIES } from "../models/product/index.js";
 
 export function validatePriceFixInput(payload) {
   const errors = [];

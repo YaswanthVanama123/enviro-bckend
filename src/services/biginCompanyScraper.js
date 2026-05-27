@@ -4,7 +4,7 @@
  */
 
 import puppeteer from 'puppeteer';
-import BiginCompany from '../models/BiginCompany.js';
+import { BiginCompany } from "../models/customer/index.js";
 
 const BIGIN_COMPANIES_URL = 'https://bigin.zoho.in/bigin/Home#/tab/Accounts/list';
 const BIGIN_SIGNIN_URL = 'https://accounts.zoho.in/signin?servicename=ZohoBigin&signupurl=https://www.bigin.com/signup.html';

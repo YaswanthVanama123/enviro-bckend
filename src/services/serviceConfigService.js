@@ -1,4 +1,4 @@
-import ServiceConfig from "../models/ServiceConfig.js";
+import { ServiceConfig } from "../models/service/index.js";
 
 export async function createServiceConfig(data) {
   if (data.isActive) {

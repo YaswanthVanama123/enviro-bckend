@@ -1,4 +1,4 @@
-import ProductCatalog from "../models/ProductCatalog.js";
+import { ProductCatalog } from "../models/product/index.js";
 
 export async function getActiveCatalog() {
   return ProductCatalog.findOne({ isActive: true })

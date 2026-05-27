@@ -8,7 +8,7 @@
 
 /* global describe, test, expect */
 
-import CustomerHeaderDoc from '../models/CustomerHeaderDoc.js';
+import { CustomerHeaderDoc } from "../models/agreement/index.js";
 
 // Helper to create valid commission data
 const createValidCommission = (overrides = {}) => ({

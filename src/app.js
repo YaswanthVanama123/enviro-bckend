@@ -6,33 +6,53 @@ import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import proposalRoutes from './routes/proposalRoutes.js';
-import priceFixRoutes from "./routes/priceFixRoutes.js";
-import pdfRoutes from "./routes/pdfRoutes.js";
 import { PDF_MAX_BODY_MB } from "./config/pdfConfig.js";
-import adminAuthRoutes from "./routes/adminAuthRoutes.js";
-import employeeAuthRoutes from "./routes/employeeAuthRoutes.js";
-import userManagementRoutes from "./routes/userManagementRoutes.js";
-import productCatalogRoutes from './routes/productCatalogRoutes.js';
-import serviceConfigRoutes from './routes/serviceConfigRoutes.js';
-import manualUploadRoutes from './routes/manualUploadRoutes.js';
-import oauthRoutes from './routes/oauthRoutes.js';
-import zohoUploadRoutes from './routes/zohoUploadRoutes.js';
-import versionRoutes from './routes/versionRoutes.js';
-import pricingBackupRoutes from './routes/pricingBackupRoutes.js';
-import versionLogRoutes from './routes/pdf/versionLogs.js';
-import emailRoutes from './routes/emailRoutes.js';
-import emailTemplateRoutes from './routes/emailTemplateRoutes.js';
-import serviceAgreementTemplateRoutes from './routes/serviceAgreementTemplateRoutes.js';
-import adminSettingsRoutes from './routes/adminSettingsRoutes.js';
-import commissionRoutes from './routes/commissionRoutes.js';
-import accountTypeRoutes from './routes/accountTypeRoutes.js';
-import quotaRoutes from './routes/quotaRoutes.js';
-import routestarCustomersRoutes from './routes/routestarCustomersRoutes.js';
-import biginAuditRoutes from './routes/biginAuditRoutes.js';
-import biginCompanyRoutes from './routes/biginCompanyRoutes.js';
-import companyMappingRoutes from './routes/companyMappingRoutes.js';
-import mapDistanceRoutes from './routes/mapDistanceRoutes.js';
+
+// Agreement Domain Routes
+import pdfRoutes from "./routes/agreement/pdfRoutes.js";
+import manualUploadRoutes from './routes/agreement/manualUploadRoutes.js';
+import versionRoutes from './routes/agreement/versionRoutes.js';
+import emailRoutes from './routes/agreement/emailRoutes.js';
+import versionLogRoutes from './routes/agreement/versionLogs.js';
+
+// Admin Domain Routes
+import adminAuthRoutes from "./routes/admin/adminAuthRoutes.js";
+import pricingBackupRoutes from './routes/admin/pricingBackupRoutes.js';
+import adminSettingsRoutes from './routes/admin/adminSettingsRoutes.js';
+
+// Product Domain Routes
+import priceFixRoutes from "./routes/product/priceFixRoutes.js";
+import productCatalogRoutes from './routes/product/productCatalogRoutes.js';
+import accountTypeRoutes from './routes/product/accountTypeRoutes.js';
+
+// Commission Domain Routes
+import commissionRoutes from './routes/commission/commissionRoutes.js';
+import quotaRoutes from './routes/commission/quotaRoutes.js';
+
+// Sync Domain Routes
+import routestarCustomersRoutes from './routes/sync/routestarCustomersRoutes.js';
+import biginAuditRoutes from './routes/sync/biginAuditRoutes.js';
+import mapDistanceRoutes from './routes/sync/mapDistanceRoutes.js';
+import zohoUploadRoutes from './routes/sync/zohoUploadRoutes.js';
+
+// User Domain Routes
+import employeeAuthRoutes from "./routes/user/employeeAuthRoutes.js";
+import userManagementRoutes from "./routes/user/userManagementRoutes.js";
+
+// Service Domain Routes
+import serviceConfigRoutes from './routes/service/serviceConfigRoutes.js';
+import emailTemplateRoutes from './routes/service/emailTemplateRoutes.js';
+import serviceAgreementTemplateRoutes from './routes/service/serviceAgreementTemplateRoutes.js';
+
+// Customer Domain Routes
+import biginCompanyRoutes from './routes/customer/biginCompanyRoutes.js';
+import companyMappingRoutes from './routes/customer/companyMappingRoutes.js';
+
+// Proposal Domain Routes
+import proposalRoutes from './routes/proposal/proposalRoutes.js';
+
+// Auth Domain Routes
+import oauthRoutes from './routes/auth/oauthRoutes.js';
 
 
 const app = express();

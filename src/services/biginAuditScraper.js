@@ -7,7 +7,7 @@
 import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
-import BiginAuditLog from '../models/BiginAuditLog.js';
+import { BiginAuditLog } from "../models/logging/index.js";
 
 const BIGIN_AUDIT_URL = 'https://bigin.zoho.com/bigin/Home#/settings/data-administration/audit-log';
 const BIGIN_SIGNIN_URL = 'https://accounts.zoho.in/signin?servicename=ZohoBigin&signupurl=https://www.bigin.com/signup.html';

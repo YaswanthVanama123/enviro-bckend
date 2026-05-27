@@ -1,7 +1,6 @@
-import BackupPricing from '../models/BackupPricing.js';
-import PriceFix from '../models/PriceFix.js';
-import ProductCatalog from '../models/ProductCatalog.js';
-import ServiceConfig from '../models/ServiceConfig.js';
+import { BackupPricing } from "../models/admin/index.js";
+import { PriceFix, ProductCatalog } from "../models/product/index.js";
+import { ServiceConfig } from "../models/service/index.js";
 
 class PricingBackupService {
 
