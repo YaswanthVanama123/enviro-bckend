@@ -36,6 +36,7 @@ export {
   getStats,
   deleteAllRecords,
   detectAccountType,
+  detectAccountTypeWithMapbox,
   getCustomerDistances,
 } from "./mapDistanceController.js";
 

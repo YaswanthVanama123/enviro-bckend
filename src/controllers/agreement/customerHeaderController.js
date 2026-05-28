@@ -196,6 +196,51 @@ export async function getCustomerHeaderById(req, res) {
   }
 }
 
+/**
+ * Get customer header in edit format
+ * Returns full document data for editing purposes
+ */
+export async function getCustomerHeaderForEdit(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ error: "bad_request", detail: "Invalid id" });
+    }
+
+    const doc = await CustomerHeaderDoc.findById(id)
+      .select('-pdf_meta.pdfBuffer -versions')
+      .lean();
+
+    if (!doc) {
+      return res.status(404).json({ error: "not_found", detail: "Document not found" });
+    }
+
+    // Return document with payload expanded for editing
+    res.json({
+      _id: doc._id,
+      status: doc.status,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+      // Spread payload fields for direct access in editor
+      headerTitle: doc.payload?.headerTitle || "",
+      headerRows: doc.payload?.headerRows || [],
+      products: doc.payload?.products || { products: [], dispensers: [] },
+      services: doc.payload?.services || {},
+      agreement: doc.payload?.agreement || {},
+      serviceAgreement: doc.payload?.serviceAgreement || null,
+      summary: doc.payload?.summary || null,
+      includeProductsTable: doc.payload?.includeProductsTable !== false,
+      commission: doc.payload?.commission || null,
+      // Include zoho mapping info if needed
+      zoho: doc.zoho || null,
+    });
+  } catch (err) {
+    console.error("getCustomerHeaderForEdit error:", err);
+    res.status(500).json({ error: "server_error", detail: err?.message || String(err) });
+  }
+}
+
 export async function updateCustomerHeader(req, res) {
   try {
     const { id } = req.params;
@@ -348,6 +393,3 @@ export async function updateCustomerHeaderStatus(req, res) {
     });
   }
 }
-
-// Re-export getCustomerHeaderForEdit from original pdfController for complex conversion logic
-export { getCustomerHeaderForEdit } from "../pdfController.js";

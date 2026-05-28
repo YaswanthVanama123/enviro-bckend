@@ -4,7 +4,7 @@
  */
 
 import mongoose from "mongoose";
-import { CustomerHeaderDoc, VersionPdf } from "../../models/agreement/index.js";
+import { CustomerHeaderDoc, VersionPdf } from "../models/agreement/index.js";
 
 /**
  * Convert text log content to PDF using remote LaTeX service

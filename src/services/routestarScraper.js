@@ -282,39 +282,119 @@ async function scrapeCurrentPage(page) {
  * Scrape all customers with pagination support
  */
 async function scrapeAllCustomers(page, onProgress) {
-  console.log('🔍 Starting to scrape all customers with pagination...');
+  console.log('🔍 Starting to scrape all customers (20 per page)...');
 
   let allCustomers = [];
-
-  // Get total pages
-  const totalPages = await getTotalPages(page);
+  let currentPage = 1;
+  let consecutiveEmptyPages = 0;
 
   // Scrape first page
-  console.log(`📄 Scraping page 1 of ${totalPages}...`);
-  onProgress?.(50, `Scraping page 1 of ${totalPages}...`);
+  console.log(`📄 Scraping page 1...`);
+  onProgress?.(50, `Scraping page 1...`);
 
   const firstPageCustomers = await scrapeCurrentPage(page);
   allCustomers = [...firstPageCustomers];
   console.log(`   Found ${firstPageCustomers.length} customers on page 1`);
 
-  // If there are more pages, iterate through them
-  if (totalPages > 1) {
-    for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
-      const progressPercent = 50 + Math.floor((pageNum / totalPages) * 40);
-      onProgress?.(progressPercent, `Scraping page ${pageNum} of ${totalPages}...`);
+  // Keep navigating to next pages
+  while (consecutiveEmptyPages < 2) {
+    currentPage++;
 
-      console.log(`📄 Scraping page ${pageNum} of ${totalPages}...`);
+    // Try to click on the specific page number first
+    let navigated = await page.evaluate((targetPage) => {
+      // Look for the page number link
+      const pageLinks = document.querySelectorAll('.pagination li[data-lp] a');
+      for (const link of pageLinks) {
+        const li = link.parentElement;
+        const pageNum = parseInt(li.getAttribute('data-lp'), 10);
+        if (pageNum === targetPage) {
+          link.click();
+          return { success: true, method: 'direct' };
+        }
+      }
+      return { success: false };
+    }, currentPage);
 
-      const navigated = await goToPage(page, pageNum);
-      if (!navigated) {
-        console.log(`   ⚠️ Could not navigate to page ${pageNum}, stopping pagination`);
+    // If page number not visible, click "»" to load more pages first
+    if (!navigated.success) {
+      console.log(`   Page ${currentPage} not visible, clicking » to load more pages...`);
+
+      const clickedNext = await page.evaluate(() => {
+        const nextLi = document.querySelector('.pagination li.next:not(.disabled)');
+        if (nextLi) {
+          const link = nextLi.querySelector('a');
+          if (link) {
+            link.click();
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (!clickedNext) {
+        console.log(`   ✅ No more next button, reached last page`);
         break;
       }
 
-      const pageCustomers = await scrapeCurrentPage(page);
-      console.log(`   Found ${pageCustomers.length} customers on page ${pageNum}`);
+      // Wait for pagination to update
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
+      // Now try to click the target page again
+      navigated = await page.evaluate((targetPage) => {
+        const pageLinks = document.querySelectorAll('.pagination li[data-lp] a');
+        for (const link of pageLinks) {
+          const li = link.parentElement;
+          const pageNum = parseInt(li.getAttribute('data-lp'), 10);
+          if (pageNum === targetPage) {
+            link.click();
+            return { success: true, method: 'after-next' };
+          }
+        }
+        // If still not found, check what's the current active page
+        const activeLi = document.querySelector('.pagination li.active');
+        if (activeLi) {
+          const activeNum = parseInt(activeLi.getAttribute('data-lp'), 10);
+          return { success: false, activePage: activeNum };
+        }
+        return { success: false };
+      }, currentPage);
+
+      if (!navigated.success) {
+        // Check if we're already past the target (means we're at the end)
+        if (navigated.activePage && navigated.activePage >= currentPage) {
+          console.log(`   Already at page ${navigated.activePage}, continuing...`);
+          currentPage = navigated.activePage;
+        } else {
+          console.log(`   ⚠️ Could not navigate to page ${currentPage}, stopping`);
+          break;
+        }
+      }
+    }
+
+    console.log(`   Navigating to page ${currentPage}...`);
+
+    // Wait for page to load
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    const progressPercent = Math.min(50 + currentPage * 2, 90);
+    onProgress?.(progressPercent, `Scraping page ${currentPage}...`);
+    console.log(`📄 Scraping page ${currentPage}...`);
+
+    const pageCustomers = await scrapeCurrentPage(page);
+    console.log(`   Found ${pageCustomers.length} customers on page ${currentPage}`);
+
+    if (pageCustomers.length === 0) {
+      consecutiveEmptyPages++;
+      console.log(`   ⚠️ No customers found on page ${currentPage}`);
+    } else {
+      consecutiveEmptyPages = 0;
       allCustomers = [...allCustomers, ...pageCustomers];
+    }
+
+    // Safety check - if we've scraped more than 50 pages, something is wrong
+    if (currentPage > 50) {
+      console.log(`   ⚠️ Safety limit reached (50 pages), stopping`);
+      break;
     }
   }
 

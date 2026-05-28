@@ -21,6 +21,7 @@ import {
   getStats,
   deleteAllRecords,
   detectAccountType,
+  detectAccountTypeWithMapbox,
   getCustomerDistances
 } from '../../controllers/sync/mapDistanceController.js';
 
@@ -76,6 +77,9 @@ router.get('/stats', getStats);
 // Account type detection endpoints
 // POST /api/map-distance/detect-account-type - Detect account type based on distance
 router.post('/detect-account-type', detectAccountType);
+
+// POST /api/map-distance/detect-account-type-mapbox - Detect account type using Mapbox for driving time
+router.post('/detect-account-type-mapbox', detectAccountTypeWithMapbox);
 
 // GET /api/map-distance/customer-distances/:customerId - Get all distances for a customer
 router.get('/customer-distances/:customerId', getCustomerDistances);

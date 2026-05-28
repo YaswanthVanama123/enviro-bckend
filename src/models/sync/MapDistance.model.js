@@ -22,6 +22,7 @@ export const FREQUENCY_MAP = {
   10: "Every 4 Weeks",
   11: "Every 6 Weeks",
   12: "Every 8 Weeks",
+  14: "Bi-Monthly",
   0: "Unknown",
 };
 
