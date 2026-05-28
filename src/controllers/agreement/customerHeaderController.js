@@ -208,13 +208,23 @@ export async function getCustomerHeaderForEdit(req, res) {
       return res.status(400).json({ error: "bad_request", detail: "Invalid id" });
     }
 
-    const doc = await CustomerHeaderDoc.findById(id)
-      .select('-pdf_meta.pdfBuffer -versions')
-      .lean();
+    // Fetch document and ZohoMapping in parallel
+    const [doc, zohoMapping] = await Promise.all([
+      CustomerHeaderDoc.findById(id)
+        .select('-pdf_meta.pdfBuffer -versions')
+        .lean(),
+      ZohoMapping.findOne({ agreementId: id })
+        .select('zohoCompany.id zohoCompany.name zohoDeal.id zohoDeal.name currentVersion lastUploadedAt')
+        .lean()
+    ]);
 
     if (!doc) {
       return res.status(404).json({ error: "not_found", detail: "Document not found" });
     }
+
+    // Determine Bigin connection status
+    const isConnectedToBigin = !!zohoMapping;
+    const biginCompanyId = zohoMapping?.zohoCompany?.id || null;
 
     // Return document with payload expanded for editing
     res.json({
@@ -232,8 +242,22 @@ export async function getCustomerHeaderForEdit(req, res) {
       summary: doc.payload?.summary || null,
       includeProductsTable: doc.payload?.includeProductsTable !== false,
       commission: doc.payload?.commission || null,
+      // Include saved account type cache for commission calculations
+      accountTypeCache: doc.payload?.accountTypeCache || null,
       // Include zoho mapping info if needed
       zoho: doc.zoho || null,
+      // Bigin connection status for commission calculations
+      isConnectedToBigin,
+      biginCompanyId,
+      // Include full mapping details if connected
+      zohoMapping: zohoMapping ? {
+        companyId: zohoMapping.zohoCompany?.id,
+        companyName: zohoMapping.zohoCompany?.name,
+        dealId: zohoMapping.zohoDeal?.id,
+        dealName: zohoMapping.zohoDeal?.name,
+        currentVersion: zohoMapping.currentVersion,
+        lastUploadedAt: zohoMapping.lastUploadedAt
+      } : null,
     });
   } catch (err) {
     console.error("getCustomerHeaderForEdit error:", err);
@@ -269,6 +293,8 @@ export async function updateCustomerHeader(req, res) {
     if (body.summary !== undefined) doc.payload.summary = body.summary;
     if (body.includeProductsTable !== undefined) doc.payload.includeProductsTable = body.includeProductsTable;
     if (body.commission !== undefined) doc.payload.commission = body.commission;
+    // Save account type cache for commission calculations
+    if (body.accountTypeCache !== undefined) doc.payload.accountTypeCache = body.accountTypeCache;
     doc.status = newStatus;
 
     doc.zoho ||= { bigin: {}, crm: {} };

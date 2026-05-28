@@ -1487,6 +1487,282 @@ export const detectAccountTypeWithMapbox = async (req, res) => {
 };
 
 /**
+ * POST /api/map-distance/detect-account-type-batch
+ * Detect account types for multiple frequencies in one call
+ * Optimized for form filling where multiple services have different frequencies
+ */
+export const detectAccountTypeBatch = async (req, res) => {
+  try {
+    const { biginCompanyId, frequencies } = req.body;
+
+    if (!biginCompanyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'biginCompanyId is required'
+      });
+    }
+
+    if (!Array.isArray(frequencies) || frequencies.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'frequencies array is required'
+      });
+    }
+
+    console.log(`[BATCH-DETECT] Detecting account types for ${frequencies.length} frequencies`);
+
+    // 1. Find mapping for Bigin company (once for all frequencies)
+    const mapping = await CompanyMapping.findOne({
+      biginId: biginCompanyId,
+      mappingStatus: 'mapped'
+    }).lean();
+
+    if (!mapping || !mapping.routeStarCustomerId) {
+      // Return Pit for all frequencies if no mapping
+      const results = {};
+      frequencies.forEach(freq => {
+        results[freq] = {
+          accountType: 'Pit',
+          confidence: 'low',
+          reason: 'No RouteStar mapping found',
+          drivingTimeMinutes: null,
+          nearestDestination: null
+        };
+      });
+
+      return res.json({
+        success: false,
+        error: 'No RouteStar mapping found for this Bigin company',
+        biginCompanyName: mapping?.biginCompanyName || null,
+        results
+      });
+    }
+
+    // 2. Get the mapped RouteStar customer with address (once)
+    const customer = await RouteStarCustomer.findById(mapping.routeStarCustomerId).lean();
+
+    if (!customer) {
+      const results = {};
+      frequencies.forEach(freq => {
+        results[freq] = {
+          accountType: 'Pit',
+          confidence: 'low',
+          reason: 'Mapped RouteStar customer not found',
+          drivingTimeMinutes: null,
+          nearestDestination: null
+        };
+      });
+
+      return res.json({
+        success: false,
+        error: 'Mapped RouteStar customer not found',
+        results
+      });
+    }
+
+    const fromAddress = buildAddressString(customer);
+
+    if (!fromAddress || fromAddress.trim() === '') {
+      const results = {};
+      frequencies.forEach(freq => {
+        results[freq] = {
+          accountType: 'Pit',
+          confidence: 'low',
+          reason: 'Customer does not have a valid address',
+          drivingTimeMinutes: null,
+          nearestDestination: null
+        };
+      });
+
+      return res.json({
+        success: false,
+        error: 'Customer does not have a valid address',
+        biginCompany: mapping.biginCompanyName,
+        routeStarCustomer: customer.name,
+        results
+      });
+    }
+
+    // 3. Process each frequency
+    const results = {};
+
+    for (const frequency of frequencies) {
+      const freqNum = parseInt(frequency, 10);
+      console.log(`  📊 Processing frequency: ${freqNum} (${FREQUENCY_MAP[freqNum] || 'Unknown'})`);
+
+      try {
+        // Build query for this frequency
+        const distanceQuery = {
+          customerId: mapping.routeStarCustomerId,
+          destinationCustomerName: { $ne: customer.name, $exists: true, $ne: '' },
+          distanceMiles: { $gt: 0 },
+          frequency: freqNum
+        };
+
+        // Get top 3 lowest distance destinations for this frequency
+        const distanceRecords = await MapDistanceRecord.find(distanceQuery)
+          .sort({ distanceMiles: 1 })
+          .limit(3)
+          .lean();
+
+        if (!distanceRecords || distanceRecords.length === 0) {
+          // Fallback: try without frequency filter
+          const fallbackQuery = {
+            customerId: mapping.routeStarCustomerId,
+            destinationCustomerName: { $ne: customer.name, $exists: true, $ne: '' },
+            distanceMiles: { $gt: 0 }
+          };
+
+          const fallbackRecords = await MapDistanceRecord.find(fallbackQuery)
+            .sort({ distanceMiles: 1 })
+            .limit(3)
+            .lean();
+
+          if (!fallbackRecords || fallbackRecords.length === 0) {
+            results[freqNum] = {
+              accountType: 'Pit',
+              confidence: 'low',
+              reason: `No distance data available for frequency ${FREQUENCY_MAP[freqNum] || freqNum}`,
+              drivingTimeMinutes: null,
+              nearestDestination: null,
+              usedFallback: false
+            };
+            continue;
+          }
+
+          // Use fallback records
+          const fallbackResult = await processDistanceRecords(fallbackRecords, fromAddress);
+          results[freqNum] = {
+            ...fallbackResult,
+            usedFallback: true,
+            fallbackReason: `No data for ${FREQUENCY_MAP[freqNum] || freqNum}, using general distances`
+          };
+          continue;
+        }
+
+        // Process distance records for this frequency
+        const result = await processDistanceRecords(distanceRecords, fromAddress);
+        results[freqNum] = {
+          ...result,
+          usedFallback: false
+        };
+
+      } catch (freqError) {
+        console.error(`Error processing frequency ${freqNum}:`, freqError.message);
+        results[freqNum] = {
+          accountType: 'Pit',
+          confidence: 'low',
+          reason: `Error: ${freqError.message}`,
+          drivingTimeMinutes: null,
+          nearestDestination: null,
+          error: freqError.message
+        };
+      }
+    }
+
+    console.log(`[BATCH-DETECT] Completed - processed ${Object.keys(results).length} frequencies`);
+
+    res.json({
+      success: true,
+      biginCompany: mapping.biginCompanyName,
+      routeStarCustomer: customer.name,
+      fromAddress,
+      results,
+      thresholds: {
+        bread5MaxMinutes: 5,
+        bread15MaxMinutes: 15
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in batch account type detection:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to detect account types'
+    });
+  }
+};
+
+/**
+ * Helper function to process distance records and determine account type
+ */
+async function processDistanceRecords(distanceRecords, fromAddress) {
+  let shortestDrivingTime = null;
+  let shortestDestination = null;
+  const destinations = [];
+
+  for (const record of distanceRecords) {
+    // Find the destination customer to get their address
+    let destCustomer = await RouteStarCustomer.findOne({
+      name: { $regex: new RegExp(`^${record.destinationCustomerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+    }).lean();
+
+    if (!destCustomer) {
+      destCustomer = await RouteStarCustomer.findOne({
+        name: { $regex: new RegExp(record.destinationCustomerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
+      }).lean();
+    }
+
+    if (destCustomer) {
+      const toAddress = buildAddressString(destCustomer);
+
+      if (toAddress && toAddress.trim() !== '') {
+        try {
+          const drivingResult = await getDrivingTime(fromAddress, toAddress);
+
+          destinations.push({
+            destination: record.destinationCustomerName,
+            drivingTimeMinutes: parseFloat(drivingResult.durationMinutes.toFixed(1))
+          });
+
+          if (shortestDrivingTime === null || drivingResult.durationMinutes < shortestDrivingTime) {
+            shortestDrivingTime = drivingResult.durationMinutes;
+            shortestDestination = record.destinationCustomerName;
+          }
+        } catch (mapboxError) {
+          // Try distance-based estimation as fallback
+          const estimatedTime = record.distanceMiles / 0.5; // ~30mph average
+          if (shortestDrivingTime === null || estimatedTime < shortestDrivingTime) {
+            shortestDrivingTime = estimatedTime;
+            shortestDestination = record.destinationCustomerName;
+          }
+        }
+      }
+    }
+  }
+
+  // Determine account type
+  let accountType = 'Pit';
+  let reason = '';
+  let confidence = 'high';
+
+  if (shortestDrivingTime !== null) {
+    if (shortestDrivingTime <= 5) {
+      accountType = 'Bread5';
+      reason = `${shortestDrivingTime.toFixed(1)} min to ${shortestDestination}`;
+    } else if (shortestDrivingTime <= 15) {
+      accountType = 'Bread15';
+      reason = `${shortestDrivingTime.toFixed(1)} min to ${shortestDestination}`;
+    } else {
+      accountType = 'Pit';
+      reason = `${shortestDrivingTime.toFixed(1)} min to ${shortestDestination} (>15 min)`;
+    }
+  } else {
+    reason = 'Could not calculate driving time';
+    confidence = 'low';
+  }
+
+  return {
+    accountType,
+    confidence,
+    reason,
+    drivingTimeMinutes: shortestDrivingTime ? parseFloat(shortestDrivingTime.toFixed(1)) : null,
+    nearestDestination: shortestDestination,
+    destinations
+  };
+}
+
+/**
  * GET /api/map-distance/customer-distances/:customerId
  * Get all distance records for a specific customer (for UI display)
  */
@@ -1537,5 +1813,6 @@ export default {
   deleteAllRecords,
   detectAccountType,
   detectAccountTypeWithMapbox,
+  detectAccountTypeBatch,
   getCustomerDistances
 };
