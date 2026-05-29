@@ -244,7 +244,6 @@ export async function getCustomerHeaderForEdit(req, res) {
       commission: doc.payload?.commission || null,
       // Include saved account type cache for commission calculations
       accountTypeCache: doc.payload?.accountTypeCache || null,
-      // Include zoho mapping info if needed
       zoho: doc.zoho || null,
       // Bigin connection status for commission calculations
       isConnectedToBigin,
@@ -259,8 +258,48 @@ export async function getCustomerHeaderForEdit(req, res) {
         lastUploadedAt: zohoMapping.lastUploadedAt
       } : null,
     });
+
+    // Debug: Log if accountTypeCache exists
+    if (doc.payload?.accountTypeCache) {
+      console.log('[ACCOUNT-TYPE-LOAD] Returning saved accountTypeCache with keys:', Object.keys(doc.payload.accountTypeCache));
+    } else {
+      console.log('[ACCOUNT-TYPE-LOAD] No accountTypeCache in document');
+    }
   } catch (err) {
     console.error("getCustomerHeaderForEdit error:", err);
+    res.status(500).json({ error: "server_error", detail: err?.message || String(err) });
+  }
+}
+
+/**
+ * Save only accountTypeCache to an agreement (used after auto-detection)
+ * PATCH /api/pdf/customer/:id/account-type-cache
+ */
+export async function saveAccountTypeCache(req, res) {
+  try {
+    const { id } = req.params;
+    const { accountTypeCache } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ error: "bad_request", detail: "Invalid id" });
+    }
+
+    // Use findByIdAndUpdate to avoid issues with partial document loading
+    const result = await CustomerHeaderDoc.findByIdAndUpdate(
+      id,
+      { $set: { 'payload.accountTypeCache': accountTypeCache } },
+      { new: true, select: 'payload.accountTypeCache' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: "not_found", detail: "Document not found" });
+    }
+
+    console.log('[ACCOUNT-TYPE-SAVE] Saved accountTypeCache to agreement:', id, 'keys:', accountTypeCache ? Object.keys(accountTypeCache) : 'null');
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("saveAccountTypeCache error:", err);
     res.status(500).json({ error: "server_error", detail: err?.message || String(err) });
   }
 }
@@ -294,7 +333,10 @@ export async function updateCustomerHeader(req, res) {
     if (body.includeProductsTable !== undefined) doc.payload.includeProductsTable = body.includeProductsTable;
     if (body.commission !== undefined) doc.payload.commission = body.commission;
     // Save account type cache for commission calculations
-    if (body.accountTypeCache !== undefined) doc.payload.accountTypeCache = body.accountTypeCache;
+    if (body.accountTypeCache !== undefined) {
+      doc.payload.accountTypeCache = body.accountTypeCache;
+      console.log('[ACCOUNT-TYPE-SAVE] Saving accountTypeCache with keys:', body.accountTypeCache ? Object.keys(body.accountTypeCache) : 'null');
+    }
     doc.status = newStatus;
 
     doc.zoho ||= { bigin: {}, crm: {} };

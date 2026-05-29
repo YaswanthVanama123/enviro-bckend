@@ -290,6 +290,8 @@ const PayloadSchema = new mongoose.Schema(
     serviceAgreement: { type: ServiceAgreementSchema, default: null },
     summary: { type: GlobalSummarySchema, default: null },
     commission: { type: CommissionSchema, default: null },
+    // Account type cache for commission calculations (keyed by frequency number)
+    accountTypeCache: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { _id: false }
 );

@@ -30,6 +30,7 @@ import {
   getCustomerHeaderForEdit,
   updateCustomerHeader,
   updateCustomerHeaderStatus,
+  saveAccountTypeCache,
 } from "../../controllers/agreement/customerHeaderController.js";
 
 // Admin Header Controller
@@ -136,6 +137,7 @@ router.get("/customer-headers/:id", getCustomerHeaderById);
 router.get("/customer-headers/:id/edit-format", getCustomerHeaderForEdit);
 router.put("/customer-headers/:id", requireAuth, updateCustomerHeader);
 router.patch("/customer-headers/:id/status", requireAuth, updateCustomerHeaderStatus);
+router.patch("/customer-headers/:id/account-type-cache", requireAuth, saveAccountTypeCache);
 
 router.post("/admin-header", compileAndStoreAdminHeader);
 router.get("/admin-headers", getAdminHeaders);
