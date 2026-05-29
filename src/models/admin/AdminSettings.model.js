@@ -43,6 +43,16 @@ const AdminSettingsSchema = new mongoose.Schema(
       requireApproval: { type: Boolean, default: true },
       approvalThreshold: { type: Number, default: 1000 },
     },
+
+    // Payroll settings
+    payrollSettings: {
+      // The start date for payroll calculations (commissions tracked from this date)
+      startDate: { type: Date, default: null },
+      // Optional: payroll cycle type (weekly, biweekly, monthly)
+      cycleType: { type: String, enum: ['weekly', 'biweekly', 'monthly'], default: 'biweekly' },
+      // Day of week for weekly/biweekly cycles (0=Sunday, 1=Monday, etc.)
+      cycleDayOfWeek: { type: Number, default: 1 }, // Monday
+    },
   },
   { timestamps: true }
 );

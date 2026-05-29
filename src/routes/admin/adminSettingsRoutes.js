@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
 // PATCH /api/admin-settings
 router.patch('/', async (req, res) => {
   try {
-    const { defaultApprovalTaskOwner, approvalTaskSubject } = req.body;
+    const { defaultApprovalTaskOwner, approvalTaskSubject, payrollSettings } = req.body;
     const settings = await AdminSettings.getSingleton();
 
     if (defaultApprovalTaskOwner !== undefined) {
@@ -25,6 +25,12 @@ router.patch('/', async (req, res) => {
     }
     if (approvalTaskSubject !== undefined) {
       settings.approvalTaskSubject = approvalTaskSubject;
+    }
+    if (payrollSettings !== undefined) {
+      settings.payrollSettings = {
+        ...settings.payrollSettings?.toObject?.() || settings.payrollSettings || {},
+        ...payrollSettings,
+      };
     }
 
     await settings.save();

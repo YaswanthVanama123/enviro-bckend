@@ -19,6 +19,7 @@ import versionLogRoutes from './routes/agreement/versionLogs.js';
 import adminAuthRoutes from "./routes/admin/adminAuthRoutes.js";
 import pricingBackupRoutes from './routes/admin/pricingBackupRoutes.js';
 import adminSettingsRoutes from './routes/admin/adminSettingsRoutes.js';
+import payrollRoutes from './routes/admin/payrollRoutes.js';
 
 // Product Domain Routes
 import priceFixRoutes from "./routes/product/priceFixRoutes.js";
@@ -181,5 +182,6 @@ app.use("/api/bigin-audit", biginAuditRoutes);
 app.use("/api/bigin-companies", biginCompanyRoutes);
 app.use("/api/company-mappings", companyMappingRoutes);
 app.use("/api/map-distance", mapDistanceRoutes);
+app.use("/api/payroll", payrollRoutes);
 
 export default app;

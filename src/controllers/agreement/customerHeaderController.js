@@ -331,7 +331,15 @@ export async function updateCustomerHeader(req, res) {
     if (body.serviceAgreement !== undefined) doc.payload.serviceAgreement = body.serviceAgreement;
     if (body.summary !== undefined) doc.payload.summary = body.summary;
     if (body.includeProductsTable !== undefined) doc.payload.includeProductsTable = body.includeProductsTable;
-    if (body.commission !== undefined) doc.payload.commission = body.commission;
+    if (body.commission !== undefined) {
+      doc.payload.commission = body.commission;
+      console.log('[COMMISSION-SAVE] Saving commission data:', {
+        weeklyCommission: body.commission?.weeklyCommission,
+        annualCommission: body.commission?.annualCommission,
+        contractCommission: body.commission?.contractCommission,
+        finalCommissionRate: body.commission?.finalCommissionRate,
+      });
+    }
     // Save account type cache for commission calculations
     if (body.accountTypeCache !== undefined) {
       doc.payload.accountTypeCache = body.accountTypeCache;

@@ -8,10 +8,16 @@ import { CustomerHeaderDoc } from "../../models/agreement/index.js";
 
 export async function getUserCommissions(req, res) {
   try {
-    const { userId } = req.params;
+    // Get username from the authenticated user (set by requireAuth middleware)
+    const username = req.user?.username;
+
+    if (!username) {
+      return res.status(401).json({ success: false, error: 'User not authenticated' });
+    }
+
     const { startDate, endDate, status } = req.query;
 
-    const filter = { createdBy: userId, isDeleted: { $ne: true } };
+    const filter = { createdBy: username, isDeleted: { $ne: true } };
     if (status) filter.status = status;
     if (startDate || endDate) {
       filter.createdAt = {};
@@ -19,25 +25,148 @@ export async function getUserCommissions(req, res) {
       if (endDate) filter.createdAt.$lte = new Date(endDate);
     }
 
+    // Fetch all agreements for this user - include commission data
     const agreements = await CustomerHeaderDoc.find(filter)
-      .select({ _id: 1, 'payload.headerTitle': 1, 'payload.summary.totalMonthlyRevenue': 1, status: 1, createdAt: 1 })
+      .select({
+        _id: 1,
+        'payload.headerTitle': 1,
+        'payload.summary': 1,
+        'payload.agreement.startDate': 1,
+        'payload.commission': 1,
+        status: 1,
+        createdAt: 1
+      })
       .sort({ createdAt: -1 })
       .lean();
 
-    const totalRevenue = agreements.reduce((sum, a) => sum + (a.payload?.summary?.totalMonthlyRevenue || 0), 0);
+    // Calculate totals using saved commission data
+    let totalWeeklyCommission = 0;
+    let totalAnnualCommission = 0;
+    let totalContractCommission = 0;
+    let totalContractValue = 0;
+    let totalRateSum = 0;
+    let agreementsWithCommission = 0;
+
+    // Status breakdown
+    const byStatus = {
+      draft: { count: 0, commission: 0 },
+      saved: { count: 0, commission: 0 },
+      pending: { count: 0, commission: 0 },
+      approved: { count: 0, commission: 0 },
+      active: { count: 0, commission: 0 }
+    };
+
+    const commissions = agreements.map(a => {
+      const summary = a.payload?.summary || {};
+      const savedCommission = a.payload?.commission || {};
+      const contractMonths = summary.contractMonths || 12;
+
+      // Use saved commission data if available, otherwise fall back to basic calculation
+      const hasSavedCommission = savedCommission.annualCommission !== undefined ||
+                                  savedCommission.weeklyCommission !== undefined ||
+                                  savedCommission.contractCommission !== undefined;
+
+      let weeklyCommission = 0;
+      let annualCommission = 0;
+      let contractCommission = 0;
+      let finalRate = 6;
+      let breakdown = {};
+
+      if (hasSavedCommission) {
+        // Use saved commission data from the agreement
+        weeklyCommission = savedCommission.weeklyCommission || 0;
+        annualCommission = savedCommission.annualCommission || 0;
+        contractCommission = savedCommission.contractCommission || (annualCommission * (contractMonths / 12));
+        finalRate = savedCommission.finalCommissionRate || savedCommission.input?.baseRate || 6;
+        breakdown = savedCommission.breakdown || {};
+
+        console.log(`[COMMISSION] Agreement ${a._id}: Using saved commission - annual: $${annualCommission.toFixed(2)}, rate: ${finalRate}%`);
+      } else {
+        // Fallback: basic calculation (for older agreements without saved commission)
+        const monthlyValue = summary.serviceAgreementTotal || 0;
+        const monthlyCommission = monthlyValue * 0.06;
+        weeklyCommission = monthlyCommission / 4.33;
+        annualCommission = monthlyCommission * 12;
+        contractCommission = monthlyCommission * contractMonths;
+        finalRate = 6;
+        breakdown = {
+          baseRate: 6,
+          agreementMultiplier: 100,
+          accountTypeAdjustment: 0,
+          greenlineBonus: 0,
+          insideSalesDeduction: 0
+        };
+
+        console.log(`[COMMISSION] Agreement ${a._id}: Using fallback calculation - annual: $${annualCommission.toFixed(2)}`);
+      }
+
+      // Get contract value from summary
+      const monthlyValue = summary.serviceAgreementTotal || 0;
+      const contractValue = monthlyValue * contractMonths;
+
+      totalWeeklyCommission += weeklyCommission;
+      totalAnnualCommission += annualCommission;
+      totalContractCommission += contractCommission;
+      totalContractValue += contractValue;
+
+      if (finalRate > 0) {
+        totalRateSum += finalRate;
+        agreementsWithCommission++;
+      }
+
+      // Map status for counting
+      let statusKey = 'draft';
+      if (a.status === 'saved') statusKey = 'saved';
+      else if (a.status === 'pending_approval') statusKey = 'pending';
+      else if (a.status === 'approved_salesman' || a.status === 'approved_admin') statusKey = 'approved';
+      else if (a.status === 'active' || a.status === 'finalized') statusKey = 'active';
+
+      byStatus[statusKey].count += 1;
+      byStatus[statusKey].commission += contractCommission;
+
+      return {
+        id: a._id.toString(),
+        title: a.payload?.headerTitle || 'Untitled',
+        status: a.status,
+        createdAt: a.createdAt,
+        startDate: a.payload?.agreement?.startDate || summary.startDate || null,
+        contractMonths,
+        monthlyValue,
+        contractValue,
+        commission: {
+          rate: finalRate,
+          weekly: weeklyCommission,
+          monthly: annualCommission / 12,
+          annual: annualCommission,
+          total: contractCommission,
+          breakdown: {
+            baseRate: breakdown.baseRate || finalRate,
+            agreementTerm: `${contractMonths} months`,
+            multiplier: breakdown.agreementMultiplier || 100,
+            accountTypeAdjustment: breakdown.accountTypeAdjustment || 0,
+            greenlineBonus: breakdown.greenlineBonus || 0,
+            insideSalesDeduction: breakdown.insideSalesDeduction || 0
+          }
+        }
+      };
+    });
+
+    const averageRate = agreementsWithCommission > 0 ? totalRateSum / agreementsWithCommission : 6;
 
     res.json({
       success: true,
-      userId,
-      totalAgreements: agreements.length,
-      totalRevenue,
-      agreements: agreements.map(a => ({
-        id: a._id,
-        title: a.payload?.headerTitle || 'Untitled',
-        revenue: a.payload?.summary?.totalMonthlyRevenue || 0,
-        status: a.status,
-        createdAt: a.createdAt
-      }))
+      user: username,
+      totals: {
+        totalAgreements: agreements.length,
+        totalWeeklyCommission,
+        totalMonthlyCommission: totalAnnualCommission / 12,
+        totalAnnualCommission,
+        totalContractCommission,
+        totalContractValue,
+        averageCommissionRate: averageRate
+      },
+      byStatus,
+      commissions
     });
   } catch (err) {
     console.error("getUserCommissions error:", err);
@@ -57,66 +186,76 @@ export async function getAllEmployeesCommissions(req, res) {
       if (endDate) matchFilter.createdAt.$lte = new Date(endDate);
     }
 
-    const results = await CustomerHeaderDoc.aggregate([
-      { $match: matchFilter },
-      {
-        $group: {
-          _id: '$createdBy',
-          totalAgreements: { $sum: 1 },
-          // Try multiple fields for revenue calculation
-          totalRevenue: {
-            $sum: {
-              $ifNull: [
-                '$payload.summary.serviceAgreementTotal',
-                { $ifNull: ['$payload.summary.totalMonthlyRevenue', 0] }
-              ]
-            }
-          },
-          // Count by status
-          draftCount: { $sum: { $cond: [{ $eq: ['$status', 'draft'] }, 1, 0] } },
-          savedCount: { $sum: { $cond: [{ $eq: ['$status', 'saved'] }, 1, 0] } },
-          pendingCount: { $sum: { $cond: [{ $eq: ['$status', 'pending_approval'] }, 1, 0] } },
-          approvedCount: {
-            $sum: {
-              $cond: [
-                { $or: [{ $eq: ['$status', 'approved_salesman'] }, { $eq: ['$status', 'approved_admin'] }] },
-                1,
-                0
-              ]
-            }
-          },
-          activeCount: {
-            $sum: {
-              $cond: [
-                { $or: [{ $eq: ['$status', 'active'] }, { $eq: ['$status', 'finalized'] }] },
-                1,
-                0
-              ]
-            }
-          }
-        }
-      },
-      { $sort: { totalRevenue: -1 } }
-    ]);
+    // Fetch all agreements with commission data
+    const agreements = await CustomerHeaderDoc.find(matchFilter)
+      .select({
+        _id: 1,
+        createdBy: 1,
+        status: 1,
+        'payload.summary': 1,
+        'payload.commission': 1
+      })
+      .lean();
 
-    // Filter out any results where _id is null, empty, or undefined
-    const filteredResults = results.filter(r => r._id && r._id.trim && r._id.trim() !== '');
+    // Group by employee and calculate totals
+    const employeeMap = new Map();
+
+    agreements.forEach(a => {
+      const username = a.createdBy;
+      if (!username || !username.trim()) return;
+
+      if (!employeeMap.has(username)) {
+        employeeMap.set(username, {
+          userId: username,
+          totalAgreements: 0,
+          totalRevenue: 0,
+          totalCommission: 0,
+          statusCounts: {
+            draft: 0,
+            saved: 0,
+            pending_approval: 0,
+            approved: 0,
+            active: 0
+          }
+        });
+      }
+
+      const emp = employeeMap.get(username);
+      const summary = a.payload?.summary || {};
+      const savedCommission = a.payload?.commission || {};
+
+      // Get monthly value
+      const monthlyValue = summary.serviceAgreementTotal || summary.totalMonthlyRevenue || 0;
+
+      emp.totalAgreements++;
+      emp.totalRevenue += monthlyValue;
+
+      // Use annualCommission from saved data (same as My Commissions screen)
+      let annualCommission = 0;
+      if (savedCommission.annualCommission !== undefined) {
+        annualCommission = savedCommission.annualCommission || 0;
+      } else {
+        // Fallback: 6% of annual revenue
+        annualCommission = monthlyValue * 12 * 0.06;
+      }
+      emp.totalCommission += annualCommission;
+
+      // Count by status
+      if (a.status === 'draft') emp.statusCounts.draft++;
+      else if (a.status === 'saved') emp.statusCounts.saved++;
+      else if (a.status === 'pending_approval') emp.statusCounts.pending_approval++;
+      else if (a.status === 'approved_salesman' || a.status === 'approved_admin') emp.statusCounts.approved++;
+      else if (a.status === 'active' || a.status === 'finalized') emp.statusCounts.active++;
+    });
+
+    // Convert to array and sort by commission
+    const employees = Array.from(employeeMap.values())
+      .sort((a, b) => b.totalCommission - a.totalCommission);
 
     res.json({
       success: true,
-      totalEmployees: filteredResults.length,
-      employees: filteredResults.map(r => ({
-        userId: r._id,
-        totalAgreements: r.totalAgreements,
-        totalRevenue: r.totalRevenue,
-        statusCounts: {
-          draft: r.draftCount,
-          saved: r.savedCount,
-          pending_approval: r.pendingCount,
-          approved: r.approvedCount,
-          active: r.activeCount
-        }
-      }))
+      totalEmployees: employees.length,
+      employees
     });
   } catch (err) {
     console.error("getAllEmployeesCommissions error:", err);
@@ -126,8 +265,13 @@ export async function getAllEmployeesCommissions(req, res) {
 
 export async function getEmployeeCommissions(req, res) {
   try {
-    // Route param is :username
-    const { username } = req.params;
+    // Route param is :username - same logic as getUserCommissions but for admin viewing any employee
+    const username = req.params.username;
+
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
     const { startDate, endDate, status } = req.query;
 
     const filter = { createdBy: username, isDeleted: { $ne: true } };
@@ -138,25 +282,27 @@ export async function getEmployeeCommissions(req, res) {
       if (endDate) filter.createdAt.$lte = new Date(endDate);
     }
 
-    // Fetch all agreements for this employee
+    // Fetch all agreements for this user - include commission data (same as getUserCommissions)
     const agreements = await CustomerHeaderDoc.find(filter)
       .select({
         _id: 1,
         'payload.headerTitle': 1,
         'payload.summary': 1,
-        'payload.contractMonths': 1,
-        'payload.startDate': 1,
+        'payload.agreement.startDate': 1,
+        'payload.commission': 1,
         status: 1,
         createdAt: 1
       })
       .sort({ createdAt: -1 })
       .lean();
 
-    // Calculate totals and commission data
-    let totalMonthlyCommission = 0;
+    // Calculate totals using saved commission data (same logic as getUserCommissions)
+    let totalWeeklyCommission = 0;
+    let totalAnnualCommission = 0;
     let totalContractCommission = 0;
     let totalContractValue = 0;
-    const commissionRate = 6; // Default 6% commission rate
+    let totalRateSum = 0;
+    let agreementsWithCommission = 0;
 
     // Status breakdown
     const byStatus = {
@@ -169,17 +315,59 @@ export async function getEmployeeCommissions(req, res) {
 
     const commissions = agreements.map(a => {
       const summary = a.payload?.summary || {};
-      const contractMonths = a.payload?.contractMonths || summary.contractMonths || 12;
-      const monthlyValue = summary.serviceAgreementTotal || summary.totalMonthlyRevenue || 0;
-      const contractValue = monthlyValue * contractMonths;
-      const monthlyCommission = monthlyValue * (commissionRate / 100);
-      const totalCommission = monthlyCommission * contractMonths;
+      const savedCommission = a.payload?.commission || {};
+      const contractMonths = summary.contractMonths || 12;
 
-      totalMonthlyCommission += monthlyCommission;
-      totalContractCommission += totalCommission;
+      // Use saved commission data if available, otherwise fall back to basic calculation
+      const hasSavedCommission = savedCommission.annualCommission !== undefined ||
+                                  savedCommission.weeklyCommission !== undefined ||
+                                  savedCommission.contractCommission !== undefined;
+
+      let weeklyCommission = 0;
+      let annualCommission = 0;
+      let contractCommission = 0;
+      let finalRate = 6;
+      let breakdown = {};
+
+      if (hasSavedCommission) {
+        // Use saved commission data from the agreement
+        weeklyCommission = savedCommission.weeklyCommission || 0;
+        annualCommission = savedCommission.annualCommission || 0;
+        contractCommission = savedCommission.contractCommission || (annualCommission * (contractMonths / 12));
+        finalRate = savedCommission.finalCommissionRate || savedCommission.input?.baseRate || 6;
+        breakdown = savedCommission.breakdown || {};
+      } else {
+        // Fallback: basic calculation (for older agreements without saved commission)
+        const monthlyValue = summary.serviceAgreementTotal || 0;
+        const monthlyCommission = monthlyValue * 0.06;
+        weeklyCommission = monthlyCommission / 4.33;
+        annualCommission = monthlyCommission * 12;
+        contractCommission = monthlyCommission * contractMonths;
+        finalRate = 6;
+        breakdown = {
+          baseRate: 6,
+          agreementMultiplier: 100,
+          accountTypeAdjustment: 0,
+          greenlineBonus: 0,
+          insideSalesDeduction: 0
+        };
+      }
+
+      // Get contract value from summary
+      const monthlyValue = summary.serviceAgreementTotal || 0;
+      const contractValue = monthlyValue * contractMonths;
+
+      totalWeeklyCommission += weeklyCommission;
+      totalAnnualCommission += annualCommission;
+      totalContractCommission += contractCommission;
       totalContractValue += contractValue;
 
-      // Map status for counting
+      if (finalRate > 0) {
+        totalRateSum += finalRate;
+        agreementsWithCommission++;
+      }
+
+      // Map status for counting - use annualCommission for status totals (same as My Commissions)
       let statusKey = 'draft';
       if (a.status === 'saved') statusKey = 'saved';
       else if (a.status === 'pending_approval') statusKey = 'pending';
@@ -187,42 +375,48 @@ export async function getEmployeeCommissions(req, res) {
       else if (a.status === 'active' || a.status === 'finalized') statusKey = 'active';
 
       byStatus[statusKey].count += 1;
-      byStatus[statusKey].commission += totalCommission;
+      byStatus[statusKey].commission += annualCommission;
 
       return {
         id: a._id.toString(),
         title: a.payload?.headerTitle || 'Untitled',
         status: a.status,
         createdAt: a.createdAt,
-        startDate: a.payload?.startDate || summary.startDate || null,
+        startDate: a.payload?.agreement?.startDate || summary.startDate || null,
         contractMonths,
         monthlyValue,
         contractValue,
         commission: {
-          rate: commissionRate,
-          monthly: monthlyCommission,
-          total: totalCommission,
+          rate: finalRate,
+          weekly: weeklyCommission,
+          monthly: annualCommission / 12,
+          annual: annualCommission,
+          total: annualCommission, // Use annual commission as the display total (matches My Commissions)
           breakdown: {
-            baseRate: commissionRate,
+            baseRate: breakdown.baseRate || finalRate,
             agreementTerm: `${contractMonths} months`,
-            multiplier: 100,
-            accountTypeAdjustment: 0,
-            greenlineBonus: 0,
-            insideSalesDeduction: 0
+            multiplier: breakdown.agreementMultiplier || 100,
+            accountTypeAdjustment: breakdown.accountTypeAdjustment || 0,
+            greenlineBonus: breakdown.greenlineBonus || 0,
+            insideSalesDeduction: breakdown.insideSalesDeduction || 0
           }
         }
       };
     });
+
+    const averageRate = agreementsWithCommission > 0 ? totalRateSum / agreementsWithCommission : 6;
 
     res.json({
       success: true,
       employee: username,
       totals: {
         totalAgreements: agreements.length,
-        totalMonthlyCommission,
-        totalContractCommission,
+        totalWeeklyCommission,
+        totalMonthlyCommission: totalAnnualCommission / 12,
+        totalAnnualCommission,
+        totalContractCommission: totalAnnualCommission, // Use annual as the main display total
         totalContractValue,
-        averageCommissionRate: commissionRate
+        averageCommissionRate: averageRate
       },
       byStatus,
       commissions
