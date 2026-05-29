@@ -47,22 +47,64 @@ async function remotePostMultipart(
   const url = `${PDF_REMOTE_BASE.replace(/\/+$/, "")}/${pathname.replace(/^\/+/, "")}`;
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     console.log(`📡 [REMOTE PDF] Calling remote PDF service: ${url}`);
 
-    const fd = new FormData();
+    // Generate boundary WITHOUT leading dashes (RFC 2046)
+    // The -- prefix is added in the body, not in the Content-Type header
+    const boundary = `FormBoundary${Date.now()}${Math.random().toString(36).substring(2)}`;
+    const parts = [];
+
+    // Add extra fields
     for (const [k, v] of Object.entries(extraFields || {})) {
-      fd.append(k, typeof v === "string" ? v : JSON.stringify(v));
-    }
-    for (const f of files) {
-      const filename = String(f.name).replace(/\\/g, "/");
-      fd.append(
-        f.field,
-        new Blob([f.data], { type: f.type || "application/octet-stream" }),
-        filename
+      const value = typeof v === "string" ? v : JSON.stringify(v);
+      parts.push(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${k}"\r\n\r\n` +
+        `${value}\r\n`
       );
     }
-    const resp = await fetch(url, { method: "POST", body: fd, signal: controller.signal });
+
+    // Add files
+    for (const f of files) {
+      const filename = String(f.name).replace(/\\/g, "/");
+      const contentType = f.type || "application/octet-stream";
+
+      // Create header as string
+      const header =
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${f.field}"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`;
+
+      parts.push(header);
+      parts.push(f.data);  // Binary data
+      parts.push('\r\n');
+
+      console.log(`📎 [REMOTE PDF] Added file: ${filename}, size: ${f.data.length} bytes, type: ${contentType}`);
+    }
+
+    // Add closing boundary
+    parts.push(`--${boundary}--\r\n`);
+
+    // Combine all parts into a single buffer
+    const bodyParts = parts.map(part =>
+      Buffer.isBuffer(part) ? part : Buffer.from(part, 'utf8')
+    );
+    const body = Buffer.concat(bodyParts);
+
+    console.log(`📡 [REMOTE PDF] Total body size: ${body.length} bytes, boundary: ${boundary}`);
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length.toString(),
+      },
+      body: body,
+      signal: controller.signal
+    });
+
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
       console.error(`❌ [REMOTE PDF] Remote compile failed with status ${resp.status}:`, txt.slice(0, 500));
@@ -74,12 +116,11 @@ async function remotePostMultipart(
       err.errorType = 'REMOTE_PDF_SERVICE_ERROR';
       throw err;
     }
+
     const ab = await resp.arrayBuffer();
     console.log(`✅ [REMOTE PDF] Successfully compiled PDF, size: ${ab.byteLength} bytes`);
     return Buffer.from(ab);
   } catch (error) {
-    clearTimeout(to);
-
     console.error(`❌ [REMOTE PDF] Error during PDF compilation:`, {
       name: error.name,
       message: error.message,
@@ -126,22 +167,22 @@ function buildServiceAgreementLatex(agreementData = {}) {
 % ====== SERVICE AGREEMENT PAGE ======================================
 
 \\noindent
-\\begin{tabular}{@{}p{0.20\\textwidth}@{}p{0.60\\textwidth}@{}p{0.20\\textwidth}@{}}
-  \\begin{minipage}[c]{\\linewidth}
-    \\centering
-    % Enviro-Master logo
-    \\includegraphics[width=0.80\\linewidth]{images/Envimaster.png}
-  \\end{minipage} &
-  \\begin{minipage}[c]{\\linewidth}
-    \\centering
-    {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
-    \\vspace{0.3em}
+\\begin{minipage}[c]{0.20\\textwidth}
+  \\centering
+  \\includegraphics[width=0.80\\linewidth]{images/Envimaster.png}%
+\\end{minipage}%
+\\hfill
+\\begin{minipage}[c]{0.60\\textwidth}
+  \\centering
+  {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
+  \\vspace{0.3em}
 
-    {\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
-  \\end{minipage} &
-  % empty spacer column
-  \\vspace{0pt}
-\\end{tabular}
+  {\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
+\\end{minipage}%
+\\hfill
+\\begin{minipage}[c]{0.18\\textwidth}
+  \\hfill
+\\end{minipage}
 
 \\vspace{0.5em}
 
@@ -3423,8 +3464,16 @@ export async function compileCustomerHeader(body = {}, options = {}) {
   const logoBuf = await fs.readFile(logoPath);
   console.log(`📷 [PDF] Logo buffer size: ${logoBuf.length} bytes`);
 
+  // Add unique timestamp comment to prevent caching issues
+  const uniqueMarker = `% Generated: ${new Date().toISOString()} - ${Math.random().toString(36).substring(7)}\n`;
+  const texWithMarker = uniqueMarker + tex;
+
+  // Convert tex to Buffer ensuring proper UTF-8 encoding
+  const texBuffer = Buffer.from(texWithMarker, 'utf8');
+  console.log(`📷 [PDF] LaTeX buffer size: ${texBuffer.length} bytes, first 100 chars:`, texWithMarker.substring(0, 100));
+
   const files = [
-    { field: "main", name: "doc.tex", data: Buffer.from(tex, "utf8"), type: "application/x-tex" },
+    { field: "main", name: "doc.tex", data: texBuffer, type: "text/plain; charset=utf-8" },
     // Send with just filename, let manifest specify the target path
     { field: "assets", name: "Envimaster.png", data: logoBuf, type: "image/png" },
   ];

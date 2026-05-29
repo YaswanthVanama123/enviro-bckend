@@ -712,33 +712,32 @@ export async function getZohoAccessToken() {
     return cachedAccessToken;
   }
 
+  // If another refresh is already in progress, wait for it
   if (tokenRefreshInProgress && tokenRefreshPromise) {
     console.log('🔄 [TOKEN-MUTEX] Another token refresh in progress, waiting...');
     try {
-      return await tokenRefreshPromise;
+      const token = await tokenRefreshPromise;
+      return token; // Return the token from the other request
     } catch (error) {
-      console.log('🔄 [TOKEN-MUTEX] Previous refresh failed, trying again...');
+      console.log('🔄 [TOKEN-MUTEX] Previous refresh failed, will try again...');
+      // Fall through to try our own refresh
     }
   }
+
   const clientId = process.env.ZOHO_CLIENT_ID;
   const clientSecret = process.env.ZOHO_CLIENT_SECRET;
   const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
   const accountsUrl = process.env.ZOHO_ACCOUNTS_BASE || ZOHO_ACCOUNTS_URL;
 
-  console.log("🔍 [DEBUG] Environment variables check:");
-  console.log(`  ├ Client ID: ${clientId ? '✅ Present (' + clientId.substring(0, 20) + '...)' : '❌ Missing'}`);
-  console.log(`  ├ Client Secret: ${clientSecret ? '✅ Present (' + clientSecret.substring(0, 10) + '...)' : '❌ Missing'}`);
-  console.log(`  ├ Refresh Token: ${refreshToken ? '✅ Present (' + refreshToken.substring(0, 30) + '...)' : '❌ Missing'}`);
-  console.log(`  └ Accounts URL: ${accountsUrl}`);
+  // Skip debug logging of credentials for security
+  const hasCredentials = clientId && clientSecret && refreshToken &&
+    !clientId.includes('your_') && !clientSecret.includes('your_') && !refreshToken.includes('your_');
 
-  if (clientId && clientSecret && refreshToken) {
+  if (hasCredentials) {
     tokenRefreshInProgress = true;
     tokenRefreshPromise = (async () => {
       try {
         console.log("🔄 Auto-refreshing Zoho access token...");
-        console.log(`🔑 Using refresh token: ${refreshToken.substring(0, 30)}...`);
-        console.log(`🌍 Accounts URL: ${accountsUrl}`);
-        console.log(`🆔 Client ID: ${clientId}`);
 
         const response = await axios.post(
           `${accountsUrl}/oauth/v2/token`,
@@ -757,10 +756,14 @@ export async function getZohoAccessToken() {
         );
 
         const { access_token, expires_in } = response.data;
+
+        if (!access_token) {
+          throw new Error('No access_token in response from Zoho');
+        }
+
         console.log(`✅ Auto-refreshed Zoho token successfully!`);
-        console.log(`  ├ New access token: ${access_token.substring(0, 1000)}...`);
+        console.log(`  ├ Token length: ${access_token.length} characters`);
         console.log(`  ├ Expires in: ${expires_in} seconds (${Math.round(expires_in/3600)} hours)`);
-        console.log(`  └ Refresh token status: PERMANENT (never expires) ✅`);
 
         cachedAccessToken = access_token;
         tokenExpiryTime = Date.now() + (expires_in * 1000);
@@ -772,16 +775,9 @@ export async function getZohoAccessToken() {
         console.error("  ├ Error type:", error.name || 'Unknown');
         console.error("  ├ Error message:", error.message);
         console.error("  ├ Response status:", error.response?.status);
-        console.error("  ├ Response data:", JSON.stringify(error.response?.data, null, 2));
-        console.error("  ├ Request URL:", error.config?.url);
-        console.error("  └ Refresh token used:", refreshToken.substring(0, 30) + "...");
-
-        console.error("\n🔍 [DEBUG] Full request details:");
-        console.error("  ├ Accounts URL:", accountsUrl);
-        console.error("  ├ Client ID:", clientId);
-        console.error("  ├ Client Secret:", clientSecret ? clientSecret.substring(0, 10) + "..." : "MISSING");
-        console.error("  └ Grant type: refresh_token");
-
+        if (error.response?.data) {
+          console.error("  └ Response data:", JSON.stringify(error.response.data, null, 2));
+        }
         throw error;
       }
     })();
@@ -796,10 +792,11 @@ export async function getZohoAccessToken() {
       tokenRefreshPromise = null;
     }
   } else {
-    console.log("⚠️  Missing OAuth credentials:");
-    console.log(`  ├ Client ID: ${clientId ? '✅ Present' : '❌ Missing'}`);
-    console.log(`  ├ Client Secret: ${clientSecret ? '✅ Present' : '❌ Missing'}`);
-    console.log(`  └ Refresh Token: ${refreshToken ? '✅ Present' : '❌ Missing'}`);
+    if (clientId?.includes('your_') || clientSecret?.includes('your_') || refreshToken?.includes('your_')) {
+      console.log("⚠️  Zoho credentials contain placeholder values - please update .env with real credentials");
+    } else {
+      console.log("⚠️  Missing OAuth credentials for Zoho token refresh");
+    }
   }
 
   if (process.env.ZOHO_ACCESS_TOKEN) {
