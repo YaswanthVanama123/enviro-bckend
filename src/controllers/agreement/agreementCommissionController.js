@@ -6,6 +6,20 @@
 import mongoose from "mongoose";
 import { CustomerHeaderDoc } from "../../models/agreement/index.js";
 
+// Quota level to commission rate mapping
+const QUOTA_COMMISSION_RATES = {
+  below: 3,
+  above: 6,
+  double: 9,
+};
+
+// Helper to get base rate from quota level
+const getBaseRateFromQuotaLevel = (quotaLevel) => {
+  if (!quotaLevel) return null;
+  const level = quotaLevel.toLowerCase();
+  return QUOTA_COMMISSION_RATES[level] || null;
+};
+
 export async function getUserCommissions(req, res) {
   try {
     // Get username from the authenticated user (set by requireAuth middleware)
@@ -124,6 +138,19 @@ export async function getUserCommissions(req, res) {
       byStatus[statusKey].count += 1;
       byStatus[statusKey].commission += contractCommission;
 
+      // Get quota level from saved data
+      const savedQuotaLevel = breakdown.quotaLevel || savedCommission.input?.quotaLevel || null;
+
+      // Derive base rate from quota level (ensures consistency)
+      // If we have a quota level, use it to determine the base rate
+      // Otherwise fall back to saved baseRate or default
+      const derivedBaseRate = getBaseRateFromQuotaLevel(savedQuotaLevel);
+      const displayBaseRate = derivedBaseRate !== null ? derivedBaseRate : (breakdown.baseRate || 6);
+
+      // Recalculate final rate based on derived base rate and multiplier
+      const multiplier = breakdown.agreementMultiplier || 100;
+      const displayFinalRate = displayBaseRate * (multiplier / 100);
+
       return {
         id: a._id.toString(),
         title: a.payload?.headerTitle || 'Untitled',
@@ -134,18 +161,19 @@ export async function getUserCommissions(req, res) {
         monthlyValue,
         contractValue,
         commission: {
-          rate: finalRate,
+          rate: displayFinalRate,
           weekly: weeklyCommission,
           monthly: annualCommission / 12,
           annual: annualCommission,
           total: contractCommission,
           breakdown: {
-            baseRate: breakdown.baseRate || finalRate,
+            baseRate: displayBaseRate,
             agreementTerm: `${contractMonths} months`,
-            multiplier: breakdown.agreementMultiplier || 100,
+            multiplier: multiplier,
             accountTypeAdjustment: breakdown.accountTypeAdjustment || 0,
             greenlineBonus: breakdown.greenlineBonus || 0,
-            insideSalesDeduction: breakdown.insideSalesDeduction || 0
+            insideSalesDeduction: breakdown.insideSalesDeduction || 0,
+            quotaLevel: savedQuotaLevel,
           }
         }
       };
@@ -377,6 +405,17 @@ export async function getEmployeeCommissions(req, res) {
       byStatus[statusKey].count += 1;
       byStatus[statusKey].commission += annualCommission;
 
+      // Get quota level from saved data
+      const savedQuotaLevel = breakdown.quotaLevel || savedCommission.input?.quotaLevel || null;
+
+      // Derive base rate from quota level (ensures consistency)
+      const derivedBaseRate = getBaseRateFromQuotaLevel(savedQuotaLevel);
+      const displayBaseRate = derivedBaseRate !== null ? derivedBaseRate : (breakdown.baseRate || 6);
+
+      // Recalculate final rate based on derived base rate and multiplier
+      const multiplier = breakdown.agreementMultiplier || 100;
+      const displayFinalRate = displayBaseRate * (multiplier / 100);
+
       return {
         id: a._id.toString(),
         title: a.payload?.headerTitle || 'Untitled',
@@ -387,18 +426,19 @@ export async function getEmployeeCommissions(req, res) {
         monthlyValue,
         contractValue,
         commission: {
-          rate: finalRate,
+          rate: displayFinalRate,
           weekly: weeklyCommission,
           monthly: annualCommission / 12,
           annual: annualCommission,
           total: annualCommission, // Use annual commission as the display total (matches My Commissions)
           breakdown: {
-            baseRate: breakdown.baseRate || finalRate,
+            baseRate: displayBaseRate,
             agreementTerm: `${contractMonths} months`,
-            multiplier: breakdown.agreementMultiplier || 100,
+            multiplier: multiplier,
             accountTypeAdjustment: breakdown.accountTypeAdjustment || 0,
             greenlineBonus: breakdown.greenlineBonus || 0,
-            insideSalesDeduction: breakdown.insideSalesDeduction || 0
+            insideSalesDeduction: breakdown.insideSalesDeduction || 0,
+            quotaLevel: savedQuotaLevel,
           }
         }
       };

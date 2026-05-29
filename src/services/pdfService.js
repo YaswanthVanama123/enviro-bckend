@@ -157,6 +157,65 @@ function buildServiceAgreementLatex(agreementData = {}) {
     return '';
   }
 
+  // Pre-sanitize all string fields in agreementData to catch any binary corruption
+  const sanitizeField = (value, fieldName) => {
+    if (typeof value !== 'string') return value;
+
+    // Check for ANY non-printable characters (more comprehensive check)
+    const originalLength = value.length;
+
+    // Use whitelist approach: only keep printable ASCII, common punctuation, and safe whitespace
+    // This is more reliable than blacklisting specific control characters
+    const cleaned = value
+      // Remove all control characters (0x00-0x1F except tab, newline, carriage return)
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+      // Remove DEL and C1 control codes (0x7F-0x9F)
+      .replace(/[\x7F-\x9F]/g, '')
+      // Remove replacement character
+      .replace(/\uFFFD/g, '')
+      // Remove any remaining non-ASCII high bytes that might cause issues
+      .replace(/[\u0080-\u00FF]/g, (char) => {
+        // Keep only safe extended ASCII (like smart quotes, etc.)
+        const code = char.charCodeAt(0);
+        // Allow common safe characters: non-breaking space, some punctuation
+        if (code === 0xA0) return ' '; // Non-breaking space -> regular space
+        if (code >= 0xC0 && code <= 0xFF) return char; // Keep accented letters
+        console.warn(`⚠️ [SERVICE AGREEMENT] Removing high-byte char 0x${code.toString(16)} from ${fieldName}`);
+        return '';
+      })
+      // Remove any Unicode replacement characters or other problematic Unicode
+      .replace(/[\uFFF0-\uFFFF]/g, '')
+      // Final pass: remove anything that's not printable ASCII or safe Unicode
+      .replace(/[^\x20-\x7E\xC0-\xFF\n\r\t\u00A0-\u024F\u2000-\u206F\u2010-\u2027]/g, '');
+
+    if (cleaned.length !== originalLength) {
+      console.warn(`⚠️ [SERVICE AGREEMENT] Sanitized field "${fieldName}": removed ${originalLength - cleaned.length} chars`);
+      console.warn(`⚠️ [SERVICE AGREEMENT] Original (first 200 chars):`, value.slice(0, 200).replace(/[^\x20-\x7E]/g, '?'));
+      // Log hex dump of first problematic area
+      const firstBadIndex = value.split('').findIndex(c => {
+        const code = c.charCodeAt(0);
+        return code < 0x20 && code !== 0x09 && code !== 0x0A && code !== 0x0D;
+      });
+      if (firstBadIndex >= 0) {
+        const start = Math.max(0, firstBadIndex - 10);
+        const end = Math.min(value.length, firstBadIndex + 20);
+        const snippet = value.slice(start, end);
+        console.warn(`⚠️ [SERVICE AGREEMENT] First bad char at index ${firstBadIndex}:`,
+          Array.from(snippet).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(' '));
+      }
+    }
+
+    return cleaned;
+  };
+
+  // Sanitize the agreement data
+  const sanitized = { ...agreementData };
+  for (const key of Object.keys(sanitized)) {
+    if (typeof sanitized[key] === 'string') {
+      sanitized[key] = sanitizeField(sanitized[key], key);
+    }
+  }
+
   const escape = latexEscape;
 
   const checkbox = (checked) => checked ? '{[\\textbf{X}]}' : '{[~~]}';
@@ -174,10 +233,10 @@ function buildServiceAgreementLatex(agreementData = {}) {
 \\hfill
 \\begin{minipage}[c]{0.60\\textwidth}
   \\centering
-  {\\bfseries\\Large\\textcolor{emred}{${escape(agreementData.titleText || 'SERVICE AGREEMENT')}}}
+  {\\bfseries\\Large\\textcolor{emred}{${escape(sanitized.titleText || 'SERVICE AGREEMENT')}}}
   \\vspace{0.3em}
 
-  {\\large\\bfseries ${escape(agreementData.subtitleText || 'Terms and Conditions')}}
+  {\\large\\bfseries ${escape(sanitized.subtitleText || 'Terms and Conditions')}}
 \\end{minipage}%
 \\hfill
 \\begin{minipage}[c]{0.18\\textwidth}
@@ -188,72 +247,72 @@ function buildServiceAgreementLatex(agreementData = {}) {
 
 % Terms
 \\begin{enumerate}
-  \\item ${escape(agreementData.term1 || '')}
+  \\item ${escape(sanitized.term1 || '')}
 
-  \\item ${escape(agreementData.term2 || '')}
+  \\item ${escape(sanitized.term2 || '')}
 
-  \\item ${escape(agreementData.term3 || '')}
+  \\item ${escape(sanitized.term3 || '')}
 
-  \\item ${escape(agreementData.term4 || '')}
+  \\item ${escape(sanitized.term4 || '')}
 
-  \\item ${escape(agreementData.term5 || '')}
+  \\item ${escape(sanitized.term5 || '')}
 
-  \\item ${escape(agreementData.term6 || '')}
+  \\item ${escape(sanitized.term6 || '')}
 
-  \\item ${escape(agreementData.term7 || '')}
+  \\item ${escape(sanitized.term7 || '')}
 \\end{enumerate}
 
 \\vspace{0.5em}
 
 % Dispenser options
 \\noindent
-${checkbox(agreementData.retainDispensers)} ${escape(agreementData.retainDispensersLabel || 'Customer desires to retain existing dispensers')}
+${checkbox(sanitized.retainDispensers)} ${escape(sanitized.retainDispensersLabel || 'Customer desires to retain existing dispensers')}
 \\hspace{2em}
-${checkbox(agreementData.disposeDispensers)} ${escape(agreementData.disposeDispensersLabel || 'Customer desires to dispose of existing dispensers')}
+${checkbox(sanitized.disposeDispensers)} ${escape(sanitized.disposeDispensersLabel || 'Customer desires to dispose of existing dispensers')}
 
 \\vspace{0.5em}
 
 \\noindent
-${escape(agreementData.noteText || '')}
+${escape(sanitized.noteText || '')}
 
 \\vspace{0.5em}
 
 % Representatives
   \\noindent
-  ${escape(agreementData.emSalesRepLabel || 'EM Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(agreementData.emSalesRepresentative || '')}} \\hspace{2em}
-  ${escape(agreementData.insideSalesRepLabel || 'Inside Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(agreementData.insideSalesRepresentative || '')}}
+  ${escape(sanitized.emSalesRepLabel || 'EM Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(sanitized.emSalesRepresentative || '')}} \\hspace{2em}
+  ${escape(sanitized.insideSalesRepLabel || 'Inside Sales Representative')}: \\filledlineleftlim[4.2cm]{${escape(sanitized.insideSalesRepresentative || '')}}
 
 \\vspace{0.5em}
 
 \\noindent
-{\\bfseries ${escape(agreementData.authorityText || 'I HEREBY REPRESENT THAT I HAVE THE AUTHORITY TO SIGN THIS AGREEMENT:')}}
+{\\bfseries ${escape(sanitized.authorityText || 'I HEREBY REPRESENT THAT I HAVE THE AUTHORITY TO SIGN THIS AGREEMENT:')}}
 
 \\vspace{0.8em}
 
 % Signatures
 \\noindent
 \\begin{minipage}[t]{0.48\\textwidth}
-  ${escape(agreementData.customerContactLabel || 'Customer Contact Name:')}: \\filledlineleftlim[5.5cm]{${escape(agreementData.customerContactName || '')}}
+  ${escape(sanitized.customerContactLabel || 'Customer Contact Name:')}: \\filledlineleftlim[5.5cm]{${escape(sanitized.customerContactName || '')}}
 
   \\vspace{0.6em}
 
-  ${escape(agreementData.customerSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(agreementData.customerSignature || '')}}
+  ${escape(sanitized.customerSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(sanitized.customerSignature || '')}}
 
   \\vspace{0.6em}
 
-  ${escape(agreementData.customerDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.customerSignatureDate || '')}}
+  ${escape(sanitized.customerDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(sanitized.customerSignatureDate || '')}}
 \\end{minipage}%
 \\hfill
 \\begin{minipage}[t]{0.48\\textwidth}
-  ${escape(agreementData.emFranchiseeLabel || 'EM Franchisee:')}: \\filledlineleftlim[5.5cm]{${escape(agreementData.emFranchisee || '')}}
+  ${escape(sanitized.emFranchiseeLabel || 'EM Franchisee:')}: \\filledlineleftlim[5.5cm]{${escape(sanitized.emFranchisee || '')}}
 
   \\vspace{0.6em}
 
-  ${escape(agreementData.emSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(agreementData.emSignature || '')}}
+  ${escape(sanitized.emSignatureLabel || 'Signature:')}: \\filledlineleftlim[5.1cm]{${escape(sanitized.emSignature || '')}}
 
   \\vspace{0.6em}
 
-  ${escape(agreementData.emDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(agreementData.emSignatureDate || '')}}
+  ${escape(sanitized.emDateLabel || 'Date:')}: \\filledlineleftlim[3cm]{${escape(sanitized.emSignatureDate || '')}}
 \\end{minipage}
 `;
 }
@@ -3466,7 +3525,35 @@ export async function compileCustomerHeader(body = {}, options = {}) {
 
   // Add unique timestamp comment to prevent caching issues
   const uniqueMarker = `% Generated: ${new Date().toISOString()} - ${Math.random().toString(36).substring(7)}\n`;
-  const texWithMarker = uniqueMarker + tex;
+  let texWithMarker = uniqueMarker + tex;
+
+  // FINAL SANITIZATION: Strip any binary/control characters that may have slipped through
+  // This prevents LaTeX compilation errors from corrupted data
+  // Use a simple whitelist approach - only allow printable ASCII and safe whitespace
+  const hasBinaryCorruption = /[^\x09\x0A\x0D\x20-\x7E]/.test(texWithMarker);
+
+  if (hasBinaryCorruption) {
+    console.error('❌ [PDF FINAL SANITIZE] Binary corruption detected in final LaTeX!');
+
+    // Find the corrupted sections for logging
+    const matches = [];
+    const searchPattern = /[^\x09\x0A\x0D\x20-\x7E]/g;
+    let match;
+    while ((match = searchPattern.exec(texWithMarker)) !== null) {
+      const start = Math.max(0, match.index - 20);
+      const end = Math.min(texWithMarker.length, match.index + 20);
+      const context = texWithMarker.slice(start, end).replace(/[^\x20-\x7E]/g, '?');
+      const charCode = texWithMarker.charCodeAt(match.index).toString(16).padStart(4, '0');
+      matches.push({ index: match.index, charCode: `U+${charCode}`, context });
+      if (matches.length >= 10) break; // Limit logging
+    }
+    console.error('❌ [PDF FINAL SANITIZE] Corruption locations (first 10):', JSON.stringify(matches, null, 2));
+
+    // Remove ALL non-printable characters (only keep printable ASCII + tab + newline + carriage return)
+    const beforeLength = texWithMarker.length;
+    texWithMarker = texWithMarker.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+    console.log(`✅ [PDF FINAL SANITIZE] Removed ${beforeLength - texWithMarker.length} corrupted characters, new length: ${texWithMarker.length}`);
+  }
 
   // Convert tex to Buffer ensuring proper UTF-8 encoding
   const texBuffer = Buffer.from(texWithMarker, 'utf8');
