@@ -691,17 +691,29 @@ export const getQuotaStatus = async (req, res) => {
 
     const recentAgreements = savedPdfs.slice(0, 5).map(pdf => {
       const contractMonths = pdf.payload?.summary?.contractMonths || 12;
-      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      // serviceAgreementTotal is already the MONTHLY value (same as My Commissions)
+      const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
       const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
-      const serviceMonthlyValue = serviceContractTotal / contractMonths;
       const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
 
       actualSales += monthlyValue;
 
-      // Get commission earned
+      // Get commission earned - use annualCommission to match My Commissions page
       const commission = pdf.payload?.commission;
-      if (commission?.contractCommission) {
-        totalCommissionEarned += commission.contractCommission;
+      const contractMonthsForComm = pdf.payload?.summary?.contractMonths || 12;
+      const years = contractMonthsForComm / 12;
+
+      // Check if annualCommission exists and is a valid positive number
+      if (commission?.annualCommission && typeof commission.annualCommission === 'number' && commission.annualCommission > 0) {
+        totalCommissionEarned += commission.annualCommission;
+        console.log(`[QUOTA] Agreement ${pdf._id}: Using annualCommission = ${commission.annualCommission}`);
+      } else if (commission?.contractCommission && typeof commission.contractCommission === 'number' && commission.contractCommission > 0) {
+        // Fallback: convert contract commission to annual
+        const annualFromContract = commission.contractCommission / years;
+        totalCommissionEarned += annualFromContract;
+        console.log(`[QUOTA] Agreement ${pdf._id}: Using contractCommission/years = ${commission.contractCommission}/${years} = ${annualFromContract}`);
+      } else {
+        console.log(`[QUOTA] Agreement ${pdf._id}: No valid commission found`, commission);
       }
 
       // Count business types (for now, treat all as new business)
@@ -720,16 +732,23 @@ export const getQuotaStatus = async (req, res) => {
     // Also count remaining PDFs for totals
     savedPdfs.slice(5).forEach(pdf => {
       const contractMonths = pdf.payload?.summary?.contractMonths || 12;
-      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      // serviceAgreementTotal is already the MONTHLY value (same as My Commissions)
+      const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
       const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
-      const serviceMonthlyValue = serviceContractTotal / contractMonths;
       const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
 
       actualSales += monthlyValue;
 
+      // Use annualCommission to match My Commissions page
       const commission = pdf.payload?.commission;
-      if (commission?.contractCommission) {
-        totalCommissionEarned += commission.contractCommission;
+      const years = contractMonths / 12;
+
+      // Check if annualCommission exists and is a valid positive number
+      if (commission?.annualCommission && typeof commission.annualCommission === 'number' && commission.annualCommission > 0) {
+        totalCommissionEarned += commission.annualCommission;
+      } else if (commission?.contractCommission && typeof commission.contractCommission === 'number' && commission.contractCommission > 0) {
+        // Fallback: convert contract commission to annual
+        totalCommissionEarned += commission.contractCommission / years;
       }
 
       newBusinessCount++;
@@ -858,18 +877,23 @@ export const getQuotaHistory = async (req, res) => {
       }
 
       const contractMonths = pdf.payload?.summary?.contractMonths || 12;
-      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      // serviceAgreementTotal is already the MONTHLY value (same as My Commissions)
+      const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
       const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
-      const serviceMonthlyValue = serviceContractTotal / contractMonths;
       const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
 
       monthlyData[monthKey].actualSales += monthlyValue;
       monthlyData[monthKey].agreementCount += 1;
       monthlyData[monthKey].newBusinessCount += 1;
 
+      // Use annualCommission to match My Commissions page
       const commission = pdf.payload?.commission;
-      if (commission?.contractCommission) {
-        monthlyData[monthKey].totalCommissionEarned += commission.contractCommission;
+      if (commission?.annualCommission) {
+        monthlyData[monthKey].totalCommissionEarned += commission.annualCommission;
+      } else if (commission?.contractCommission) {
+        // Fallback: convert contract commission to annual
+        const years = contractMonths / 12;
+        monthlyData[monthKey].totalCommissionEarned += commission.contractCommission / years;
       }
     });
 
@@ -935,10 +959,9 @@ export const getCurrentQuotaLevel = async (req, res) => {
     // Calculate actual sales
     let actualSales = 0;
     savedPdfs.forEach(pdf => {
-      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
-      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      // serviceAgreementTotal is already the MONTHLY value (same as My Commissions)
+      const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
       const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
-      const serviceMonthlyValue = serviceContractTotal / contractMonths;
       actualSales += serviceMonthlyValue + productMonthlyTotal;
     });
 
@@ -1005,17 +1028,22 @@ export const getLeaderboard = async (req, res) => {
       }
 
       const contractMonths = pdf.payload?.summary?.contractMonths || 12;
-      const serviceContractTotal = pdf.payload?.summary?.serviceAgreementTotal || 0;
+      // serviceAgreementTotal is already the MONTHLY value (same as My Commissions)
+      const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
       const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
-      const serviceMonthlyValue = serviceContractTotal / contractMonths;
       const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
 
       salesByEmployee[creator].actualSales += monthlyValue;
       salesByEmployee[creator].agreementCount += 1;
 
+      // Use annualCommission to match My Commissions page
       const commission = pdf.payload?.commission;
-      if (commission?.contractCommission) {
-        salesByEmployee[creator].totalCommission += commission.contractCommission;
+      if (commission?.annualCommission) {
+        salesByEmployee[creator].totalCommission += commission.annualCommission;
+      } else if (commission?.contractCommission) {
+        // Fallback: convert contract commission to annual
+        const years = contractMonths / 12;
+        salesByEmployee[creator].totalCommission += commission.contractCommission / years;
       }
     });
 
