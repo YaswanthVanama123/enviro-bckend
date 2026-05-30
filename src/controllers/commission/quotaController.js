@@ -7,6 +7,7 @@
 import mongoose from "mongoose";
 import { Employee } from "../../models/user/index.js";
 import { CustomerHeaderDoc } from "../../models/agreement/index.js";
+import { AdminSettings } from "../../models/admin/index.js";
 import {
   Agreement,
   QuotaPeriod,
@@ -41,7 +42,62 @@ function calculateQuotaLevel(percentage) {
   return "below";
 }
 
-// Helper: Get period boundaries
+// Helper: Get period boundaries from payroll settings
+async function getPayrollPeriodBoundaries(targetDate = new Date()) {
+  const settings = await AdminSettings.getSingleton();
+  const { startDate, cycleType, cycleDayOfWeek } = settings.payrollSettings || {};
+
+  const now = targetDate;
+  const baseDate = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
+
+  let start, end, label;
+
+  switch (cycleType) {
+    case 'weekly': {
+      const daysSinceCycleDay = (now.getDay() - (cycleDayOfWeek || 1) + 7) % 7;
+      start = new Date(now);
+      start.setDate(now.getDate() - daysSinceCycleDay);
+      start.setHours(0, 0, 0, 0);
+
+      end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+
+      const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      label = `${startStr} - ${endStr}`;
+      break;
+    }
+    case 'biweekly': {
+      const weeksSinceBase = Math.floor((now - baseDate) / (7 * 24 * 60 * 60 * 1000));
+      const biweeklyPeriods = Math.floor(weeksSinceBase / 2);
+
+      start = new Date(baseDate);
+      start.setDate(baseDate.getDate() + (biweeklyPeriods * 14));
+      start.setHours(0, 0, 0, 0);
+
+      end = new Date(start);
+      end.setDate(start.getDate() + 13);
+      end.setHours(23, 59, 59, 999);
+
+      const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      label = `${startStr} - ${endStr}`;
+      break;
+    }
+    case 'monthly':
+    default: {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      label = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+      break;
+    }
+  }
+
+  return { start, end, label, cycleType: cycleType || 'monthly' };
+}
+
+// Helper: Get period boundaries (legacy - kept for backward compatibility)
 function getPeriodBoundaries(date, periodType) {
   const d = new Date(date);
   let start, end, label;
@@ -643,7 +699,7 @@ export const updateAgreementStatus = async (req, res) => {
 export const getQuotaStatus = async (req, res) => {
   try {
     const { salesPersonId } = req.params;
-    const { periodType = "monthly", date } = req.query;
+    const { date } = req.query;
 
     // Get employee
     const employee = await Employee.findOne(buildEmployeeQuery(salesPersonId));
@@ -656,7 +712,8 @@ export const getQuotaStatus = async (req, res) => {
     }
 
     const targetDate = date ? new Date(date) : new Date();
-    const { start, end, label } = getPeriodBoundaries(targetDate, periodType);
+    // Use payroll settings for period boundaries
+    const { start, end, label, cycleType } = await getPayrollPeriodBoundaries(targetDate);
 
     // Get quota target from employee
     const quotaTarget = employee.quota?.monthlyTarget || 50000;
@@ -778,7 +835,7 @@ export const getQuotaStatus = async (req, res) => {
           role: employee.salesRole || "field_sales",
         },
         period: {
-          type: periodType,
+          type: cycleType,
           label,
           start: start.toISOString(),
           end: end.toISOString(),
@@ -832,6 +889,57 @@ export const getQuotaHistory = async (req, res) => {
 
     const quotaTarget = employee.quota?.monthlyTarget || 50000;
 
+    // Get payroll settings for period calculation
+    const settings = await AdminSettings.getSingleton();
+    const { startDate, cycleType, cycleDayOfWeek } = settings.payrollSettings || {};
+    const baseDate = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    // Generate past periods based on payroll cycle
+    const periods = [];
+    const now = new Date();
+    const limitNum = parseInt(limit);
+
+    for (let i = 0; i < limitNum; i++) {
+      let periodStart, periodEnd, periodLabel;
+
+      switch (cycleType) {
+        case 'weekly': {
+          periodStart = new Date(now);
+          periodStart.setDate(now.getDate() - (i * 7) - ((now.getDay() - (cycleDayOfWeek || 1) + 7) % 7));
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd = new Date(periodStart);
+          periodEnd.setDate(periodStart.getDate() + 6);
+          periodEnd.setHours(23, 59, 59, 999);
+          break;
+        }
+        case 'biweekly': {
+          const weeksSinceBase = Math.floor((now - baseDate) / (7 * 24 * 60 * 60 * 1000));
+          const currentBiweeklyPeriod = Math.floor(weeksSinceBase / 2) - i;
+          periodStart = new Date(baseDate);
+          periodStart.setDate(baseDate.getDate() + (currentBiweeklyPeriod * 14));
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd = new Date(periodStart);
+          periodEnd.setDate(periodStart.getDate() + 13);
+          periodEnd.setHours(23, 59, 59, 999);
+          break;
+        }
+        case 'monthly':
+        default: {
+          periodStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          periodEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+          break;
+        }
+      }
+
+      const startStr = periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      periodLabel = cycleType === 'monthly'
+        ? periodStart.toLocaleString('default', { month: 'long', year: 'numeric' })
+        : `${startStr} - ${endStr}`;
+
+      periods.push({ start: periodStart, end: periodEnd, label: periodLabel });
+    }
+
     // Get all SavedPDFs for this user
     const savedPdfs = await CustomerHeaderDoc.find({
       createdBy: employee.username,
@@ -848,67 +956,58 @@ export const getQuotaHistory = async (req, res) => {
       })
       .lean();
 
-    // Group by month
-    const monthlyData = {};
-    savedPdfs.forEach(pdf => {
-      const date = new Date(pdf.createdAt);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    // Group PDFs by period
+    const quotaPeriods = periods.map((period, index) => {
+      const periodData = {
+        _id: `period-${index}`,
+        salesPersonId: employee.username,
+        salesPersonName: employee.fullName,
+        periodType: cycleType || 'monthly',
+        periodStart: period.start.toISOString(),
+        periodEnd: period.end.toISOString(),
+        periodLabel: period.label,
+        quotaTarget,
+        actualSales: 0,
+        agreementCount: 0,
+        newBusinessCount: 0,
+        renewalCount: 0,
+        quotaLevel: 'below',
+        quotaPercentage: 0,
+        totalCommissionEarned: 0,
+        status: index === 0 ? 'in_progress' : 'closed',
+      };
 
-      if (!monthlyData[monthKey]) {
-        const { start, end, label } = getPeriodBoundaries(date, 'monthly');
-        monthlyData[monthKey] = {
-          _id: monthKey,
-          salesPersonId: employee.username,
-          salesPersonName: employee.fullName,
-          periodType: 'monthly',
-          periodStart: start.toISOString(),
-          periodEnd: end.toISOString(),
-          periodLabel: label,
-          quotaTarget,
-          actualSales: 0,
-          agreementCount: 0,
-          newBusinessCount: 0,
-          renewalCount: 0,
-          quotaLevel: 'below',
-          quotaPercentage: 0,
-          totalCommissionEarned: 0,
-          status: 'closed',
-        };
-      }
+      // Find PDFs in this period
+      savedPdfs.forEach(pdf => {
+        const pdfDate = new Date(pdf.createdAt);
+        if (pdfDate >= period.start && pdfDate <= period.end) {
+          const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
+          const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
+          const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
 
-      const contractMonths = pdf.payload?.summary?.contractMonths || 12;
-      // serviceAgreementTotal is already the MONTHLY value (same as My Commissions)
-      const serviceMonthlyValue = pdf.payload?.summary?.serviceAgreementTotal || 0;
-      const productMonthlyTotal = pdf.payload?.summary?.productMonthlyTotal || 0;
-      const monthlyValue = serviceMonthlyValue + productMonthlyTotal;
+          periodData.actualSales += monthlyValue;
+          periodData.agreementCount += 1;
+          periodData.newBusinessCount += 1;
 
-      monthlyData[monthKey].actualSales += monthlyValue;
-      monthlyData[monthKey].agreementCount += 1;
-      monthlyData[monthKey].newBusinessCount += 1;
+          const commission = pdf.payload?.commission;
+          const contractMonths = pdf.payload?.summary?.contractMonths || 12;
+          if (commission?.annualCommission) {
+            periodData.totalCommissionEarned += commission.annualCommission;
+          } else if (commission?.contractCommission) {
+            const years = contractMonths / 12;
+            periodData.totalCommissionEarned += commission.contractCommission / years;
+          }
+        }
+      });
 
-      // Use annualCommission to match My Commissions page
-      const commission = pdf.payload?.commission;
-      if (commission?.annualCommission) {
-        monthlyData[monthKey].totalCommissionEarned += commission.annualCommission;
-      } else if (commission?.contractCommission) {
-        // Fallback: convert contract commission to annual
-        const years = contractMonths / 12;
-        monthlyData[monthKey].totalCommissionEarned += commission.contractCommission / years;
-      }
-    });
-
-    // Calculate quota percentages and levels
-    Object.values(monthlyData).forEach(period => {
-      period.quotaPercentage = period.quotaTarget > 0
-        ? (period.actualSales / period.quotaTarget) * 100
+      // Calculate quota percentage and level
+      periodData.quotaPercentage = periodData.quotaTarget > 0
+        ? (periodData.actualSales / periodData.quotaTarget) * 100
         : 0;
-      period.quotaLevel = calculateQuotaLevel(period.quotaPercentage);
-    });
+      periodData.quotaLevel = calculateQuotaLevel(periodData.quotaPercentage);
 
-    // Sort by period start and limit
-    const quotaPeriods = Object.values(monthlyData)
-      .sort((a, b) => new Date(b.periodStart) - new Date(a.periodStart))
-      .slice(0, parseInt(limit));
+      return periodData;
+    });
 
     res.json({
       success: true,
@@ -939,8 +1038,8 @@ export const getCurrentQuotaLevel = async (req, res) => {
       });
     }
 
-    const periodType = employee.quota?.periodType || "monthly";
-    const { start, end } = getPeriodBoundaries(new Date(), periodType);
+    // Use payroll settings for period boundaries
+    const { start, end } = await getPayrollPeriodBoundaries(new Date());
     const quotaTarget = employee.quota?.monthlyTarget || 50000;
 
     // Query SavedPDFs for the current period
@@ -992,9 +1091,10 @@ export const getCurrentQuotaLevel = async (req, res) => {
  */
 export const getLeaderboard = async (req, res) => {
   try {
-    const { periodType = "monthly", date } = req.query;
+    const { date } = req.query;
     const targetDate = date ? new Date(date) : new Date();
-    const { start, end, label } = getPeriodBoundaries(targetDate, periodType);
+    // Use payroll settings for period boundaries
+    const { start, end, label } = await getPayrollPeriodBoundaries(targetDate);
 
     // Get all active employees
     const employees = await Employee.find({ isActive: true })
